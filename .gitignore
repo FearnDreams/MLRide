@@ -1,0 +1,179 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Jupyter Notebook
+.ipynb_checkpoints
+*.ipynb
+
+# Virtual Environment
+venv/
+env/
+ENV/
+.env
+.venv
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+.project
+.pydevproject
+
+# MLflow
+mlruns/
+mlartifacts/
+
+# DVC
+/dvc.lock
+/dvc.yaml
+.dvc/cache
+.dvc/tmp
+.dvc/plots
+
+# Docker
+.docker/
+docker-compose.override.yml
+
+# Logs
+*.log
+logs/
+log/
+
+# Local development settings
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Data and Models (根据实际需求可能需要调整)
+data/
+models/
+*.h5
+*.pkl
+*.model
+
+# Node modules (for React frontend)
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Kubernetes
+kubeconfig
+*.kubeconfig
+k8s-config/
+.kube/
+
+# SSL/TLS Certificates
+*.pem
+*.key
+*.crt
+*.cer
+*.der
+*.priv
+
+# Environment variables and secrets
+.env*
+!.env.example
+*.secret
+secrets/
+
+# Build and dist
+build/
+dist/
+*.pyc
+__pycache__/
+
+# Local development
+.local/
+.history/
+.pytest_cache/
+coverage/
+htmlcov/
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# Temporary files
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+.project
+.pydevproject
+
+# MLflow
+mlruns/
+mlartifacts/
+
+# DVC
+/dvc.lock
+/dvc.yaml
+.dvc/cache
+.dvc/tmp
+.dvc/plots
+
+# Docker
+.docker/
+docker-compose.override.yml
+
+# Logs
+*.log
+logs/
+log/
+
+# Local development settings
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Data and Models (根据实际需求可能需要调整)
+data/
+models/
+*.h5
+*.pkl
+*.model
+
+# Node modules (for React frontend)
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
