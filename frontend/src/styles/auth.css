@@ -1,0 +1,281 @@
+/* 全局样式重置 */
+html, body, #root {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  min-height: 100vh;
+  height: 100%;
+  background-color: #000;
+  position: relative;
+  overflow-x: hidden;
+}
+
+body {
+  overflow-x: hidden;
+  background-color: #000;
+  min-height: 100vh;
+  position: relative;
+}
+
+#root {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  background-color: #000;
+  position: relative;
+  overflow: hidden;
+}
+
+/* 定义全局CSS变量 */
+:root {
+  --bg-color: #000000;
+  --card-bg: rgba(18, 18, 18, 0.8);
+  --card-border: rgba(255, 255, 255, 0.08);
+  --input-bg: rgba(255, 255, 255, 0.03);
+  --input-border: rgba(255, 255, 255, 0.1);
+  --input-hover-border: rgba(255, 255, 255, 0.15);
+  --input-focus-border: rgba(16, 185, 129, 0.5);
+  --button-gradient: linear-gradient(to right, #10b981, #0ea5e9);
+  --text-primary: #ffffff;
+  --text-secondary: rgba(255, 255, 255, 0.65);
+  --text-tertiary: rgba(255, 255, 255, 0.45);
+  --link-color: #10b981;
+  --placeholder-color: rgba(255, 255, 255, 0.3);
+}
+
+/* 认证页面容器 */
+.auth-container {
+  flex: 1;
+  min-height: 100vh;
+  width: 100%;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  background-color: var(--bg-color);
+  position: relative;
+  overflow: hidden;
+  padding: 20px 0;
+}
+
+/* 卡片样式 */
+.auth-card {
+  background: var(--card-bg) !important;
+  backdrop-filter: blur(10px) !important;
+  -webkit-backdrop-filter: blur(10px) !important;
+  border: 1px solid var(--card-border) !important;
+  border-radius: 10px !important;
+  padding: 24px !important;
+  width: 450px !important;
+  box-shadow: 0 8px 16px rgba(0, 0, 0, 0.2),
+              0 0 4px rgba(255, 255, 255, 0.05),
+              inset 0 0 0 1px rgba(255, 255, 255, 0.05) !important;
+  position: relative;
+  z-index: 1;
+  transition: transform 0.3s ease, box-shadow 0.3s ease !important;
+  margin: auto;
+}
+
+.auth-card:hover {
+  transform: translateY(-2px) !important;
+  box-shadow: 0 12px 20px rgba(0, 0, 0, 0.25),
+              0 0 6px rgba(255, 255, 255, 0.1),
+              inset 0 0 0 1px rgba(255, 255, 255, 0.08) !important;
+}
+
+/* 标题样式 */
+.auth-title {
+  color: var(--text-primary) !important;
+  font-size: 30px !important;
+  font-weight: 800 !important;
+  text-align: center;
+  margin-bottom: 6px !important;
+  letter-spacing: -0.5px !important;
+}
+
+/* 描述文本样式 */
+.auth-description {
+  color: var(--text-secondary);
+  font-size: 16px;
+  text-align: center;
+  margin-bottom: 20px;
+  letter-spacing: 0.2px;
+}
+
+/* 表单样式 */
+.auth-form {
+  margin-top: 0;
+}
+
+.auth-form .ant-form-item {
+  margin-bottom: 30px;
+}
+
+.auth-form .ant-form-item:last-child {
+  margin-bottom: 0;
+}
+
+.auth-form .ant-form-item-label > label {
+  color: var(--text-secondary) !important;
+  font-size: 15px !important;
+  height: 15px !important;
+  margin-bottom: 4px !important;
+  letter-spacing: 0.3px !important;
+}
+
+/* 输入框样式 */
+.auth-form .ant-input,
+.auth-form .ant-input-affix-wrapper {
+  background: var(--input-bg) !important;
+  border: 1px solid var(--input-border) !important;
+  border-radius: 6px !important;
+  height: 40px !important;
+  color: var(--text-primary) !important;
+  font-size: 14px !important;
+  padding: 4px 11px !important;
+  transition: all 0.3s ease !important;
+}
+
+.auth-form .ant-input-affix-wrapper input.ant-input {
+  background: transparent !important;
+  border: none !important;
+  height: 28px !important;
+  padding: 0 !important;
+}
+
+.auth-form .ant-input:hover,
+.auth-form .ant-input-affix-wrapper:hover {
+  border-color: var(--input-hover-border) !important;
+  background: rgba(255, 255, 255, 0.05) !important;
+}
+
+.auth-form .ant-input:focus,
+.auth-form .ant-input-affix-wrapper-focused {
+  border-color: var(--input-focus-border) !important;
+  background: rgba(255, 255, 255, 0.07) !important;
+  box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.1) !important;
+}
+
+.auth-form .ant-input-password-icon {
+  color: var(--text-secondary) !important;
+  transition: color 0.3s ease !important;
+  font-size: 15px !important;
+}
+
+.auth-form .ant-input-password-icon:hover {
+  color: var(--text-primary) !important;
+}
+
+.auth-form .ant-form-item-explain {
+  font-size: 12px !important;
+  color: var(--text-tertiary) !important;
+  margin-top: 4px !important;
+  text-align: left !important;
+  opacity: 0.8 !important;
+}
+
+/* 按钮样式 */
+.auth-button {
+  background: var(--button-gradient) !important;
+  border: none !important;
+  height: 36px !important;
+  border-radius: 6px !important;
+  font-size: 14px !important;
+  font-weight: 500 !important;
+  letter-spacing: 0.3px !important;
+  width: 100% !important;
+  margin-top: 8px !important;
+  transition: all 0.3s ease !important;
+}
+
+.auth-button:hover {
+  opacity: 0.95;
+  transform: translateY(-1px) !important;
+  box-shadow: 0 4px 12px rgba(16, 185, 129, 0.2) !important;
+}
+
+.auth-button:active {
+  transform: translateY(0) !important;
+}
+
+/* 底部链接样式 */
+.auth-footer {
+  text-align: center;
+  margin-top: 20px;
+  color: var(--text-secondary);
+  font-size: 13px;
+  letter-spacing: 0.2px;
+}
+
+.auth-link {
+  color: var(--link-color) !important;
+  text-decoration: none !important;
+  transition: all 0.3s ease;
+  font-weight: 500 !important;
+}
+
+.auth-link:hover {
+  color: #34d399 !important;
+  text-decoration: none !important;
+}
+
+/* 错误提示样式 */
+.auth-error {
+  background: rgba(255, 77, 79, 0.05) !important;
+  border: 1px solid rgba(255, 77, 79, 0.1) !important;
+  border-radius: 6px !important;
+  margin-bottom: 16px !important;
+  backdrop-filter: blur(10px) !important;
+  font-size: 13px !important;
+}
+
+.auth-error .ant-alert-message {
+  color: #ff4d4f !important;
+  font-weight: 500 !important;
+}
+
+.auth-error .ant-alert-description {
+  color: rgba(255, 77, 79, 0.8) !important;
+}
+
+/* 滚动条样式 */
+.auth-container::-webkit-scrollbar {
+  width: 6px;
+}
+
+.auth-container::-webkit-scrollbar-track {
+  background: #000;
+}
+
+.auth-container::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 3px;
+}
+
+.auth-container::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.15);
+}
+
+/* 输入框placeholder样式 */
+.auth-form .ant-input::placeholder,
+.auth-form .ant-input-password input::placeholder {
+  color: var(--placeholder-color) !important;
+  opacity: 1 !important;
+}
+
+.auth-form .ant-input::-webkit-input-placeholder,
+.auth-form .ant-input-password input::-webkit-input-placeholder {
+  color: var(--placeholder-color) !important;
+  opacity: 1 !important;
+}
+
+.auth-form .ant-input::-moz-placeholder,
+.auth-form .ant-input-password input::-moz-placeholder {
+  color: var(--placeholder-color) !important;
+  opacity: 1 !important;
+}
+
+.auth-form .ant-input:-ms-input-placeholder,
+.auth-form .ant-input-password input:-ms-input-placeholder {
+  color: var(--placeholder-color) !important;
+  opacity: 1 !important;
+} 

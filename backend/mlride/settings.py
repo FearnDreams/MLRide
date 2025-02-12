@@ -25,7 +25,7 @@ SECRET_KEY = "django-insecure-g#*qexdue5f9_o9i*m&w^4112(5ra0!n0w498vh+m*f@_k^y6q
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = ['localhost', '127.0.0.1']
 
 
 # Application definition
@@ -39,13 +39,14 @@ INSTALLED_APPS = [
     "django.contrib.staticfiles",
     'authentication',
     'rest_framework',
+    'rest_framework.authtoken',  # 添加Token认证
     'corsheaders',
 ]
 
 MIDDLEWARE = [
+    "corsheaders.middleware.CorsMiddleware",  # CORS中间件必须放在最前面
     "django.middleware.security.SecurityMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
-    "corsheaders.middleware.CorsMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
@@ -140,10 +141,54 @@ REST_FRAMEWORK = {
         'rest_framework.authentication.BasicAuthentication',
     ],
     'DEFAULT_PERMISSION_CLASSES': [
-        'rest_framework.permissions.IsAuthenticated',
+        'rest_framework.permissions.AllowAny',  # 允许所有用户访问
     ],
 }
 
 # CORS设置
-CORS_ALLOW_ALL_ORIGINS = True
-CORS_ALLOW_CREDENTIALS = True
+CORS_ALLOW_ALL_ORIGINS = True  # 开发环境下允许所有来源
+CORS_ALLOW_CREDENTIALS = True  # 允许携带cookie
+
+CORS_ALLOWED_ORIGINS = [
+    "http://localhost:5173",  # Vite开发服务器
+    "http://127.0.0.1:5173",
+]
+
+CORS_ALLOW_METHODS = [
+    'DELETE',
+    'GET',
+    'OPTIONS',
+    'PATCH',
+    'POST',
+    'PUT',
+]
+
+CORS_ALLOW_HEADERS = [
+    'accept',
+    'accept-encoding',
+    'authorization',
+    'content-type',
+    'dnt',
+    'origin',
+    'user-agent',
+    'x-csrftoken',
+    'x-requested-with',
+]
+
+# CSRF设置
+CSRF_TRUSTED_ORIGINS = [
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+]
+
+# Session设置
+SESSION_COOKIE_HTTPONLY = True
+SESSION_COOKIE_SAMESITE = 'Lax'  # 防止CSRF攻击
+SESSION_COOKIE_SECURE = False  # 开发环境设置为False
+
+# CSRF设置
+CSRF_COOKIE_HTTPONLY = False  # 允许JavaScript访问CSRF token
+CSRF_COOKIE_SECURE = False  # 开发环境设置为False
+CSRF_COOKIE_SAMESITE = 'Lax'
+CSRF_USE_SESSIONS = False  # 使用cookie存储CSRF token
+CSRF_COOKIE_NAME = 'csrftoken'  # CSRF cookie名称
