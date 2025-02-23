@@ -1,11 +1,11 @@
 // 导入必要的依赖
 import React from 'react';
-import { Form, Input, Button, message, Alert } from 'antd';
+import { Form, Input, Button, message, Alert, Tooltip } from 'antd';
 import { useDispatch } from 'react-redux';
 import { register } from '../../store/authSlice';
 import { AppDispatch } from '../../store';
 import { RegisterRequest } from '../../types/auth';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 
 // 注册表单组件
 const RegisterForm: React.FC = () => {
@@ -13,6 +13,7 @@ const RegisterForm: React.FC = () => {
     const dispatch = useDispatch<AppDispatch>();
     // 获取navigate方法，用于页面跳转
     const navigate = useNavigate();
+    const location = useLocation();
     // 定义loading状态，控制注册按钮的loading效果
     const [isLoading, setIsLoading] = React.useState(false);
     // 使用Form.useForm hook创建表单实例，用于表单操作
@@ -54,8 +55,11 @@ const RegisterForm: React.FC = () => {
                 // 弹出注册成功提示信息
                 message.success({
                     content: '注册成功！正在跳转到登录页面...',
-                    duration: 3,
-                    key: 'register_success'
+                    duration: 2,
+                    key: 'register_success',
+                    style: {
+                        marginTop: '20vh',
+                    },
                 });
                 // 重置表单
                 form.resetFields();
@@ -151,10 +155,11 @@ const RegisterForm: React.FC = () => {
                 label="用户名"
                 name="username"
                 rules={[
-                    { required: true, message: '请输入用户名！' },
-                    { min: 3, message: '用户名至少3个字符！' }
+                    { required: true, message: '请输入用户名' },
+                    { min: 3, message: '用户名至少3个字符' },
+                    { max: 20, message: '用户名最多20个字符' }
                 ]}
-                help="用户名长度至少为3个字符"
+                tooltip="用户名长度3-20个字符"
             >
                 <Input placeholder="请输入用户名" />
             </Form.Item>
@@ -164,9 +169,10 @@ const RegisterForm: React.FC = () => {
                 label="邮箱"
                 name="email"
                 rules={[
-                    { required: true, message: '请输入邮箱！' },
-                    { type: 'email', message: '请输入有效的邮箱地址！' }
+                    { required: true, message: '请输入邮箱' },
+                    { type: 'email', message: '请输入有效的邮箱地址' }
                 ]}
+                tooltip="请输入有效的邮箱地址"
             >
                 <Input placeholder="请输入邮箱地址" />
             </Form.Item>
@@ -176,10 +182,10 @@ const RegisterForm: React.FC = () => {
                 label="密码"
                 name="password"
                 rules={[
-                    { required: true, message: '请输入密码！' },
+                    { required: true, message: '请输入密码' },
                     { validator: validatePassword }
                 ]}
-                help="密码长度至少8个字符，不能只包含数字"
+                tooltip="密码长度至少8个字符，不能只包含数字"
             >
                 <Input.Password placeholder="请输入密码" />
             </Form.Item>
@@ -190,16 +196,17 @@ const RegisterForm: React.FC = () => {
                 name="password2"
                 dependencies={['password']}
                 rules={[
-                    { required: true, message: '请确认密码！' },
+                    { required: true, message: '请确认密码' },
                     ({ getFieldValue }) => ({
                         validator(_, value) {
                             if (!value || getFieldValue('password') === value) {
                                 return Promise.resolve();
                             }
-                            return Promise.reject(new Error('两次输入的密码不一致！'));
+                            return Promise.reject(new Error('两次输入的密码不一致'));
                         },
                     }),
                 ]}
+                tooltip="请再次输入密码进行确认"
             >
                 <Input.Password placeholder="请再次输入密码" />
             </Form.Item>

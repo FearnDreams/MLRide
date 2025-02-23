@@ -177,3 +177,16 @@ node_modules/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+
+# windsurf rules
+.windsurfrules
+
+# cursor rules
+.cursorrules
+
+# 前端参考代码
+Ref/
+
+# 允许 frontend/src/lib
+!frontend/src/lib/
+!frontend/src/lib/*

@@ -41,6 +41,7 @@ INSTALLED_APPS = [
     'rest_framework',
     'rest_framework.authtoken',  # 添加Token认证
     'corsheaders',
+    'container',  # 添加container应用
 ]
 
 MIDDLEWARE = [
@@ -134,27 +135,27 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 # 自定义用户模型
 AUTH_USER_MODEL = 'authentication.User'
 
-# REST Framework 设置
+# REST Framework settings
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': [
+        'rest_framework.authentication.TokenAuthentication',
         'rest_framework.authentication.SessionAuthentication',
-        'rest_framework.authentication.BasicAuthentication',
     ],
     'DEFAULT_PERMISSION_CLASSES': [
-        'rest_framework.permissions.AllowAny',  # 允许所有用户访问
+        'rest_framework.permissions.IsAuthenticated',  # 默认需要认证
     ],
 }
 
 # CORS设置
-CORS_ALLOW_ALL_ORIGINS = True  # 开发环境下允许所有来源
-CORS_ALLOW_CREDENTIALS = True  # 允许携带cookie
-
+CORS_ALLOW_ALL_ORIGINS = True  # 开发环境临时允许所有源
+CORS_ALLOW_CREDENTIALS = True
 CORS_ALLOWED_ORIGINS = [
-    "http://localhost:5173",  # Vite开发服务器
+    "http://localhost:5173",
     "http://127.0.0.1:5173",
+    "http://localhost:5175",  # 添加新端口
+    "http://127.0.0.1:5175",
 ]
-
-CORS_ALLOW_METHODS = [
+CORS_ALLOWED_METHODS = [
     'DELETE',
     'GET',
     'OPTIONS',
@@ -162,8 +163,7 @@ CORS_ALLOW_METHODS = [
     'POST',
     'PUT',
 ]
-
-CORS_ALLOW_HEADERS = [
+CORS_ALLOWED_HEADERS = [
     'accept',
     'accept-encoding',
     'authorization',
@@ -179,16 +179,17 @@ CORS_ALLOW_HEADERS = [
 CSRF_TRUSTED_ORIGINS = [
     "http://localhost:5173",
     "http://127.0.0.1:5173",
+    "http://localhost:5175",  # 添加新端口
+    "http://127.0.0.1:5175",
 ]
+CSRF_COOKIE_DOMAIN = None
+CSRF_COOKIE_HTTPONLY = False
+CSRF_COOKIE_SECURE = False
+CSRF_COOKIE_SAMESITE = 'Lax'
+CSRF_USE_SESSIONS = False
+CSRF_COOKIE_NAME = 'csrftoken'
 
 # Session设置
 SESSION_COOKIE_HTTPONLY = True
-SESSION_COOKIE_SAMESITE = 'Lax'  # 防止CSRF攻击
+SESSION_COOKIE_SAMESITE = 'Lax'
 SESSION_COOKIE_SECURE = False  # 开发环境设置为False
-
-# CSRF设置
-CSRF_COOKIE_HTTPONLY = False  # 允许JavaScript访问CSRF token
-CSRF_COOKIE_SECURE = False  # 开发环境设置为False
-CSRF_COOKIE_SAMESITE = 'Lax'
-CSRF_USE_SESSIONS = False  # 使用cookie存储CSRF token
-CSRF_COOKIE_NAME = 'csrftoken'  # CSRF cookie名称
