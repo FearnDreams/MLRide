@@ -150,7 +150,9 @@
    - 在修改模型后及时创建和应用迁移
    - 在生产环境中使用安全的数据库配置
 
-## 数据库操作流程
+## 操作流程
+
+### 用户认证模块
 
 1. **用户注册流程**
    ```
@@ -221,14 +223,122 @@
       - 返回成功/失败信息
       - 包含用户数据或错误消息
 
+### 容器化开发模块
+
+#### 1 文件角色和职责
+##### 1.1 model.py
+
+```python
+class DockerImage:  # 镜像信息模型
+    name = models.CharField(...)
+    tag = models.CharField(...)
+    
+class ContainerInstance:  # 容器实例模型
+    user = models.ForeignKey(...)
+    image = models.ForeignKey(...)
+    
+class ResourceQuota:  # 资源配额模型
+    user = models.OneToOneField(...)
+    max_containers = models.IntegerField(...)
+```
+
+**职责**:
+- 定义数据库表结构
+- 提供ORM接口
+- 实现数据关系映射
+
+##### 1.2 serializers.py - 数据序列化层
+
+```python
+class DockerImageSerializer:
+    def validate(self, data):  # 数据验证
+        if data.get('min_memory') < 512:
+            raise ValidationError(...)
+            
+class ContainerInstanceSerializer:
+    def create(self, validated_data):  # 创建实例
+        return ContainerInstance.objects.create(**validated_data)
+```
+
+职责：
+- 数据验证和清理
+- JSON转换为模型实例
+- 模型实例转换为JSON
+- 自定义字段验证逻辑
+
+##### 1.3 views.py - 视图控制层
+
+```python
+class ContainerInstanceViewSet:
+    def create(self, request):  # 处理创建请求
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        self.perform_create(serializer)
+```
+
+职责：
+- 处理HTTP请求
+- 调用序列化器
+- 调用Docker操作
+- 返回HTTP响应
+
+##### 1.4 docker_ops.py - Docker操作层
+
+```python
+class DockerClient:
+    def create_container(self, image_name, ...):  # 创建容器
+        try:
+            container = self.client.containers.create(...)
+            return container
+        except DockerException as e:
+            logger.error(...)
+            raise
+```
+
+**职责**
+- 封装Docker SDK操作
+- 处理Docker异常
+- 提供统一接口
+- 记录操作日志
+
+#### 2 数据流转过程
+
+以创建容器为例：
+
+- 客户端发送POST请求到`/api/container/containers/`
+- `urls.py`将请求路由到`ContainerInstanceViewSet`
+- `ContainerInstanceViewSet`使用`ContainerInstanceSerializer`验证请求数据
+- 序列化器调用`ResourceQuota`检查资源限制
+- 通过`DockerClient`创建实际的Docker容器
+- 将容器信息保存到`ContainerInstance`模型
+
+##### 2.1 请求数据流
+```
+HTTP请求 
+-> urls.py路由 
+-> views.py接收 
+-> serializers.py验证 
+-> models.py存储 
+-> docker_ops.py执行
+```
+
+##### 2.2 响应数据流
+```
+docker_ops.py结果 
+-> models.py更新 
+-> serializers.py序列化 
+-> views.py封装 
+-> HTTP响应
+```
+
 # 前端开发环境搭建
 
 ## 1. 安装Node.js
 前端开发需要Node.js环境，它包含了npm（Node Package Manager）包管理器。我们需要：
 
-1. 访问 [Node.js官网](https://nodejs.org/)
-2. 下载并安装LTS（长期支持）版本（参考教程：https://blog.csdn.net/WHF__/article/details/129362462）
-3. 安装完成后，打开终端验证安装：
+2. 访问 [Node.js官网](https://nodejs.org/)
+3. 下载并安装LTS（长期支持）版本（参考教程：https://blog.csdn.net/WHF__/article/details/129362462）
+4. 安装完成后，打开终端验证安装：
    ```bash
    node --version
    npm --version
@@ -237,12 +347,12 @@
 ## 2. 创建React项目
 我们使用Create React App来创建项目，这是React官方推荐的方式。步骤如下：
 
-1. 确保在项目的frontend目录下
-2. 运行以下命令创建React项目：
+5. 确保在项目的frontend目录下
+6. 运行以下命令创建React项目：
    ```bash
    npx create-react-app .
    ```
-3. 等待项目创建完成
+7. 等待项目创建完成
 
 ## 3. 安装必要的依赖
 项目创建完成后，我们需要安装以下依赖：
@@ -403,13 +513,13 @@ export const authService = {
 ## 二、前后端交互实例解析（以注册功能为例）
 
 ### 2.1 完整交互流程
-1. 用户在前端填写注册表单
-2. 点击提交按钮
-3. 前端验证表单数据
-4. 发送 HTTP 请求到后端
-5. 后端验证和处理数据
-6. 返回处理结果
-7. 前端展示结果给用户
+8. 用户在前端填写注册表单
+9. 点击提交按钮
+10. 前端验证表单数据
+11. 发送 HTTP 请求到后端
+12. 后端验证和处理数据
+13. 返回处理结果
+14. 前端展示结果给用户
 
 ### 2.2 代码示例解析
 
@@ -457,3 +567,187 @@ export const register = createAsyncThunk('auth/register', async (values: Registe
 - 捕获并处理网络错误
 - 处理后端返回的错误信息
 - 向用户展示错误提示
+
+# MLRide学习笔记
+
+## 容器管理模块开发笔记
+
+### 1. Docker操作封装
+
+#### 为什么要封装Docker操作?
+- 提供统一的接口,隐藏底层实现细节
+- 增加错误处理和日志记录
+- 便于后续维护和扩展
+- 提高代码复用性
+
+#### Docker-py库的使用
+15. 初始化客户端
+```python
+client = docker.from_env()
+```
+
+16. 镜像操作
+```python
+# 列出镜像
+images = client.images.list()
+
+# 拉取镜像
+image = client.images.pull(repository='ubuntu', tag='latest')
+
+# 删除镜像
+client.images.remove(image_id)
+```
+
+17. 容器操作
+```python
+# 创建容器
+container = client.containers.create(
+    image='ubuntu:latest',
+    command='bash',
+    name='test-container'
+)
+
+# 启动容器
+container.start()
+
+# 停止容器
+container.stop()
+
+# 删除容器
+container.remove()
+```
+
+18. 资源统计
+```python
+# 获取容器统计信息
+stats = container.stats(stream=False)
+```
+
+### 2. Django REST Framework最佳实践
+
+#### ViewSet的使用
+19. 继承ModelViewSet获取标准CRUD操作
+20. 使用action装饰器添加自定义操作
+21. 重写perform_create等方法自定义创建逻辑
+
+#### 权限控制
+22. 使用permission_classes设置视图权限
+23. 重写get_queryset过滤数据访问范围
+24. 在perform_create中关联当前用户
+
+#### 序列化器使用
+25. 继承ModelSerializer自动生成字段
+26. 添加自定义字段和验证
+27. 重写create和update方法自定义保存逻辑
+
+### 3. 资源配额管理
+
+#### 为什么需要资源配额?
+28. 控制用户资源使用
+29. 防止资源滥用
+30. 实现多租户隔离
+31. 成本控制
+
+#### 配额检查实现
+32. 创建容器前检查用户配额
+33. 限制CPU和内存使用
+34. 限制容器数量
+35. 记录资源使用情况
+
+### 4. 错误处理最佳实践
+
+#### 异常处理原则
+36. 使用具体的异常类型
+37. 提供有意义的错误信息
+38. 记录详细的错误日志
+39. 返回合适的HTTP状态码
+
+#### 日志记录
+40. 使用Python的logging模块
+41. 记录关键操作和错误
+42. 包含上下文信息
+43. 区分日志级别
+
+### 5. API设计原则
+
+#### RESTful API设计
+44. 使用HTTP方法表示操作
+45. URL使用资源名词
+46. 使用查询参数进行过滤
+47. 返回合适的状态码
+
+#### 响应格式
+48. 统一的响应结构
+49. 清晰的错误信息
+50. 分页和过滤支持
+51. 版本控制
+
+### 6. 安全性考虑
+
+#### 认证和授权
+52. 所有API需要认证
+53. 基于角色的权限控制
+54. 资源访问控制
+55. 操作审计日志
+
+#### 容器安全
+56. 资源限制
+57. 网络隔离
+58. 文件系统隔离
+59. 特权控制
+
+### 7. 性能优化
+
+#### 数据库优化
+60. 使用适当的索引
+61. 优化查询语句
+62. 使用缓存
+63. 批量操作
+
+#### Docker操作优化
+64. 异步操作
+65. 连接池
+66. 资源释放
+67. 错误重试
+
+### 8. 测试策略
+
+#### 单元测试
+68. 测试ViewSet
+69. 测试序列化器
+70. 测试Docker操作
+71. 测试权限控制
+
+#### 集成测试
+72. API端点测试
+73. Docker操作测试
+74. 权限流程测试
+75. 资源配额测试
+
+### 9. 部署注意事项
+
+#### Docker守护进程
+76. 配置访问权限
+77. 设置资源限制
+78. 配置日志
+79. 监控状态
+
+#### 应用部署
+80. 使用gunicorn
+81. 配置worker数量
+82. 设置超时时间
+83. 错误处理
+
+### 10. 监控和维护
+
+#### 系统监控
+84. 容器状态
+85. 资源使用
+86. API性能
+87. 错误率
+
+#### 日常维护
+88. 日志轮转
+89. 数据备份
+90. 清理无用镜像
+91. 更新安全补丁

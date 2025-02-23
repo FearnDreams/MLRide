@@ -1,7 +1,6 @@
 // 导入必要的依赖
 import React from 'react';
-import { Card, Typography } from 'antd';
-import { Link } from 'react-router-dom';
+import { Typography } from 'antd';
 import RegisterForm from '../../components/auth/RegisterForm';
 import '../../styles/auth.css';
 
@@ -9,22 +8,29 @@ const { Title } = Typography;
 
 // 注册页面组件
 const RegisterPage: React.FC = () => {
-    return (
-        <div className="auth-container">
-            <Card className="auth-card">
-                <Title level={2} className="auth-title">
-                    注册
-                </Title>
-                <p className="auth-description">
-                    创建您的账户，开始使用服务
-                </p>
-                <RegisterForm />
-                <div className="auth-footer">
-                    已有账号？ <Link to="/login" className="auth-link">立即登录</Link>
-                </div>
-            </Card>
+  return (
+    <div className="min-h-screen w-full bg-gradient-to-br from-gray-900 to-gray-800 overflow-y-auto">
+      <div className="container mx-auto px-4 py-16 flex flex-col items-center justify-center min-h-screen">
+        <div className="w-full max-w-md space-y-8 bg-gray-800/50 p-8 rounded-lg shadow-xl">
+          <div className="text-center">
+            <h2 className="text-3xl font-bold text-white">注册 MLRide</h2>
+            <p className="mt-2 text-gray-400">创建您的账户，开始使用 MLRide</p>
+          </div>
+          
+          <RegisterForm />
+          
+          <div className="mt-4 text-center">
+            <p className="text-gray-400">
+              已有账户？{' '}
+              <a href="/login" className="text-blue-500 hover:text-blue-400">
+                立即登录
+              </a>
+            </p>
+          </div>
         </div>
-    );
+      </div>
+    </div>
+  );
 };
 
-export default RegisterPage; 
+export default RegisterPage;

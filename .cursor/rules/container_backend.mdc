@@ -1,0 +1,15 @@
+---
+description: 容器化开发模块后端开发相关规则
+globs: 
+---
+
+# 规则
+
+## 1 项目信息
+
+回答我的问题之前，请你先仔细阅读 [.cursorrules](mdc:.cursorrules)
+你需要通过 [用户认证前端.md](mdc:.cursor/rules/用户认证前端.md) 了解此模块的基础信息
+你需要阅读 [README.md](mdc:README.md) [需求分析.md](mdc:Docs/需求分析.md) 来了解项目的基础信息
+
+
+

@@ -5,6 +5,7 @@ import { useDispatch } from 'react-redux';
 import { login } from '../../store/authSlice';
 import { AppDispatch } from '../../store';
 import { LoginRequest } from '../../types/auth';
+import { useNavigate } from 'react-router-dom';
 
 // 登录表单组件
 const LoginForm: React.FC = () => {
@@ -14,6 +15,7 @@ const LoginForm: React.FC = () => {
     const [isLoading, setIsLoading] = React.useState(false);
     // formError 状态用于存储表单错误信息，初始值为 null，表示没有错误
     const [formError, setFormError] = React.useState<string | null>(null);
+    const navigate = useNavigate();
 
     // 格式化错误信息函数
     const formatErrorMessage = (error: any): string => {
@@ -47,12 +49,19 @@ const LoginForm: React.FC = () => {
             if (result.status === 'success') {
                 // 弹出登录成功的消息提示
                 message.success({
-                    content: '登录成功！',
-                    duration: 3,
-                    key: 'login_success'
+                    content: '登录成功！正在跳转到主页...',
+                    duration: 2,
+                    key: 'login_success',
+                    style: {
+                        marginTop: '20vh',
+                    },
                 });
                 // 清空错误信息
                 setFormError(null);
+                // 延迟1秒后跳转到主页
+                setTimeout(() => {
+                    navigate('/home');
+                }, 1000);
             } else {
                 // 如果登录状态不是 'success'，抛出错误
                 throw new Error(result.message || '登录失败');
@@ -113,28 +122,29 @@ const LoginForm: React.FC = () => {
                 </Form.Item>
             )}
 
-            {/* 用户名 Form.Item */}
+            {/* 用户名输入框 */}
             <Form.Item
                 label="用户名"
                 name="username"
                 rules={[
-                    { required: true, message: '请输入用户名！' },
-                    { min: 3, message: '用户名至少3个字符！' }
+                    { required: true, message: '请输入用户名' },
+                    { min: 3, message: '用户名至少3个字符' },
+                    { max: 20, message: '用户名最多20个字符' }
                 ]}
-                help="用户名长度至少为3个字符"
+                tooltip="用户名长度3-20个字符"
             >
                 <Input placeholder="请输入用户名" />
             </Form.Item>
 
-            {/* 密码 Form.Item */}
+            {/* 密码输入框 */}
             <Form.Item
                 label="密码"
                 name="password"
                 rules={[
-                    { required: true, message: '请输入密码！' },
-                    { min: 8, message: '密码至少8个字符！' }
+                    { required: true, message: '请输入密码' },
+                    { min: 6, message: '密码至少6个字符' }
                 ]}
-                help="密码长度至少8个字符"
+                tooltip="密码长度至少6个字符"
             >
                 <Input.Password placeholder="请输入密码" />
             </Form.Item>

@@ -1,5 +1,4 @@
 import axios, { AxiosResponse } from 'axios';
-// import { ApiResponse } from '../types/auth';
 
 // 创建axios实例
 const api = axios.create({
@@ -29,19 +28,35 @@ const getCSRFToken = (): string | null => {
     return cookieValue;
 };
 
+// 初始化CSRF Token
+const initCSRFToken = async () => {
+    try {
+        await api.get('auth/csrf-token/');
+    } catch (error) {
+        console.error('获取CSRF Token失败:', error);
+    }
+};
+
 // 请求拦截器
 api.interceptors.request.use(
-    (config) => {
+    async (config) => {
+        // 如果是非GET请求且没有CSRF token，先获取token
+        if (config.method !== 'get' && !getCSRFToken()) {
+            await initCSRFToken();
+        }
+
         // 从localStorage获取token
         const token = localStorage.getItem('token');
         if (token) {
-            config.headers.Authorization = `Bearer ${token}`;
+            config.headers.Authorization = `Token ${token}`;
         }
         
-        // 添加CSRF Token
-        const csrfToken = getCSRFToken();
-        if (csrfToken) {
-            config.headers['X-CSRFToken'] = csrfToken;
+        // 添加CSRF Token（对于非GET请求）
+        if (config.method !== 'get') {
+            const csrfToken = getCSRFToken();
+            if (csrfToken) {
+                config.headers['X-CSRFToken'] = csrfToken;
+            }
         }
         
         // 确保URL格式正确
@@ -49,40 +64,42 @@ api.interceptors.request.use(
             config.url += '/';
         }
         
+        // 添加时间戳防止缓存（对于GET请求）
+        if (config.method === 'get' && config.url) {
+            config.url += `${config.url.includes('?') ? '&' : '?'}_t=${new Date().getTime()}`;
+        }
+        
         console.log('API请求配置:', {
             url: config.url,
             method: config.method,
             headers: config.headers,
-            data: config.data,
-            baseURL: config.baseURL,
-            withCredentials: config.withCredentials
+            data: config.data
         });
+        
         return config;
     },
     (error) => {
-        console.error('API请求错误:', {
-            message: error.message,
-            config: error.config
-        });
+        console.error('API请求错误:', error);
         return Promise.reject(error);
     }
 );
 
 // 响应拦截器
 api.interceptors.response.use(
-    (response: AxiosResponse<any>) => {
+    (response: AxiosResponse) => {
         console.log('API响应成功:', {
             status: response.status,
-            statusText: response.statusText,
             data: response.data
         });
 
         // 修改响应数据结构以匹配ApiResponse接口
-        response.data = {
-            status: response.data.status || 'success',
-            message: response.data.message || '操作成功',
-            data: response.data.data
-        };
+        if (response.data) {
+            response.data = {
+                status: response.data.status || 'success',
+                message: response.data.message || '操作成功',
+                data: response.data.data || response.data
+            };
+        }
         
         return response;
     },
@@ -91,29 +108,39 @@ api.interceptors.response.use(
             message: error.message,
             response: error.response ? {
                 status: error.response.status,
-                statusText: error.response.statusText,
                 data: error.response.data
-            } : 'No response',
-            request: error.request ? 'Request was made but no response received' : 'Request setup failed'
+            } : 'No response'
         });
+
+        // 处理401未授权错误
+        if (error.response?.status === 401) {
+            localStorage.removeItem('token');
+        }
         
+        // 处理错误响应
         if (error.response?.data) {
+            const errorData = error.response.data;
             error.response.data = {
                 status: 'error',
-                message: error.response.data.message || '请求失败',
-                data: error.response.data.data
+                message: errorData.message || errorData.detail || '请求失败',
+                data: errorData.data
             };
             return Promise.reject(error);
         }
         
+        // 处理网络错误
         error.response = {
             data: {
                 status: 'error',
-                message: error.message || '请求失败，请重试'
+                message: '网络错误，请检查网络连接',
+                data: null
             }
         };
         return Promise.reject(error);
     }
 );
 
-export default api; 
+// 初始化时获取CSRF Token
+initCSRFToken();
+
+export default api;
