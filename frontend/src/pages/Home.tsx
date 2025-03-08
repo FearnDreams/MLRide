@@ -28,16 +28,16 @@ const Home: React.FC<HomeProps> = ({ children }) => {
   const location = useLocation();
   const navigate = useNavigate();
 
-  // 如果在根路径，重定向到projects
+  // 如果在仪表板根路径，重定向到项目页面
   useEffect(() => {
-    if (location.pathname === '/') {
-      navigate('/projects');
+    if (location.pathname === '/dashboard') {
+      navigate('/dashboard/projects');
     }
   }, [location.pathname, navigate]);
 
   // 根据当前路径更新选中的标签
   useEffect(() => {
-    const currentPath = location.pathname.split('/')[1];
+    const currentPath = location.pathname.split('/')[2]; // 修改为获取 dashboard 后的路径部分
     const currentItem = sidebarItems.find(item => item.path.includes(currentPath));
     if (currentItem) {
       setSelectedTab(currentItem.label);
@@ -45,16 +45,16 @@ const Home: React.FC<HomeProps> = ({ children }) => {
   }, [location.pathname]);
 
   const sidebarItems = [
-    { icon: Clock, label: "最近", path: "/recent" },
-    { icon: FolderOpen, label: "我的项目", path: "/projects" },
-    { icon: User, label: "我的空间", path: "/my-space" },
-    { icon: Image, label: "镜像", path: "/images" },
-    { icon: Monitor, label: "计算资源", path: "/compute" },
-    { icon: Database, label: "案例库", path: "/cases" },
-    { icon: Network, label: "离线任务", path: "/tasks" },
-    { icon: Box, label: "模型库", path: "/models" },
-    { icon: Server, label: "模型服务", path: "/services" },
-    { icon: Users, label: "社区资源", path: "/community" }
+    { icon: Clock, label: "最近", path: "/dashboard/recent" },
+    { icon: FolderOpen, label: "我的项目", path: "/dashboard/projects" },
+    { icon: User, label: "我的空间", path: "/dashboard/my-space" },
+    { icon: Image, label: "镜像", path: "/dashboard/images" },
+    { icon: Monitor, label: "计算资源", path: "/dashboard/compute" },
+    { icon: Database, label: "案例库", path: "/dashboard/cases" },
+    { icon: Network, label: "离线任务", path: "/dashboard/tasks" },
+    { icon: Box, label: "模型库", path: "/dashboard/models" },
+    { icon: Server, label: "模型服务", path: "/dashboard/services" },
+    { icon: Users, label: "社区资源", path: "/dashboard/community" }
   ];
 
   return (

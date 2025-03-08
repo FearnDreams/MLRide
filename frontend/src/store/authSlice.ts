@@ -90,6 +90,10 @@ const authSlice = createSlice({
                     state.isAuthenticated = true;
                     state.user = action.payload.data.user || null;
                     state.token = action.payload.data.token || null;
+                    // 将 token 保存到 localStorage
+                    if (action.payload.data.token) {
+                        localStorage.setItem('token', action.payload.data.token);
+                    }
                     state.error = null;
                 } else {
                     state.error = action.payload.message;
@@ -123,6 +127,8 @@ const authSlice = createSlice({
                 state.token = null;
                 state.isAuthenticated = false;
                 state.error = null;
+                // 清除 localStorage 中的 token
+                localStorage.removeItem('token');
             });
     },
 });

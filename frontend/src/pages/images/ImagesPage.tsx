@@ -1,8 +1,10 @@
 import React, { useState } from 'react';
 import { Search, Info, ChevronDown } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { useNavigate } from 'react-router-dom';
 
 const ImagesPage: React.FC = () => {
+  const navigate = useNavigate();
   const [selectedTab, setSelectedTab] = useState("我的镜像");
   
   const languageVersions = [
@@ -57,7 +59,10 @@ const ImagesPage: React.FC = () => {
               className="w-full pl-10 pr-4 py-2 border rounded-md"
             />
           </div>
-          <Button className="bg-blue-600 text-white px-4 py-2 rounded-md flex items-center gap-2">
+          <Button 
+            className="bg-blue-600 text-white px-4 py-2 rounded-md flex items-center gap-2"
+            onClick={() => navigate('/dashboard/images/create')}
+          >
             <span>+</span> 新建镜像
           </Button>
         </div>

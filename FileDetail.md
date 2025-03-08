@@ -31,7 +31,22 @@ MLRide/
 ├── frontend/              # 前端项目目录
 │   ├── src/               # 源代码目录
 │   │   ├── components/    # 可重用组件
+│   │   │   ├── ui/
+│   │   │   │   ├── button.tsx       # 按钮组件
+│   │   │   │   ├── input.tsx        # 输入框组件
+│   │   │   │   ├── label.tsx        # 标签组件
+│   │   │   │   ├── select.tsx       # 下拉选择组件
+│   │   │   │   ├── card.tsx         # 卡片组件
+│   │   │   │   └── textarea.tsx     # 文本域组件
+│   │   │   └── auth/                # 认证相关组件
 │   │   ├── pages/         # 页面组件
+│   │   │   ├── images/
+│   │   │   │   ├── ImagesPage.tsx   # 镜像列表页面
+│   │   │   │   └── CreateImagePage.tsx # 新建镜像页面
+│   │   │   ├── auth/                # 认证相关页面
+│   │   │   └── projects/            # 项目相关页面
+│   │   ├── lib/
+│   │   │   └── utils.ts             # 工具函数
 │   │   ├── services/      # API服务
 │   │   ├── store/         # 状态管理
 │   │   ├── types/         # 类型定义

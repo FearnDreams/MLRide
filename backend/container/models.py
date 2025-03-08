@@ -6,6 +6,10 @@ This module contains the database models for the container management functional
 from django.db import models
 from django.conf import settings
 from django.core.validators import MinValueValidator
+from django.contrib.auth import get_user_model
+from django.utils import timezone
+
+User = get_user_model()
 
 class DockerImage(models.Model):
     """Docker镜像信息表
@@ -14,44 +18,39 @@ class DockerImage(models.Model):
     
     Attributes:
         name (str): 镜像名称
-        tag (str): 镜像标签/版本
         description (str): 镜像描述
-        created_at (datetime): 创建时间
-        updated_at (datetime): 更新时间
-        min_cpu (int): 最小CPU需求(单位:核)
-        min_memory (int): 最小内存需求(单位:MB)
-        min_gpu (int): 最小GPU需求(单位:个)
-        is_active (bool): 是否可用
+        python_version (str): Python版本
+        created (datetime): 创建时间
+        status (str): 镜像状态
+        creator (ForeignKey): 创建者
     """
     
-    name = models.CharField(max_length=100, help_text="镜像名称")
-    tag = models.CharField(max_length=50, help_text="镜像标签/版本")
-    description = models.TextField(help_text="镜像描述")
-    created_at = models.DateTimeField(auto_now_add=True, help_text="创建时间")
-    updated_at = models.DateTimeField(auto_now=True, help_text="更新时间")
-    min_cpu = models.IntegerField(
-        default=1,
-        validators=[MinValueValidator(1)],
-        help_text="最小CPU需求(核)"
+    STATUS_CHOICES = [
+        ('pending', '等待中'),
+        ('building', '构建中'),
+        ('ready', '就绪'),
+        ('failed', '失败')
+    ]
+
+    name = models.CharField('镜像名称', max_length=50)
+    description = models.TextField('描述', blank=True)
+    python_version = models.CharField('Python版本', max_length=10)
+    created = models.DateTimeField('创建时间', default=timezone.now)
+    status = models.CharField('状态', max_length=20, choices=STATUS_CHOICES, default='pending')
+    creator = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='docker_images',
+        verbose_name='创建者'
     )
-    min_memory = models.IntegerField(
-        default=1024,
-        validators=[MinValueValidator(512)],
-        help_text="最小内存需求(MB)"
-    )
-    min_gpu = models.IntegerField(
-        default=0,
-        validators=[MinValueValidator(0)],
-        help_text="最小GPU需求(个)"
-    )
-    is_active = models.BooleanField(default=True, help_text="是否可用")
 
     class Meta:
-        unique_together = ('name', 'tag')
-        ordering = ['-created_at']
+        verbose_name = 'Docker镜像'
+        verbose_name_plural = verbose_name
+        ordering = ['-created']
 
     def __str__(self):
-        return f"{self.name}:{self.tag}"
+        return f"{self.name} (Python {self.python_version})"
 
 class ContainerInstance(models.Model):
     """容器实例表

@@ -16,42 +16,66 @@ class DockerImageSerializer(serializers.ModelSerializer):
     Fields:
         id: 镜像ID
         name: 镜像名称
-        tag: 镜像标签/版本
         description: 镜像描述
-        min_cpu: 最小CPU需求
-        min_memory: 最小内存需求
-        min_gpu: 最小GPU需求
-        is_active: 是否可用
-        created_at: 创建时间
-        updated_at: 更新时间
+        pythonVersion: Python版本
+        created: 创建时间
+        status: 镜像状态
+        creator_username: 创建者用户名
     """
+    
+    pythonVersion = serializers.CharField(source='python_version')
+    creator_username = serializers.CharField(source='creator.username', read_only=True)
     
     class Meta:
         model = DockerImage
-        fields = '__all__'
-        read_only_fields = ('created_at', 'updated_at')
+        fields = ['id', 'name', 'description', 'pythonVersion', 'created', 'status', 'creator_username']
+        read_only_fields = ['id', 'created', 'status', 'creator_username']
 
-    def validate(self, data):
-        """验证镜像数据
-        
-        确保资源需求合理且镜像名称和标签组合唯一
-        
-        Args:
-            data: 待验证的数据
-
-        Returns:
-            验证后的数据
-
-        Raises:
-            serializers.ValidationError: 当验证失败时抛出
+    def validate_name(self, value):
         """
-        if data.get('min_memory') < 512:
-            raise serializers.ValidationError("最小内存需求不能小于512MB")
-        
-        if data.get('min_cpu') < 1:
-            raise serializers.ValidationError("最小CPU需求不能小于1核")
+        验证镜像名称
+        """
+        if not value:
+            raise serializers.ValidationError("镜像名称不能为空")
+        if len(value) > 50:
+            raise serializers.ValidationError("镜像名称不能超过50个字符")
+        if not all(c.isalnum() or c in '-_' for c in value):
+            raise serializers.ValidationError("镜像名称只能包含字母、数字、下划线和连字符")
+        return value
+
+    def validate_pythonVersion(self, value):
+        """
+        验证Python版本
+        """
+        valid_versions = ['3.8', '3.9', '3.10', '3.11']
+        if value not in valid_versions:
+            raise serializers.ValidationError(f"Python版本必须是以下之一: {', '.join(valid_versions)}")
+        return value
+
+    def create(self, validated_data):
+        """
+        创建镜像
+        """
+        # 从validated_data中获取python_version
+        python_version = validated_data.pop('python_version', None)
+        if not python_version:
+            raise serializers.ValidationError("Python版本是必需的")
             
-        return data
+        # 设置初始状态
+        validated_data['status'] = 'pending'
+        
+        # 确保creator字段存在
+        if not self.context.get('request'):
+            raise serializers.ValidationError("缺少请求上下文")
+            
+        validated_data['creator'] = self.context['request'].user
+        
+        # 创建镜像实例
+        image = DockerImage.objects.create(
+            python_version=python_version,
+            **validated_data
+        )
+        return image
 
 
 class ResourceQuotaSerializer(serializers.ModelSerializer):

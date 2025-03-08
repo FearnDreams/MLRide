@@ -13,109 +13,81 @@ from .serializers import DockerImageSerializer, ContainerInstanceSerializer, Res
 from .docker_ops import DockerClient
 from typing import Dict, Any
 import logging
+from django.conf import settings
+from rest_framework import serializers
 
 # 设置日志记录器
 logger = logging.getLogger(__name__)
 
 class DockerImageViewSet(viewsets.ModelViewSet):
     """
-    Docker镜像管理的ViewSet
-    
-    提供镜像的CRUD操作和拉取新镜像的功能
+    Docker镜像视图集
     """
-    queryset = DockerImage.objects.all()
     serializer_class = DockerImageSerializer
     permission_classes = [IsAuthenticated]
     
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self._docker_client = None
+    def get_queryset(self):
+        """
+        获取查询集，只返回当前用户的镜像
+        """
+        return DockerImage.objects.filter(creator=self.request.user)
     
-    @property
-    def docker_client(self):
-        """延迟初始化Docker客户端"""
-        if self._docker_client is None:
-            self._docker_client = DockerClient()
-        return self._docker_client
-    
-    def list(self, request, *args, **kwargs):
-        """获取镜像列表"""
+    def perform_create(self, serializer):
+        """
+        创建镜像时添加创建者信息
+        """
         try:
-            # 获取Docker daemon中的实际镜像列表
-            docker_images = self.docker_client.list_images()
-            # 更新数据库中的镜像记录
-            self._sync_images(docker_images)
-            return super().list(request, *args, **kwargs)
+            # 保存镜像记录
+            image = serializer.save()
+            
+            # 初始化Docker客户端
+            docker_client = DockerClient()
+            
+            # 构建基础镜像名称
+            base_image = f"python:{image.python_version}-slim"
+            
+            # 拉取基础镜像
+            docker_client.pull_image(base_image)
+            
+            # 更新状态为就绪
+            image.status = 'ready'
+            image.save()
+            
         except Exception as e:
-            logger.error(f"Failed to list images: {str(e)}")
-            return Response(
-                {"error": "Failed to list images"},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
+            # 如果发生错误，更新状态为失败
+            if 'image' in locals():
+                image.status = 'failed'
+                image.save()
+            raise e
     
-    def _sync_images(self, docker_images: list) -> None:
+    def create(self, request, *args, **kwargs):
         """
-        同步Docker daemon中的镜像到数据库
-        
-        Args:
-            docker_images: Docker daemon中的镜像列表
+        重写创建方法，添加错误处理
         """
-        # 获取所有镜像ID
-        image_ids = [image['id'] for image in docker_images]
-        
-        # 删除不存在的镜像记录
-        DockerImage.objects.exclude(image_id__in=image_ids).delete()
-        
-        # 更新或创建镜像记录
-        for image in docker_images:
-            DockerImage.objects.update_or_create(
-                image_id=image['id'],
-                defaults={
-                    'tags': ','.join(image['tags']),
-                    'size': image['size'],
-                    'created_at': image['created']
-                }
-            )
-    
-    @action(detail=False, methods=['post'])
-    def pull(self, request):
-        """
-        拉取新的Docker镜像
-        
-        请求体参数:
-            image_name: 镜像名称
-            tag: 镜像标签(可选,默认为latest)
-        """
-        image_name = request.data.get('image_name')
-        tag = request.data.get('tag', 'latest')
-        
-        if not image_name:
+        try:
+            response = super().create(request, *args, **kwargs)
+            return response
+        except serializers.ValidationError as e:
+            # 处理验证错误
+            logger.warning(f"Image creation validation failed: {str(e)}")
             return Response(
-                {"error": "Image name is required"},
+                {
+                    'type': 'validation_error',
+                    'message': '输入数据验证失败',
+                    'details': e.detail if hasattr(e, 'detail') else str(e)
+                },
                 status=status.HTTP_400_BAD_REQUEST
             )
-            
-        try:
-            # 拉取镜像
-            image = self.docker_client.pull_image(image_name, tag)
-            
-            # 创建或更新镜像记录
-            docker_image, created = DockerImage.objects.update_or_create(
-                image_id=image['id'],
-                defaults={
-                    'tags': ','.join(image['tags']),
-                    'size': image['size'],
-                    'created_at': image['created']
-                }
-            )
-            
-            serializer = self.get_serializer(docker_image)
-            return Response(serializer.data, status=status.HTTP_201_CREATED)
         except Exception as e:
-            logger.error(f"Failed to pull image {image_name}:{tag}: {str(e)}")
+            # 处理其他错误
+            logger.error(f"Image creation failed: {str(e)}", exc_info=True)
             return Response(
-                {"error": f"Failed to pull image: {str(e)}"},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                {
+                    'type': 'server_error',
+                    'message': '创建镜像失败，请重试',
+                    'details': str(e) if settings.DEBUG else None
+                },
+                status=status.HTTP_400_BAD_REQUEST
             )
 
 class ContainerInstanceViewSet(viewsets.ModelViewSet):

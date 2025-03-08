@@ -60,7 +60,7 @@ const LoginForm: React.FC = () => {
                 setFormError(null);
                 // 延迟1秒后跳转到主页
                 setTimeout(() => {
-                    navigate('/home');
+                    navigate('/dashboard');
                 }, 1000);
             } else {
                 // 如果登录状态不是 'success'，抛出错误
