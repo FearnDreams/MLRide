@@ -751,3 +751,133 @@ stats = container.stats(stream=False)
 89. 数据备份
 90. 清理无用镜像
 91. 更新安全补丁
+
+## 用户模型扩展
+
+1. **扩展Django用户模型的方法**
+   - 继承AbstractUser：最简单的方式，保留Django用户模型的所有字段，添加自定义字段
+   - 继承AbstractBaseUser：完全自定义用户模型，需要实现更多方法
+   - OneToOneField关联：创建一个与User模型一对一关联的Profile模型
+
+2. **添加头像和昵称字段**
+   - 头像字段使用ImageField：
+     * upload_to参数指定上传路径
+     * null=True允许数据库中为NULL
+     * blank=True允许表单中为空
+   - 昵称字段使用CharField：
+     * max_length限制字符长度
+     * null=True和blank=True使其成为可选字段
+
+3. **ImageField使用注意事项**
+   - 需要安装Pillow库：`pip install Pillow`
+   - 需要在settings.py中配置MEDIA_ROOT和MEDIA_URL
+   - 上传的文件会保存在MEDIA_ROOT/upload_to指定的路径下
+   - 文件URL为MEDIA_URL + upload_to + filename
+
+4. **数据库迁移步骤**
+   - 修改models.py，添加新字段
+   - 运行`python manage.py makemigrations`创建迁移文件
+   - 运行`python manage.py migrate`应用迁移
+   - 更新DB_README.md记录数据库变更
+
+5. **最佳实践**
+   - 为新字段添加详细的文档字符串
+   - 使用verbose_name参数提供友好的字段名称
+   - 考虑字段的可选性和默认值
+   - 更新相关文档，保持一致性
+
+## 用户个人信息API开发
+
+1. **序列化器设计**
+   - 使用ModelSerializer自动生成字段
+   - 添加SerializerMethodField生成额外字段（如avatar_url）
+   - 设置read_only_fields防止敏感字段被修改
+   - 使用context传递request对象，用于生成完整URL
+
+2. **SerializerMethodField的使用**
+   - 定义get_字段名方法来生成字段值
+   - 可以访问序列化器的context属性获取额外信息
+   - 可以处理复杂的逻辑，如条件判断和数据转换
+   - 适合生成不直接存储在模型中的派生字段
+
+3. **视图设计**
+   - 使用APIView基类创建视图
+   - 设置permission_classes限制访问权限
+   - 在get方法中处理GET请求
+   - 使用try-except捕获异常，确保错误处理
+
+4. **权限控制**
+   - IsAuthenticated：只允许已登录用户访问
+   - 在视图类中设置permission_classes属性
+   - 未登录用户会收到401 Unauthorized响应
+   - 可以组合多个权限类实现复杂的权限控制
+
+5. **URL配置**
+   - 在urlpatterns中添加新的路径
+   - 使用视图类的as_view()方法创建视图函数
+   - 为URL路径命名，方便在模板中引用
+   - 更新API文档，记录新的API接口
+
+6. **测试API**
+   - 使用requests库发送HTTP请求
+   - 在请求头中添加Authorization: Token {token}进行认证
+   - 解析响应JSON，验证返回的数据
+   - 编写测试脚本，自动化测试过程
+
+## 用户信息更新API开发
+
+1. **ModelSerializer的高级用法**
+   - 使用write_only=True标记只用于写入的字段
+   - 使用required=False标记可选字段
+   - 使用style={'input_type': 'password'}设置密码输入框样式
+   - 使用partial=True支持部分字段更新
+
+2. **密码更新处理**
+   - 验证当前密码是否正确
+   - 使用validate_password验证新密码强度
+   - 使用set_password方法安全地更新密码
+   - 更新密码后重新生成token
+
+3. **文件上传处理**
+   - 使用ImageField处理头像上传
+   - 配置media目录存储上传文件
+   - 生成文件URL供前端访问
+   - 处理文件验证和错误
+
+4. **部分更新实现**
+   - 使用PUT方法处理完整更新
+   - 传递partial=True参数支持部分更新
+   - 只更新提供的字段，保留其他字段不变
+   - 返回更新后的完整用户信息
+
+## 用户账户注销API开发
+
+1. **安全考虑**
+   - 要求用户提供当前密码进行验证
+   - 使用check_password方法验证密码
+   - 删除用户的认证token
+   - 记录详细的操作日志
+
+2. **数据清理**
+   - 删除用户账户前先注销登录
+   - 使用user.delete()方法删除用户及关联数据
+   - 考虑级联删除的影响
+   - 确保数据库一致性
+
+3. **错误处理**
+   - 验证请求数据的完整性
+   - 提供明确的错误消息
+   - 使用适当的HTTP状态码
+   - 捕获并记录异常
+
+4. **测试注意事项**
+   - 测试密码验证逻辑
+   - 验证用户及关联数据是否正确删除
+   - 测试token失效情况
+   - 测试错误处理机制
+
+5. **最佳实践**
+   - 使用POST方法而非DELETE方法（需要请求体）
+   - 要求二次确认（前端实现）
+   - 提供清晰的成功/失败消息
+   - 考虑添加冷静期或延迟删除机制

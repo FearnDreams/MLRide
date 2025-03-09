@@ -1,5 +1,5 @@
 import api from './api';
-import { LoginRequest, RegisterRequest, ApiResponse } from '../types/auth';
+import { LoginRequest, RegisterRequest, ApiResponse, UserUpdateRequest } from '../types/auth';
 
 export const authService = {
     // 用户登录
@@ -176,4 +176,145 @@ export const authService = {
             };
         }
     },
+
+    // 获取用户个人信息
+    getUserProfile: async (): Promise<ApiResponse> => {
+        try {
+            const token = localStorage.getItem('token');
+            if (!token) {
+                throw {
+                    status: 'error',
+                    message: '用户未登录'
+                };
+            }
+
+            const response = await api.get<ApiResponse>('auth/profile/');
+            return response.data;
+        } catch (error: any) {
+            console.error('获取用户个人信息错误:', error);
+            
+            if (error.response?.status === 401) {
+                // 如果是未授权错误，清除token
+                localStorage.removeItem('token');
+            }
+            
+            if (error.response?.data) {
+                throw {
+                    status: 'error',
+                    message: error.response.data.message || '获取用户个人信息失败'
+                };
+            }
+            throw {
+                status: 'error',
+                message: error.message || '获取用户个人信息失败'
+            };
+        }
+    },
+
+    // 更新用户个人信息
+    updateUserProfile: async (data: UserUpdateRequest): Promise<ApiResponse> => {
+        try {
+            const token = localStorage.getItem('token');
+            if (!token) {
+                throw {
+                    status: 'error',
+                    message: '用户未登录'
+                };
+            }
+
+            // 如果包含头像文件，需要使用FormData
+            if (data.avatar instanceof File) {
+                const formData = new FormData();
+                formData.append('avatar', data.avatar);
+                
+                if (data.nickname) {
+                    formData.append('nickname', data.nickname);
+                }
+                
+                if (data.current_password) {
+                    formData.append('current_password', data.current_password);
+                }
+                
+                if (data.new_password) {
+                    formData.append('new_password', data.new_password);
+                }
+                
+                const response = await api.put<ApiResponse>('auth/profile/update/', formData, {
+                    headers: {
+                        'Content-Type': 'multipart/form-data'
+                    }
+                });
+                
+                // 如果更新了密码，需要更新token
+                if (data.new_password && response.data.data?.token) {
+                    localStorage.setItem('token', response.data.data.token);
+                }
+                
+                return response.data;
+            } else {
+                // 普通JSON请求
+                const response = await api.put<ApiResponse>('auth/profile/update/', data);
+                
+                // 如果更新了密码，需要更新token
+                if (data.new_password && response.data.data?.token) {
+                    localStorage.setItem('token', response.data.data.token);
+                }
+                
+                return response.data;
+            }
+        } catch (error: any) {
+            console.error('更新用户个人信息错误:', error);
+            
+            if (error.response?.status === 401) {
+                // 如果是未授权错误，清除token
+                localStorage.removeItem('token');
+            }
+            
+            if (error.response?.data) {
+                throw {
+                    status: 'error',
+                    message: error.response.data.message || '更新用户个人信息失败'
+                };
+            }
+            throw {
+                status: 'error',
+                message: error.message || '更新用户个人信息失败'
+            };
+        }
+    },
+
+    // 注销用户账户
+    deleteAccount: async (currentPassword: string): Promise<ApiResponse> => {
+        try {
+            const token = localStorage.getItem('token');
+            if (!token) {
+                throw {
+                    status: 'error',
+                    message: '用户未登录'
+                };
+            }
+
+            const response = await api.post<ApiResponse>('auth/profile/delete/', {
+                current_password: currentPassword
+            });
+            
+            // 注销成功后清除token
+            localStorage.removeItem('token');
+            
+            return response.data;
+        } catch (error: any) {
+            console.error('注销账户错误:', error);
+            
+            if (error.response?.data) {
+                throw {
+                    status: 'error',
+                    message: error.response.data.message || '注销账户失败'
+                };
+            }
+            throw {
+                status: 'error',
+                message: error.message || '注销账户失败'
+            };
+        }
+    }
 };

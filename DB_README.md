@@ -14,6 +14,10 @@
 | is_staff | Boolean | 是否工作人员 | 非空，默认False |
 | is_active | Boolean | 是否激活 | 非空，默认True |
 | date_joined | Datetime | 注册时间 | 非空 |
+| avatar | Varchar(100) | 用户头像路径 | 可空 |
+| nickname | Varchar(50) | 用户昵称 | 可空 |
+| created_at | Datetime | 创建时间 | 非空，自动添加 |
+| updated_at | Datetime | 更新时间 | 非空，自动更新 |
 
 ### authentication_user_groups（用户组关联表）
 | 字段名 | 类型 | 说明 | 约束 |

@@ -5,6 +5,8 @@ This module contains the main URL configuration for the MLRide project.
 
 from django.contrib import admin
 from django.urls import path, include
+from django.conf import settings
+from django.conf.urls.static import static
 
 urlpatterns = [
     path('admin/', admin.site.urls),
@@ -12,3 +14,7 @@ urlpatterns = [
     path('api/auth/', include('authentication.urls')),#包含authentication.urls中的所有路径
     path('api/container/', include('container.urls')),
 ]
+
+# 在开发环境中添加媒体文件的URL配置
+if settings.DEBUG:
+    urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

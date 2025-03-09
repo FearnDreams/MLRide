@@ -13,21 +13,39 @@ class User(AbstractUser):
     邮箱地址字段。
 
     - unique=True: 确保邮箱地址在数据库中是唯一的。
-    - verbose_name='邮箱': 在 Django Admin 后台和表单中显示的字段名称为“邮箱”。
+    - verbose_name='邮箱': 在 Django Admin 后台和表单中显示的字段名称为"邮箱"。
+    """
+    avatar = models.ImageField(upload_to='avatars/', null=True, blank=True, verbose_name='头像')
+    """
+    用户头像字段。
+    
+    - upload_to='avatars/': 指定上传的头像文件存储在media目录下的avatars子目录中。
+    - null=True: 允许数据库中该字段为NULL。
+    - blank=True: 允许表单中该字段为空。
+    - verbose_name='头像': 在Django Admin后台和表单中显示的字段名称为"头像"。
+    """
+    nickname = models.CharField(max_length=50, null=True, blank=True, verbose_name='昵称')
+    """
+    用户昵称字段。
+    
+    - max_length=50: 限制昵称最大长度为50个字符。
+    - null=True: 允许数据库中该字段为NULL。
+    - blank=True: 允许表单中该字段为空。
+    - verbose_name='昵称': 在Django Admin后台和表单中显示的字段名称为"昵称"。
     """
     created_at = models.DateTimeField(auto_now_add=True, verbose_name='创建时间')
     """
     创建时间字段。
 
     - auto_now_add=True:  在对象第一次被创建时自动设置当前时间，后续不会被修改。
-    - verbose_name='创建时间': 在 Django Admin 后台和表单中显示的字段名称为“创建时间”。
+    - verbose_name='创建时间': 在 Django Admin 后台和表单中显示的字段名称为"创建时间"。
     """
     updated_at = models.DateTimeField(auto_now=True, verbose_name='更新时间')
     """
     更新时间字段。
 
     - auto_now=True: 每次对象被保存时自动更新为当前时间。
-    - verbose_name='更新时间': 在 Django Admin 后台和表单中显示的字段名称为“更新时间”。
+    - verbose_name='更新时间': 在 Django Admin 后台和表单中显示的字段名称为"更新时间"。
     """
 
     class Meta:
@@ -36,11 +54,11 @@ class User(AbstractUser):
         """
         verbose_name = '用户'
         """
-        verbose_name 用于设置模型的单数形式名称，在 Django Admin 后台中显示为“用户”。
+        verbose_name 用于设置模型的单数形式名称，在 Django Admin 后台中显示为"用户"。
         """
         verbose_name_plural = verbose_name
         """
-        verbose_name_plural 用于设置模型的复数形式名称，这里设置为与 verbose_name 相同，表示单复数形式相同，在 Django Admin 后台中也显示为“用户”。
+        verbose_name_plural 用于设置模型的复数形式名称，这里设置为与 verbose_name 相同，表示单复数形式相同，在 Django Admin 后台中也显示为"用户"。
         """
         ordering = ['-created_at']
         """

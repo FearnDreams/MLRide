@@ -183,6 +183,16 @@ yarn-error.log*
 
 # cursor rules
 .cursorrules
+.cursor/
+
+# 其他文档
+Docs/
+.obsidian/
+FileDetail.md
+study.md
+DB_README.md
+.gitignore
+.gitattributes
 
 # 前端参考代码
 Ref/

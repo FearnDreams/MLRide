@@ -187,3 +187,133 @@ class UserLoginSerializer(serializers.Serializer):
         if len(attrs['password']) < 6: # 检查密码长度是否小于 6 个字符
             raise serializers.ValidationError({"password": "密码长度至少为6个字符"}) # 抛出验证错误，提示密码长度过短
         return attrs # 返回验证通过的属性字典
+
+# 用户个人信息序列化器
+class UserProfileSerializer(serializers.ModelSerializer):
+    """
+    用户个人信息序列化器。
+
+    该序列化器用于获取和更新用户的个人信息，包括用户名、邮箱、头像和昵称。
+    """
+    avatar_url = serializers.SerializerMethodField()
+    
+    class Meta:
+        """
+        Meta 类用于配置 UserProfileSerializer 的元数据。
+
+        - model: 指定序列化器关联的模型为 User 模型。
+        - fields: 指定序列化器需要处理的模型字段，这里包括 'id', 'username', 'email', 'avatar', 'avatar_url', 'nickname', 'created_at', 'updated_at'。
+        - read_only_fields: 指定只读字段，这些字段在更新时不会被修改。
+        """
+        model = User
+        fields = ('id', 'username', 'email', 'avatar', 'avatar_url', 'nickname', 'created_at', 'updated_at')
+        read_only_fields = ('id', 'username', 'email', 'created_at', 'updated_at')
+    
+    def get_avatar_url(self, obj):
+        """
+        获取头像URL。
+
+        如果用户有头像，则返回头像的完整URL；否则返回None。
+
+        Args:
+            obj (User): 用户对象。
+
+        Returns:
+            str or None: 头像的完整URL或None。
+        """
+        if obj.avatar and hasattr(obj.avatar, 'url'):
+            request = self.context.get('request')
+            if request is not None:
+                return request.build_absolute_uri(obj.avatar.url)
+            return obj.avatar.url
+        return None
+
+# 用户信息更新序列化器
+class UserUpdateSerializer(serializers.ModelSerializer):
+    """
+    用户信息更新序列化器。
+
+    该序列化器用于更新用户的个人信息，包括昵称和头像。
+    """
+    current_password = serializers.CharField(
+        write_only=True,
+        required=False,
+        style={'input_type': 'password'},
+        help_text="当前密码，修改密码时需要提供"
+    )
+    new_password = serializers.CharField(
+        write_only=True,
+        required=False,
+        style={'input_type': 'password'},
+        help_text="新密码"
+    )
+    
+    class Meta:
+        """
+        Meta 类用于配置 UserUpdateSerializer 的元数据。
+
+        - model: 指定序列化器关联的模型为 User 模型。
+        - fields: 指定序列化器需要处理的模型字段，这里包括 'nickname', 'avatar', 'current_password', 'new_password'。
+        """
+        model = User
+        fields = ('nickname', 'avatar', 'current_password', 'new_password')
+    
+    def validate(self, attrs):
+        """
+        验证用户提交的数据。
+
+        - 如果提供了新密码，则检查是否也提供了当前密码。
+        - 如果提供了当前密码，则验证当前密码是否正确。
+        - 如果提供了新密码，则验证新密码的强度。
+
+        Args:
+            attrs (dict): 包含用户提交的数据的字典。
+
+        Returns:
+            dict: 验证通过的属性字典。
+
+        Raises:
+            serializers.ValidationError: 如果验证失败。
+        """
+        # 如果提供了新密码，则检查是否也提供了当前密码
+        if attrs.get('new_password') and not attrs.get('current_password'):
+            raise serializers.ValidationError({"current_password": "修改密码时需要提供当前密码"})
+        
+        # 如果提供了当前密码，则验证当前密码是否正确
+        user = self.context['request'].user
+        if attrs.get('current_password'):
+            if not user.check_password(attrs.get('current_password')):
+                raise serializers.ValidationError({"current_password": "当前密码不正确"})
+        
+        # 如果提供了新密码，则验证新密码的强度
+        if attrs.get('new_password'):
+            try:
+                validate_password(attrs.get('new_password'), user)
+            except Exception as e:
+                raise serializers.ValidationError({"new_password": list(e.messages)})
+        
+        return attrs
+    
+    def update(self, instance, validated_data):
+        """
+        更新用户信息。
+
+        - 如果提供了新密码，则更新用户密码。
+        - 更新用户的昵称和头像。
+
+        Args:
+            instance (User): 要更新的用户实例。
+            validated_data (dict): 验证通过的数据字典。
+
+        Returns:
+            User: 更新后的用户实例。
+        """
+        # 如果提供了新密码，则更新用户密码
+        if validated_data.get('new_password'):
+            instance.set_password(validated_data.pop('new_password'))
+        
+        # 移除current_password字段，因为不需要保存到数据库
+        validated_data.pop('current_password', None)
+        
+        # 更新用户的昵称和头像
+        return super().update(instance, validated_data)

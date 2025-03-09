@@ -104,7 +104,7 @@ const LoginForm: React.FC = () => {
             onFinish={onFinish} // 表单提交成功的回调函数
             onFinishFailed={onFinishFailed} // 表单验证失败的回调函数
             layout="vertical" // 表单布局方式为垂直布局
-            className="auth-form" // 表单的 CSS 类名
+            className="auth-form mt-6" // 表单的 CSS 类名
         >
             {/* 如果 formError 状态有值，则显示错误提示 */}
             {formError && (
@@ -116,7 +116,7 @@ const LoginForm: React.FC = () => {
                         type="error" // 提示类型为错误
                         showIcon // 显示图标
                         closable // 显示关闭按钮
-                        className="auth-error" // 提示框的 CSS 类名
+                        className="bg-red-500/10 border border-red-500/20 text-red-400 rounded-lg" // 提示框的 CSS 类名
                         onClose={() => setFormError(null)} // 关闭按钮的回调函数，清空 formError 状态
                     />
                 </Form.Item>
@@ -124,7 +124,7 @@ const LoginForm: React.FC = () => {
 
             {/* 用户名输入框 */}
             <Form.Item
-                label="用户名"
+                label={<span className="text-gray-300">用户名</span>}
                 name="username"
                 rules={[
                     { required: true, message: '请输入用户名' },
@@ -133,12 +133,20 @@ const LoginForm: React.FC = () => {
                 ]}
                 tooltip="用户名长度3-20个字符"
             >
-                <Input placeholder="请输入用户名" />
+                <Input 
+                    placeholder="请输入用户名" 
+                    className="bg-slate-800/50 border-slate-700 text-white h-10 rounded-lg focus:border-blue-500 hover:border-slate-600 transition-colors duration-200"
+                    prefix={
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-slate-500 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                        </svg>
+                    }
+                />
             </Form.Item>
 
             {/* 密码输入框 */}
             <Form.Item
-                label="密码"
+                label={<span className="text-gray-300">密码</span>}
                 name="password"
                 rules={[
                     { required: true, message: '请输入密码' },
@@ -146,13 +154,27 @@ const LoginForm: React.FC = () => {
                 ]}
                 tooltip="密码长度至少6个字符"
             >
-                <Input.Password placeholder="请输入密码" />
+                <Input.Password 
+                    placeholder="请输入密码" 
+                    className="bg-slate-800/50 border-slate-700 text-white h-10 rounded-lg focus:border-blue-500 hover:border-slate-600 transition-colors duration-200"
+                    prefix={
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-slate-500 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                        </svg>
+                    }
+                />
             </Form.Item>
 
             {/* 提交按钮 Form.Item */}
-            <Form.Item>
+            <Form.Item className="mt-8">
                 {/* Button 组件，按钮 */}
-                <Button type="primary" htmlType="submit" loading={isLoading} block className="auth-button">
+                <Button 
+                    type="primary" 
+                    htmlType="submit" 
+                    loading={isLoading} 
+                    block 
+                    className="h-10 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 border-0 rounded-lg font-medium text-white shadow-lg shadow-blue-900/20"
+                >
                     登录
                 </Button>
             </Form.Item>

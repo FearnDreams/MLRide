@@ -133,7 +133,7 @@ const RegisterForm: React.FC = () => {
             // 表单布局
             layout="vertical"
             // 表单样式类名
-            className="auth-form"
+            className="auth-form mt-6"
         >
             {/* 表单错误提示 */}
             {formError && (
@@ -144,7 +144,7 @@ const RegisterForm: React.FC = () => {
                         type="error" // 提示类型为错误
                         showIcon // 显示图标
                         closable // 可关闭
-                        className="auth-error" // 样式类名
+                        className="bg-red-500/10 border border-red-500/20 text-red-400 rounded-lg" // 样式类名
                         onClose={() => setFormError(null)} // 关闭回调，清空错误信息
                     />
                 </Form.Item>
@@ -152,7 +152,7 @@ const RegisterForm: React.FC = () => {
 
             {/* 用户名表单项 */}
             <Form.Item
-                label="用户名"
+                label={<span className="text-gray-300">用户名</span>}
                 name="username"
                 rules={[
                     { required: true, message: '请输入用户名' },
@@ -161,12 +161,20 @@ const RegisterForm: React.FC = () => {
                 ]}
                 tooltip="用户名长度3-20个字符"
             >
-                <Input placeholder="请输入用户名" />
+                <Input 
+                    placeholder="请输入用户名" 
+                    className="bg-slate-800/50 border-slate-700 text-white h-10 rounded-lg focus:border-indigo-500 hover:border-slate-600 transition-colors duration-200"
+                    prefix={
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-slate-500 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                        </svg>
+                    }
+                />
             </Form.Item>
 
             {/* 邮箱表单项 */}
             <Form.Item
-                label="邮箱"
+                label={<span className="text-gray-300">邮箱</span>}
                 name="email"
                 rules={[
                     { required: true, message: '请输入邮箱' },
@@ -174,12 +182,20 @@ const RegisterForm: React.FC = () => {
                 ]}
                 tooltip="请输入有效的邮箱地址"
             >
-                <Input placeholder="请输入邮箱地址" />
+                <Input 
+                    placeholder="请输入邮箱地址" 
+                    className="bg-slate-800/50 border-slate-700 text-white h-10 rounded-lg focus:border-indigo-500 hover:border-slate-600 transition-colors duration-200"
+                    prefix={
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-slate-500 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                        </svg>
+                    }
+                />
             </Form.Item>
 
             {/* 密码表单项 */}
             <Form.Item
-                label="密码"
+                label={<span className="text-gray-300">密码</span>}
                 name="password"
                 rules={[
                     { required: true, message: '请输入密码' },
@@ -187,12 +203,20 @@ const RegisterForm: React.FC = () => {
                 ]}
                 tooltip="密码长度至少8个字符，不能只包含数字"
             >
-                <Input.Password placeholder="请输入密码" />
+                <Input.Password 
+                    placeholder="请输入密码" 
+                    className="bg-slate-800/50 border-slate-700 text-white h-10 rounded-lg focus:border-indigo-500 hover:border-slate-600 transition-colors duration-200"
+                    prefix={
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-slate-500 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                        </svg>
+                    }
+                />
             </Form.Item>
 
             {/* 确认密码表单项 */}
             <Form.Item
-                label="确认密码"
+                label={<span className="text-gray-300">确认密码</span>}
                 name="password2"
                 dependencies={['password']}
                 rules={[
@@ -208,12 +232,26 @@ const RegisterForm: React.FC = () => {
                 ]}
                 tooltip="请再次输入密码进行确认"
             >
-                <Input.Password placeholder="请再次输入密码" />
+                <Input.Password 
+                    placeholder="请再次输入密码" 
+                    className="bg-slate-800/50 border-slate-700 text-white h-10 rounded-lg focus:border-indigo-500 hover:border-slate-600 transition-colors duration-200"
+                    prefix={
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-slate-500 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+                        </svg>
+                    }
+                />
             </Form.Item>
 
             {/* 提交按钮表单项 */}
-            <Form.Item>
-                <Button type="primary" htmlType="submit" loading={isLoading} block className="auth-button">
+            <Form.Item className="mt-8">
+                <Button 
+                    type="primary" 
+                    htmlType="submit" 
+                    loading={isLoading} 
+                    block 
+                    className="h-10 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 border-0 rounded-lg font-medium text-white shadow-lg shadow-indigo-900/20"
+                >
                     注册
                 </Button>
             </Form.Item>

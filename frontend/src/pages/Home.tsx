@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useLocation, useNavigate, Outlet } from 'react-router-dom';
+import { useSelector } from 'react-redux';
 import { Button } from '@/components/ui/button';
 import { 
   Menu, 
@@ -18,6 +19,10 @@ import {
   Users,
   FolderOpen
 } from 'lucide-react';
+import { RootState } from '@/store';
+import { authService } from '@/services/auth';
+import { UserProfile } from '@/types/auth';
+import { Dropdown, Menu as AntMenu, message } from 'antd';
 
 interface HomeProps {
   children?: React.ReactNode;
@@ -25,8 +30,12 @@ interface HomeProps {
 
 const Home: React.FC<HomeProps> = ({ children }) => {
   const [selectedTab, setSelectedTab] = useState("我的项目");
+  const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const location = useLocation();
   const navigate = useNavigate();
+  
+  const user = useSelector((state: RootState) => state.auth.user);
+  const isAuthenticated = useSelector((state: RootState) => state.auth.isAuthenticated);
 
   // 如果在仪表板根路径，重定向到项目页面
   useEffect(() => {
@@ -44,6 +53,55 @@ const Home: React.FC<HomeProps> = ({ children }) => {
     }
   }, [location.pathname]);
 
+  // 获取用户个人信息
+  useEffect(() => {
+    const fetchUserProfile = async () => {
+      try {
+        console.log('Fetching user profile, isAuthenticated:', isAuthenticated);
+        const response = await authService.getUserProfile();
+        console.log('User profile response:', response);
+        if (response.status === 'success' && response.data) {
+          // 确保数据符合UserProfile类型
+          const profileData = {
+            id: response.data.id,
+            username: response.data.username,
+            email: response.data.email,
+            nickname: response.data.nickname,
+            avatar: response.data.avatar,
+            avatar_url: response.data.avatar_url,
+            created_at: response.data.created_at,
+            updated_at: response.data.updated_at
+          };
+          setUserProfile(profileData);
+        }
+      } catch (error) {
+        console.error('获取用户信息失败:', error);
+      }
+    };
+
+    if (isAuthenticated && user) {
+      console.log('User is authenticated, fetching profile');
+      fetchUserProfile();
+    } else {
+      console.log('User is not authenticated or user is null');
+    }
+    
+    // 添加一个事件监听器，当用户信息更新时刷新数据
+    const handleProfileUpdate = () => {
+      if (isAuthenticated) {
+        fetchUserProfile();
+      }
+    };
+    
+    // 监听自定义事件 'profile-updated'
+    window.addEventListener('profile-updated', handleProfileUpdate);
+    
+    // 组件卸载时移除事件监听器
+    return () => {
+      window.removeEventListener('profile-updated', handleProfileUpdate);
+    };
+  }, [isAuthenticated, user]);
+
   const sidebarItems = [
     { icon: Clock, label: "最近", path: "/dashboard/recent" },
     { icon: FolderOpen, label: "我的项目", path: "/dashboard/projects" },
@@ -56,6 +114,55 @@ const Home: React.FC<HomeProps> = ({ children }) => {
     { icon: Server, label: "模型服务", path: "/dashboard/services" },
     { icon: Users, label: "社区资源", path: "/dashboard/community" }
   ];
+
+  // 处理登出
+  const handleLogout = async () => {
+    try {
+      const response = await authService.logout();
+      if (response.status === 'success') {
+        message.success('已成功登出');
+        navigate('/login');
+      } else {
+        message.error(response.message || '登出失败，请重试');
+      }
+    } catch (error: any) {
+      console.error('登出错误:', error);
+      message.error(error.message || '登出失败，请重试');
+    }
+  };
+
+  // 用户下拉菜单
+  const userMenu = (
+    <AntMenu>
+      <AntMenu.Item key="profile">
+        <Link to="/dashboard/profile">个人信息</Link>
+      </AntMenu.Item>
+      <AntMenu.Divider />
+      <AntMenu.Item key="logout" onClick={handleLogout}>
+        退出登录
+      </AntMenu.Item>
+    </AntMenu>
+  );
+
+  // 获取显示名称
+  const getDisplayName = () => {
+    if (userProfile?.nickname) {
+      return userProfile.nickname;
+    } else if (user?.username) {
+      return user.username;
+    } else {
+      return '用户';
+    }
+  };
+
+  // 获取头像URL
+  const getAvatarUrl = () => {
+    if (userProfile?.avatar_url) {
+      return userProfile.avatar_url;
+    } else {
+      return 'https://picsum.photos/24/24'; // 默认头像
+    }
+  };
 
   return (
     <div className="flex min-h-screen bg-[#f8f9fa]">
@@ -91,16 +198,24 @@ const Home: React.FC<HomeProps> = ({ children }) => {
         {/* Header */}
         <header className="bg-white h-14 flex items-center justify-between px-4 border-b">
           <h1 className="text-xl">
-            {sidebarItems.find(item => item.path === location.pathname)?.label || "项目概览"}
+            {location.pathname === '/dashboard/profile' 
+              ? "个人信息设置"
+              : sidebarItems.find(item => item.path === location.pathname)?.label || "项目概览"}
           </h1>
           <div className="flex items-center gap-4">
-            <div className="flex items-center">
-              <img src="https://picsum.photos/24/24" alt="User avatar" className="w-6 h-6 rounded-full" />
-              <span className="ml-2">用户名</span>
-              <ChevronDown className="w-4 h-4 ml-1" />
-            </div>
-            <Bell className="w-5 h-5" />
-            <HelpCircle className="w-5 h-5" />
+            <Dropdown overlay={userMenu} trigger={['click']}>
+              <div className="flex items-center cursor-pointer">
+                <img 
+                  src={getAvatarUrl()} 
+                  alt="User avatar" 
+                  className="w-6 h-6 rounded-full object-cover"
+                />
+                <span className="ml-2">{getDisplayName()}</span>
+                <ChevronDown className="w-4 h-4 ml-1" />
+              </div>
+            </Dropdown>
+            <Bell className="w-5 h-5 cursor-pointer" />
+            <HelpCircle className="w-5 h-5 cursor-pointer" />
             <span>帮助</span>
           </div>
         </header>
