@@ -53,53 +53,34 @@ const Home: React.FC<HomeProps> = ({ children }) => {
     }
   }, [location.pathname]);
 
-  // 获取用户个人信息
+  // 获取用户信息
   useEffect(() => {
     const fetchUserProfile = async () => {
-      try {
+      if (isAuthenticated && user) {
         console.log('Fetching user profile, isAuthenticated:', isAuthenticated);
-        const response = await authService.getUserProfile();
-        console.log('User profile response:', response);
-        if (response.status === 'success' && response.data) {
-          // 确保数据符合UserProfile类型
-          const profileData = {
-            id: response.data.id,
-            username: response.data.username,
-            email: response.data.email,
-            nickname: response.data.nickname,
-            avatar: response.data.avatar,
-            avatar_url: response.data.avatar_url,
-            created_at: response.data.created_at,
-            updated_at: response.data.updated_at
-          };
-          setUserProfile(profileData);
+        try {
+          const response = await authService.getUserProfile();
+          console.log('User profile response:', response);
+          if (response.status === 'success' && response.data) {
+            const profileData: UserProfile = {
+              id: response.data.id,
+              username: response.data.username,
+              email: response.data.email,
+              nickname: response.data.nickname,
+              avatar: response.data.avatar,
+              avatar_url: response.data.avatar_url,
+              created_at: response.data.created_at,
+              updated_at: response.data.updated_at
+            };
+            setUserProfile(profileData);
+          }
+        } catch (error) {
+          console.error('获取用户资料失败:', error);
         }
-      } catch (error) {
-        console.error('获取用户信息失败:', error);
       }
     };
 
-    if (isAuthenticated && user) {
-      console.log('User is authenticated, fetching profile');
-      fetchUserProfile();
-    } else {
-      console.log('User is not authenticated or user is null');
-    }
-    
-    // 添加一个事件监听器，当用户信息更新时刷新数据
-    const handleProfileUpdate = () => {
-      if (isAuthenticated) {
-        fetchUserProfile();
-      }
-    };
-    
-    // 监听自定义事件 'profile-updated'
-    window.addEventListener('profile-updated', handleProfileUpdate);
-    
-    // 组件卸载时移除事件监听器
-    return () => {
-      window.removeEventListener('profile-updated', handleProfileUpdate);
-    };
+    fetchUserProfile();
   }, [isAuthenticated, user]);
 
   const sidebarItems = [
@@ -133,13 +114,13 @@ const Home: React.FC<HomeProps> = ({ children }) => {
 
   // 用户下拉菜单
   const userMenu = (
-    <AntMenu>
-      <AntMenu.Item key="profile">
-        <Link to="/dashboard/profile">个人信息</Link>
+    <AntMenu className="bg-slate-800/90 backdrop-blur-md border border-slate-700/50 rounded-lg shadow-lg text-white">
+      <AntMenu.Item key="profile" className="hover:bg-slate-700/50">
+        <Link to="/dashboard/profile" className="text-gray-300 hover:text-white">个人信息</Link>
       </AntMenu.Item>
-      <AntMenu.Divider />
-      <AntMenu.Item key="logout" onClick={handleLogout}>
-        退出登录
+      <AntMenu.Divider className="border-slate-700/50" />
+      <AntMenu.Item key="logout" onClick={handleLogout} className="hover:bg-slate-700/50">
+        <span className="text-gray-300 hover:text-white">退出登录</span>
       </AntMenu.Item>
     </AntMenu>
   );
@@ -165,64 +146,88 @@ const Home: React.FC<HomeProps> = ({ children }) => {
   };
 
   return (
-    <div className="flex min-h-screen bg-[#f8f9fa]">
+    <div className="flex min-h-screen bg-gradient-to-br from-slate-950 via-gray-900 to-slate-900 text-white overflow-hidden relative">
+      {/* 背景装饰 */}
+      <div className="absolute inset-0 overflow-hidden pointer-events-none">
+        <div className="absolute -top-40 -right-40 w-80 h-80 bg-blue-500/10 rounded-full blur-3xl"></div>
+        <div className="absolute top-1/3 -left-20 w-60 h-60 bg-purple-500/10 rounded-full blur-3xl"></div>
+        <div className="absolute bottom-20 right-1/4 w-60 h-60 bg-emerald-500/10 rounded-full blur-3xl"></div>
+      </div>
+
       {/* Sidebar */}
-      <div className="w-48 bg-[#2A1B4A] text-white">
-        <div className="p-4 flex items-center gap-2">
-          <Menu className="w-6 h-6" />
-          <span className="font-bold text-xl">MLRide</span>
+      <div className="w-56 bg-slate-800/30 backdrop-blur-md border-r border-slate-700/50 z-10">
+        <div className="p-6 flex items-center gap-2">
+          <span className="font-bold text-xl bg-gradient-to-r from-blue-400 to-indigo-500 bg-clip-text text-transparent">MLRide</span>
         </div>
         
-        <nav className="mt-4">
+        <nav className="mt-6 px-3">
           {sidebarItems.map((item, index) => (
             <Link 
               key={index} 
               to={item.path}
-              className={`flex items-center gap-3 px-4 py-2 hover:bg-[#3d2b5f] cursor-pointer ${
-                location.pathname === item.path ? "bg-[#3d2b5f]" : ""
+              className={`flex items-center gap-3 px-4 py-3 my-1 rounded-lg transition-all duration-200 ${
+                location.pathname.includes(item.path) 
+                  ? "bg-blue-600/20 text-blue-400 border border-blue-500/30 shadow-sm shadow-blue-500/10" 
+                  : "text-gray-300 hover:bg-slate-700/30 hover:text-white"
               }`}
             >
-              <item.icon className="w-5 h-5" />
+              <item.icon className={`w-5 h-5 ${location.pathname.includes(item.path) ? "text-blue-400" : ""}`} />
               <span>{item.label}</span>
             </Link>
           ))}
         </nav>
 
-        <div className="mt-auto p-4">
-          <button className="w-full py-2 text-white bg-[#3d2b5f] hover:bg-[#4d3b6f] rounded">工作台管理</button>
+        <div className="mt-auto p-4 mx-3 mb-6">
+          <button className="w-full py-2 px-4 text-white bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 rounded-lg shadow-md shadow-blue-900/20 transition-all duration-200">
+            工作台管理
+          </button>
         </div>
       </div>
 
       {/* Main Content */}
-      <div className="flex-1 flex flex-col">
+      <div className="flex-1 flex flex-col z-10">
         {/* Header */}
-        <header className="bg-white h-14 flex items-center justify-between px-4 border-b">
-          <h1 className="text-xl">
+        <header className="h-16 flex items-center justify-between px-6 bg-slate-800/30 backdrop-blur-md border-b border-slate-700/50">
+          <h1 className="text-xl font-semibold text-white">
             {location.pathname === '/dashboard/profile' 
               ? "个人信息设置"
-              : sidebarItems.find(item => item.path === location.pathname)?.label || "项目概览"}
+              : sidebarItems.find(item => location.pathname.includes(item.path))?.label || "项目概览"}
           </h1>
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-6">
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
+              <input
+                type="text"
+                placeholder="搜索..."
+                className="pl-10 pr-4 py-2 bg-slate-800/50 border border-slate-700/50 rounded-lg text-sm text-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500/50"
+              />
+            </div>
             <Dropdown overlay={userMenu} trigger={['click']}>
-              <div className="flex items-center cursor-pointer">
+              <div className="flex items-center cursor-pointer bg-slate-800/50 hover:bg-slate-700/50 px-3 py-2 rounded-lg border border-slate-700/50 transition-all duration-200">
                 <img 
                   src={getAvatarUrl()} 
                   alt="User avatar" 
                   className="w-6 h-6 rounded-full object-cover"
                 />
-                <span className="ml-2">{getDisplayName()}</span>
-                <ChevronDown className="w-4 h-4 ml-1" />
+                <span className="ml-2 text-gray-300">{getDisplayName()}</span>
+                <ChevronDown className="w-4 h-4 ml-1 text-gray-400" />
               </div>
             </Dropdown>
-            <Bell className="w-5 h-5 cursor-pointer" />
-            <HelpCircle className="w-5 h-5 cursor-pointer" />
-            <span>帮助</span>
+            <div className="flex items-center gap-1 text-gray-300 hover:text-white cursor-pointer">
+              <Bell className="w-5 h-5" />
+            </div>
+            <div className="flex items-center gap-1 text-gray-300 hover:text-white cursor-pointer">
+              <HelpCircle className="w-5 h-5" />
+              <span>帮助</span>
+            </div>
           </div>
         </header>
 
         {/* Content Area */}
-        <main className="flex-1 overflow-y-auto bg-gray-100 p-6">
-          <Outlet />
+        <main className="flex-1 overflow-y-auto p-6">
+          <div className="bg-slate-800/30 backdrop-blur-sm rounded-xl border border-slate-700/50 shadow-md p-6">
+            <Outlet />
+          </div>
         </main>
       </div>
     </div>

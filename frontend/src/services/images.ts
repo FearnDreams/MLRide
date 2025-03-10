@@ -119,6 +119,7 @@ export const imagesService = {
   deleteImage: async (id: number): Promise<ApiResponse> => {
     try {
       const response = await api.delete<ApiResponse>(`container/images/${id}/`);
+      console.log('删除镜像响应:', response);
       return response.data;
     } catch (error: any) {
       console.error('删除镜像失败:', error);

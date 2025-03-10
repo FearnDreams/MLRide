@@ -249,5 +249,64 @@ class DockerClient:
                 'memory_usage_percent': round(memory_usage_percent, 2)
             }
         except DockerException as e:
-            logger.error(f"Failed to get stats for container {container_id}: {str(e)}")
+            logger.error(f"Failed to get container stats {container_id}: {str(e)}")
+            raise
+            
+    def build_image_from_dockerfile(
+        self,
+        dockerfile_content: str,
+        image_name: str,
+        image_tag: str = 'latest',
+        build_args: Optional[Dict[str, str]] = None
+    ) -> Dict:
+        """
+        从Dockerfile内容构建Docker镜像
+        
+        Args:
+            dockerfile_content: Dockerfile内容
+            image_name: 镜像名称
+            image_tag: 镜像标签
+            build_args: 构建参数
+            
+        Returns:
+            Dict: 构建的镜像信息
+        """
+        import tempfile
+        import io
+        
+        try:
+            # 创建临时目录
+            with tempfile.TemporaryDirectory() as temp_dir:
+                # 创建Dockerfile文件
+                dockerfile_path = os.path.join(temp_dir, 'Dockerfile')
+                with open(dockerfile_path, 'w') as f:
+                    f.write(dockerfile_content)
+                
+                logger.info(f"Building image {image_name}:{image_tag} from Dockerfile")
+                logger.debug(f"Dockerfile content:\n{dockerfile_content}")
+                
+                # 构建镜像
+                image, logs = self.client.images.build(
+                    path=temp_dir,
+                    tag=f"{image_name}:{image_tag}",
+                    buildargs=build_args,
+                    rm=True
+                )
+                
+                # 记录构建日志
+                for log in logs:
+                    if 'stream' in log:
+                        log_line = log['stream'].strip()
+                        if log_line:
+                            logger.debug(f"Build log: {log_line}")
+                
+                return {
+                    'id': image.id,
+                    'tags': image.tags,
+                    'size': image.attrs['Size'] if 'Size' in image.attrs else None,
+                    'created': image.attrs['Created'] if 'Created' in image.attrs else None
+                }
+                
+        except DockerException as e:
+            logger.error(f"Failed to build image {image_name}:{image_tag}: {str(e)}")
             raise 

@@ -23,6 +23,7 @@ class DockerImage(models.Model):
         created (datetime): 创建时间
         status (str): 镜像状态
         creator (ForeignKey): 创建者
+        image_tag (str): Docker镜像标签
     """
     
     STATUS_CHOICES = [
@@ -43,6 +44,7 @@ class DockerImage(models.Model):
         related_name='docker_images',
         verbose_name='创建者'
     )
+    image_tag = models.CharField('Docker镜像标签', max_length=100, blank=True, null=True)
 
     class Meta:
         verbose_name = 'Docker镜像'
@@ -51,6 +53,18 @@ class DockerImage(models.Model):
 
     def __str__(self):
         return f"{self.name} (Python {self.python_version})"
+
+    def get_full_image_name(self):
+        """
+        获取完整的Docker镜像名称
+        
+        Returns:
+            str: 完整的Docker镜像名称，格式为 mlride-{username}-{name}:{tag}
+        """
+        if not self.image_tag:
+            return None
+        
+        return self.image_tag
 
 class ContainerInstance(models.Model):
     """容器实例表

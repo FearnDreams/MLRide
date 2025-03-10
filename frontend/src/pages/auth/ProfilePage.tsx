@@ -252,10 +252,10 @@ const ProfilePage: React.FC = () => {
 
   return (
     <div className="container mx-auto py-8">
-      <Card className="max-w-2xl mx-auto">
+      <Card className="max-w-2xl mx-auto bg-slate-800/30 backdrop-blur-sm border border-slate-700/50 shadow-md rounded-xl">
         <CardHeader>
-          <CardTitle>个人信息</CardTitle>
-          <CardDescription>查看和更新您的个人信息</CardDescription>
+          <CardTitle className="text-white">个人信息</CardTitle>
+          <CardDescription className="text-gray-400">查看和更新您的个人信息</CardDescription>
         </CardHeader>
         <CardContent>
           <div className="mb-6 flex justify-center">
@@ -265,16 +265,16 @@ const ProfilePage: React.FC = () => {
                   <img 
                     src={previewImage} 
                     alt="头像" 
-                    className="w-24 h-24 rounded-full object-cover mx-auto"
+                    className="w-24 h-24 rounded-full object-cover mx-auto border-2 border-blue-500/30"
                   />
                 ) : (
-                  <div className="w-24 h-24 rounded-full bg-gray-200 flex items-center justify-center mx-auto">
-                    <UserOutlined style={{ fontSize: 36 }} />
+                  <div className="w-24 h-24 rounded-full bg-slate-700/50 flex items-center justify-center mx-auto border border-slate-600/50">
+                    <UserOutlined style={{ fontSize: 36, color: '#94a3b8' }} />
                   </div>
                 )}
               </div>
               <Upload {...uploadProps} showUploadList={false}>
-                <Button className="bg-blue-500 hover:bg-blue-600 text-white">
+                <Button className="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 border-0 shadow-md shadow-blue-900/20 text-white transition-all duration-200">
                   <UploadOutlined className="mr-2" />
                   更换头像
                 </Button>
@@ -288,31 +288,34 @@ const ProfilePage: React.FC = () => {
             onFinish={handleSubmit}
           >
             <Form.Item
-              label="用户名"
+              label={<span className="text-gray-300">用户名</span>}
               name="username"
             >
-              <Input disabled />
+              <Input disabled className="bg-slate-700/50 border-slate-600/50 text-gray-300 cursor-not-allowed" />
             </Form.Item>
             
             <Form.Item
-              label="邮箱"
+              label={<span className="text-gray-300">邮箱</span>}
               name="email"
             >
-              <Input disabled />
+              <Input disabled className="bg-slate-700/50 border-slate-600/50 text-gray-300 cursor-not-allowed" />
             </Form.Item>
             
             <Form.Item
-              label="昵称"
+              label={<span className="text-gray-300">昵称</span>}
               name="nickname"
               rules={[{ max: 30, message: '昵称最多30个字符' }]}
             >
-              <Input placeholder="请输入昵称" />
+              <Input 
+                placeholder="请输入昵称" 
+                className="bg-slate-700/50 border-slate-600/50 text-gray-300 focus:border-blue-500/50 hover:border-blue-500/30 transition-colors"
+              />
             </Form.Item>
             
             <Form.Item>
               <Button 
                 type="submit" 
-                className="w-full bg-blue-500 hover:bg-blue-600 text-white" 
+                className="w-full bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 border-0 shadow-md shadow-blue-900/20 text-white transition-all duration-200" 
                 disabled={loading}
               >
                 {loading ? '保存中...' : '保存修改'}
@@ -323,13 +326,13 @@ const ProfilePage: React.FC = () => {
           <div className="mt-6 flex justify-between">
             <Button 
               onClick={() => setIsPasswordModalVisible(true)}
-              className="bg-blue-400 hover:bg-blue-500 text-white"
+              className="bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 border-0 shadow-md shadow-indigo-900/20 text-white transition-all duration-200"
             >
               修改密码
             </Button>
             <Button 
               onClick={showDeleteConfirm}
-              className="bg-red-500 hover:bg-red-600 text-white"
+              className="bg-gradient-to-r from-red-600 to-pink-600 hover:from-red-500 hover:to-pink-500 border-0 shadow-md shadow-red-900/20 text-white transition-all duration-200"
             >
               注销账户
             </Button>
@@ -339,10 +342,11 @@ const ProfilePage: React.FC = () => {
       
       {/* 修改密码弹窗 */}
       <Modal
-        title="修改密码"
+        title={<span className="text-white">修改密码</span>}
         open={isPasswordModalVisible}
         onCancel={() => setIsPasswordModalVisible(false)}
         footer={null}
+        className="custom-dark-modal"
       >
         <Form
           form={passwordForm}
@@ -350,17 +354,20 @@ const ProfilePage: React.FC = () => {
           onFinish={handlePasswordUpdate}
         >
           <Form.Item
-            label="当前密码"
+            label={<span className="text-gray-300">当前密码</span>}
             name="currentPassword"
             rules={[
               { required: true, message: '请输入当前密码' },
             ]}
           >
-            <Input.Password placeholder="请输入当前密码" />
+            <Input.Password 
+              placeholder="请输入当前密码" 
+              className="bg-slate-700/50 border-slate-600/50 text-gray-300 focus:border-blue-500/50 hover:border-blue-500/30 transition-colors"
+            />
           </Form.Item>
           
           <Form.Item
-            label="新密码"
+            label={<span className="text-gray-300">新密码</span>}
             name="newPassword"
             rules={[
               { required: true, message: '请输入新密码' },
@@ -368,11 +375,14 @@ const ProfilePage: React.FC = () => {
               { pattern: /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).+$/, message: '密码必须包含大小写字母和数字' }
             ]}
           >
-            <Input.Password placeholder="请输入新密码" />
+            <Input.Password 
+              placeholder="请输入新密码" 
+              className="bg-slate-700/50 border-slate-600/50 text-gray-300 focus:border-blue-500/50 hover:border-blue-500/30 transition-colors"
+            />
           </Form.Item>
           
           <Form.Item
-            label="确认新密码"
+            label={<span className="text-gray-300">确认新密码</span>}
             name="confirmPassword"
             dependencies={['newPassword']}
             rules={[
@@ -387,20 +397,23 @@ const ProfilePage: React.FC = () => {
               }),
             ]}
           >
-            <Input.Password placeholder="请确认新密码" />
+            <Input.Password 
+              placeholder="请确认新密码" 
+              className="bg-slate-700/50 border-slate-600/50 text-gray-300 focus:border-blue-500/50 hover:border-blue-500/30 transition-colors"
+            />
           </Form.Item>
           
           <Form.Item>
             <div className="flex justify-end gap-2">
               <Button 
                 onClick={() => setIsPasswordModalVisible(false)}
-                className="bg-gray-200 hover:bg-gray-300"
+                className="bg-slate-700 hover:bg-slate-600 text-gray-300 border-slate-600/50 transition-all duration-200"
               >
                 取消
               </Button>
               <Button 
                 type="submit" 
-                className="bg-blue-500 hover:bg-blue-600 text-white"
+                className="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 border-0 shadow-md shadow-blue-900/20 text-white transition-all duration-200"
                 disabled={loading}
               >
                 {loading ? '提交中...' : '确认修改'}
@@ -409,6 +422,89 @@ const ProfilePage: React.FC = () => {
           </Form.Item>
         </Form>
       </Modal>
+
+      {/* 添加全局样式 */}
+      <style>{`
+        .custom-dark-modal .ant-modal-content {
+          background-color: rgba(30, 41, 59, 0.95);
+          backdrop-filter: blur(8px);
+          border: 1px solid rgba(51, 65, 85, 0.5);
+          border-radius: 0.75rem;
+        }
+        .custom-dark-modal .ant-modal-header {
+          background-color: transparent;
+          border-bottom: 1px solid rgba(51, 65, 85, 0.5);
+        }
+        .custom-dark-modal .ant-modal-title {
+          color: white;
+        }
+        .custom-dark-modal .ant-modal-close {
+          color: rgba(148, 163, 184, 0.8);
+        }
+        .custom-dark-modal .ant-modal-close:hover {
+          color: white;
+        }
+        .custom-dark-modal .ant-input-affix-wrapper {
+          background-color: rgba(51, 65, 85, 0.5) !important;
+          border-color: rgba(71, 85, 105, 0.5) !important;
+        }
+        .custom-dark-modal .ant-input-affix-wrapper:hover {
+          border-color: rgba(59, 130, 246, 0.5) !important;
+        }
+        .custom-dark-modal .ant-input-affix-wrapper-focused {
+          border-color: rgba(59, 130, 246, 0.5) !important;
+          box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.1) !important;
+        }
+        .custom-dark-modal .ant-input {
+          background-color: transparent !important;
+          color: rgb(209, 213, 219) !important;
+        }
+        .custom-dark-modal .ant-input-password-icon {
+          color: rgba(148, 163, 184, 0.8) !important;
+        }
+        .custom-dark-modal .ant-input-password-icon:hover {
+          color: white !important;
+        }
+        
+        /* 全局输入框样式 */
+        .ant-input {
+          color: rgb(209, 213, 219) !important;
+          background-color: rgba(51, 65, 85, 0.5) !important;
+        }
+        .ant-input-disabled {
+          color: rgb(148, 163, 184) !important;
+          background-color: rgba(51, 65, 85, 0.5) !important;
+        }
+        .ant-input::placeholder {
+          color: rgba(148, 163, 184, 0.6) !important;
+        }
+        /* 确保输入时文字颜色和背景色 */
+        .ant-input:focus, 
+        .ant-input:hover, 
+        .ant-input:active, 
+        .ant-input-focused {
+          color: rgb(209, 213, 219) !important;
+          background-color: rgba(51, 65, 85, 0.5) !important;
+          border-color: rgba(59, 130, 246, 0.5) !important;
+          box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.1) !important;
+        }
+        /* 确保输入框内的所有文字都是浅色 */
+        input, textarea {
+          color: rgb(209, 213, 219) !important;
+          background-color: rgba(51, 65, 85, 0.5) !important;
+        }
+        /* 确保输入框在所有状态下都保持深色背景 */
+        input:focus, 
+        input:hover, 
+        input:active,
+        textarea:focus,
+        textarea:hover,
+        textarea:active {
+          background-color: rgba(51, 65, 85, 0.5) !important;
+          border-color: rgba(59, 130, 246, 0.5) !important;
+          box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.1) !important;
+        }
+      `}</style>
     </div>
   );
 };

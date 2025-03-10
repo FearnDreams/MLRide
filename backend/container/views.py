@@ -49,9 +49,55 @@ class DockerImageViewSet(viewsets.ModelViewSet):
             # 拉取基础镜像
             docker_client.pull_image(base_image)
             
-            # 更新状态为就绪
-            image.status = 'ready'
-            image.save()
+            # 构建自定义镜像名称
+            custom_image_name = f"mlride-{image.creator.username}-{image.name}"
+            custom_image_tag = f"py{image.python_version}"
+            full_image_name = f"{custom_image_name}:{custom_image_tag}"
+            
+            # 保存镜像标签到数据库
+            image.image_tag = full_image_name
+            image.save(update_fields=['image_tag'])
+            
+            # 创建Dockerfile内容
+            dockerfile_content = f"""
+FROM {base_image}
+
+# 设置工作目录
+WORKDIR /app
+
+# 安装基本依赖
+RUN pip install --no-cache-dir --upgrade pip && \\
+    pip install --no-cache-dir numpy pandas scikit-learn matplotlib jupyter
+
+# 设置环境变量
+ENV PYTHONUNBUFFERED=1
+
+# 创建用户目录
+RUN mkdir -p /home/user && chmod 777 /home/user
+
+# 设置启动命令
+CMD ["jupyter", "notebook", "--ip=0.0.0.0", "--port=8888", "--no-browser", "--allow-root"]
+"""
+            
+            # 构建自定义镜像
+            try:
+                logger.info(f"Building custom image: {full_image_name}")
+                docker_client.build_image_from_dockerfile(
+                    dockerfile_content=dockerfile_content,
+                    image_name=custom_image_name,
+                    image_tag=custom_image_tag
+                )
+                logger.info(f"Successfully built custom image: {full_image_name}")
+                
+                # 更新状态为就绪
+                image.status = 'ready'
+                image.save()
+                
+            except Exception as e:
+                logger.error(f"Failed to build custom image: {str(e)}", exc_info=True)
+                image.status = 'failed'
+                image.save()
+                raise
             
         except Exception as e:
             # 如果发生错误，更新状态为失败
@@ -59,6 +105,83 @@ class DockerImageViewSet(viewsets.ModelViewSet):
                 image.status = 'failed'
                 image.save()
             raise e
+    
+    def perform_destroy(self, instance):
+        """
+        删除镜像时同时删除Docker镜像
+        
+        Args:
+            instance: 要删除的DockerImage实例
+        """
+        try:
+            # 初始化Docker客户端
+            docker_client = DockerClient()
+            
+            # 获取所有Docker镜像
+            docker_images = docker_client.list_images()
+            logger.info(f"Current Docker images: {docker_images}")
+            
+            # 获取完整的镜像名称
+            full_image_name = instance.image_tag
+            
+            if not full_image_name:
+                # 如果没有保存镜像标签，则构建镜像名称
+                custom_image_name = f"mlride-{instance.creator.username}-{instance.name}"
+                custom_image_tag = f"py{instance.python_version}"
+                full_image_name = f"{custom_image_name}:{custom_image_tag}"
+                logger.warning(f"Image tag not found in database, using constructed name: {full_image_name}")
+            
+            # 尝试删除自定义Docker镜像
+            try:
+                # 查找匹配的镜像
+                image_to_delete = None
+                for image in docker_images:
+                    if any(tag == full_image_name for tag in image.get('tags', [])):
+                        image_to_delete = image
+                        break
+                
+                if image_to_delete:
+                    logger.info(f"Found image to delete: {image_to_delete}")
+                    docker_client.remove_image(image_to_delete['id'], force=True)
+                    logger.info(f"Successfully removed Docker image: {full_image_name}")
+                else:
+                    logger.warning(f"Could not find Docker image to delete: {full_image_name}")
+            except Exception as e:
+                logger.warning(f"Failed to remove Docker image {full_image_name}: {str(e)}")
+                # 即使Docker镜像删除失败，也继续删除数据库记录
+            
+            # 调用父类的perform_destroy方法删除数据库记录
+            super().perform_destroy(instance)
+            logger.info(f"Successfully deleted image record: {instance.name}")
+            
+        except Exception as e:
+            logger.error(f"Error during image deletion: {str(e)}", exc_info=True)
+            raise
+    
+    def destroy(self, request, *args, **kwargs):
+        """
+        重写删除方法，添加错误处理
+        """
+        try:
+            response = super().destroy(request, *args, **kwargs)
+            return Response(
+                {
+                    'status': 'success',
+                    'message': '镜像删除成功',
+                    'data': None
+                },
+                status=status.HTTP_200_OK
+            )
+        except Exception as e:
+            logger.error(f"Image deletion failed: {str(e)}", exc_info=True)
+            return Response(
+                {
+                    'status': 'error',
+                    'message': '删除镜像失败，请重试',
+                    'details': str(e) if settings.DEBUG else None
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
     
     def create(self, request, *args, **kwargs):
         """
