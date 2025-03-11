@@ -37,6 +37,19 @@ MLRide是一个现代化的机器学习生产平台，旨在提供一站式的�
 - 实时工作流监控
 - 配置导出与复用
 
+## 主要界面
+
+### 1.登陆页面
+
+![登陆页面](./pics/LandingPage.jpg)
+
+### 2.登录与注册界面
+![登录页面](./pics/LoginPage.png)
+![注册页面](./pics/RegisterPage.png)
+
+### 3.仪表板页面
+![仪表板页面](./pics/DashboradPage.png)
+
 ## 技术栈
 
 ### 后端
