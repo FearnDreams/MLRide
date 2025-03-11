@@ -15,6 +15,7 @@ import ImagesPage from './pages/images/ImagesPage';
 import CreateImagePage from './pages/images/CreateImagePage';
 import ProjectsPage from './pages/projects/ProjectsPage';
 import ProtectedRoute from './components/ProtectedRoute';
+import RecentPage from './pages/dashboard/RecentPage';
 import './App.css'
 
 // 内部App组件，用于访问Redux的dispatch
@@ -39,14 +40,14 @@ const AppContent: React.FC = () => {
                 {/* 需要认证的路由 */}
                 <Route element={<ProtectedRoute />}>
                     <Route path="/dashboard" element={<Home />}>
-                        <Route index element={<Navigate to="/dashboard/projects" replace />} />
+                        <Route index element={<Navigate to="/dashboard/recent" replace />} />
+                        <Route path="recent" element={<RecentPage />} />
                         <Route path="projects" element={<ProjectsPage />} />
                         <Route path="images" element={<ImagesPage />} />
                         <Route path="images/create" element={<CreateImagePage />} />
                         <Route path="models" element={<ProjectsPage />} />
                         <Route path="datasets" element={<ProjectsPage />} />
                         <Route path="deployments" element={<ProjectsPage />} />
-                        <Route path="recent" element={<ProjectsPage />} />
                         <Route path="my-space" element={<ProjectsPage />} />
                         <Route path="compute" element={<ProjectsPage />} />
                         <Route path="cases" element={<ProjectsPage />} />
@@ -57,8 +58,8 @@ const AppContent: React.FC = () => {
                     </Route>
                 </Route>
                 
-                {/* 重定向未匹配的路由到项目页 */}
-                <Route path="*" element={<Navigate to="/dashboard/projects" replace />} />
+                {/* 重定向未匹配的路由到最近页面 */}
+                <Route path="*" element={<Navigate to="/dashboard/recent" replace />} />
             </Routes>
         </Router>
     );

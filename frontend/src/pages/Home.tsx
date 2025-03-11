@@ -40,7 +40,7 @@ const Home: React.FC<HomeProps> = ({ children }) => {
   // 如果在仪表板根路径，重定向到项目页面
   useEffect(() => {
     if (location.pathname === '/dashboard') {
-      navigate('/dashboard/projects');
+      navigate('/dashboard/recent');
     }
   }, [location.pathname, navigate]);
 
