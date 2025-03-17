@@ -5,7 +5,7 @@ import { useDispatch } from 'react-redux';
 import { store } from './store';
 import { AppDispatch } from './store';
 import { checkAuth } from './store/authSlice';
-import { Toaster } from 'sonner';
+import { Toaster } from "./components/ui/toaster";
 import LoginPage from './pages/auth/LoginPage';
 import RegisterPage from './pages/auth/RegisterPage';
 import ProfilePage from './pages/auth/ProfilePage';
@@ -14,6 +14,8 @@ import LandingPage from './pages/LandingPage';
 import ImagesPage from './pages/images/ImagesPage';
 import CreateImagePage from './pages/images/CreateImagePage';
 import ProjectsPage from './pages/projects/ProjectsPage';
+import CreateProjectPage from './pages/projects/CreateProjectPage';
+import ProjectDetailPage from './pages/projects/ProjectDetailPage';
 import ProtectedRoute from './components/ProtectedRoute';
 import RecentPage from './pages/dashboard/RecentPage';
 import './App.css'
@@ -30,7 +32,7 @@ const AppContent: React.FC = () => {
 
     return (
         <Router>
-            <Toaster richColors position="top-right" />
+            <Toaster />
             <Routes>
                 {/* 公开路由 */}
                 <Route path="/" element={<LandingPage />} />
@@ -43,12 +45,16 @@ const AppContent: React.FC = () => {
                         <Route index element={<Navigate to="/dashboard/recent" replace />} />
                         <Route path="recent" element={<RecentPage />} />
                         <Route path="projects" element={<ProjectsPage />} />
+                        <Route path="projects/create" element={<CreateProjectPage />} />
+                        <Route path="projects/create-ide" element={<Navigate to="/dashboard/projects/create?type=ide" replace />} />
+                        <Route path="projects/create-notebook" element={<Navigate to="/dashboard/projects/create?type=notebook" replace />} />
+                        <Route path="projects/create-canvas" element={<Navigate to="/dashboard/projects/create?type=canvas" replace />} />
+                        <Route path="projects/:id" element={<ProjectDetailPage />} />
                         <Route path="images" element={<ImagesPage />} />
                         <Route path="images/create" element={<CreateImagePage />} />
                         <Route path="models" element={<ProjectsPage />} />
                         <Route path="datasets" element={<ProjectsPage />} />
                         <Route path="deployments" element={<ProjectsPage />} />
-                        <Route path="my-space" element={<ProjectsPage />} />
                         <Route path="compute" element={<ProjectsPage />} />
                         <Route path="cases" element={<ProjectsPage />} />
                         <Route path="tasks" element={<ProjectsPage />} />

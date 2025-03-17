@@ -120,11 +120,31 @@ api.interceptors.response.use(
         // 处理错误响应
         if (error.response?.data) {
             const errorData = error.response.data;
-            error.response.data = {
-                status: 'error',
-                message: errorData.message || errorData.detail || '请求失败',
-                data: errorData.data
-            };
+            
+            // 检查字段验证错误（如项目名称重名）
+            if (errorData.name && Array.isArray(errorData.name) && errorData.name.length > 0) {
+                error.response.data = {
+                    status: 'error',
+                    message: errorData.name[0],
+                    data: errorData
+                };
+            } 
+            // 检查非字段错误
+            else if (errorData.non_field_errors && Array.isArray(errorData.non_field_errors) && errorData.non_field_errors.length > 0) {
+                error.response.data = {
+                    status: 'error',
+                    message: errorData.non_field_errors[0],
+                    data: errorData
+                };
+            }
+            // 其他常规错误
+            else {
+                error.response.data = {
+                    status: 'error',
+                    message: errorData.message || errorData.detail || '请求失败',
+                    data: errorData
+                };
+            }
             return Promise.reject(error);
         }
         

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Search, Info, ChevronDown, AlertCircle, Trash2, Plus } from 'lucide-react';
+import { Search, Info, AlertCircle, Trash2, Plus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useNavigate } from 'react-router-dom';
 import { imagesService, DockerImage } from '@/services/images';
@@ -20,7 +20,32 @@ const ImagesPage: React.FC = () => {
       if (response.status === 'success' && response.data) {
         // 确保数据是数组类型
         const imagesData = Array.isArray(response.data) ? response.data : [];
-        setUserImages(imagesData);
+        console.log('镜像页面原始数据:', imagesData);
+        if(imagesData.length > 0) {
+          console.log('第一个镜像详情:', JSON.stringify(imagesData[0], null, 2));
+          console.log('Python版本字段:', imagesData[0].python_version, imagesData[0].pythonVersion);
+        }
+        
+        // 处理数据，确保能够正确显示Python版本
+        const processedImages = imagesData.map(image => {
+          // 如果后端返回的是pythonVersion而不是python_version，做字段兼容
+          if (image.pythonVersion && !image.python_version) {
+            return {
+              ...image,
+              python_version: image.pythonVersion
+            };
+          }
+          // 如果后端返回的是python_version而不是pythonVersion，做字段兼容
+          if (image.python_version && !image.pythonVersion) {
+            return {
+              ...image,
+              pythonVersion: image.python_version
+            };
+          }
+          return image;
+        });
+        
+        setUserImages(processedImages);
       } else {
         message.error(response.message || '获取镜像失败');
       }
@@ -79,18 +104,6 @@ const ImagesPage: React.FC = () => {
     });
   };
   
-  const languageVersions = [
-    { name: "Python", versions: ["版本"] },
-    { name: "R", versions: ["版本"] },
-    { name: "Julia", versions: ["版本"] },
-    { name: "其它", versions: ["请选择"] }
-  ];
-
-  const cudaVersions = [
-    "1.11.1", "1.13.1", "10", "10.2", "11.0", "11.1.1", "11.3",
-    "11.3.1", "11.6", "11.7", "12.1", "12.1.1", "12.3", "9"
-  ];
-
   const officialImages = [
     {
       title: "气象分析镜像 Python 3.7",
@@ -173,20 +186,52 @@ const ImagesPage: React.FC = () => {
         {userImages.map((image) => (
           <div key={image.id} className="bg-slate-800/30 backdrop-blur-sm p-5 rounded-xl border border-slate-700/50 hover:border-blue-500/30 transition-all duration-300 hover:shadow-md hover:shadow-blue-500/5">
             <div className="flex justify-between items-start">
-              <div>
+              <div className="flex-1">
                 <div className="flex items-center gap-2 mb-2">
                   <h3 className="font-medium text-white">{image.name}</h3>
                   <Tooltip title="查看详情">
-                    <Info className="w-4 h-4 text-gray-400 hover:text-blue-400 cursor-pointer transition-colors" />
+                    <Info 
+                      className="w-4 h-4 text-gray-400 hover:text-blue-400 cursor-pointer transition-colors"
+                      aria-label="查看镜像详情"
+                    />
                   </Tooltip>
                 </div>
-                <p className="text-gray-400 text-sm mb-3">{image.description}</p>
-                <div className="flex items-center gap-2">
-                  <div className="w-5 h-5 rounded-full bg-blue-500/20 flex items-center justify-center">
-                    <span className="text-xs text-blue-400">Py</span>
+                <p className="text-gray-400 text-sm mb-3">{image.description || '暂无描述'}</p>
+                
+                {/* 添加详细信息区域 */}
+                <div className="bg-slate-900/50 rounded-lg p-3 border border-slate-700/50 mb-3">
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="flex items-center gap-2">
+                      <div className="w-5 h-5 rounded-full bg-blue-500/20 flex items-center justify-center">
+                        <span className="text-xs text-blue-400">Py</span>
+                      </div>
+                      <span className="text-sm text-gray-300 bg-blue-500/10 px-2 py-0.5 rounded-full border border-blue-500/30">
+                        Python {image.pythonVersion || '未指定'}
+                      </span>
+                    </div>
+                    
+                    <div className="flex items-center gap-2">
+                      <div className="w-5 h-5 rounded-full bg-green-500/20 flex items-center justify-center">
+                        <span className="text-xs text-green-400">创</span>
+                      </div>
+                      <span className="text-sm text-gray-300">创建于 {new Date(image.created).toLocaleDateString()}</span>
+                    </div>
                   </div>
-                  <span className="text-sm text-gray-300">Python {image.python_version}</span>
                 </div>
+
+                {/* 显示包信息（如果有的话） */}
+                {image.packages && (
+                  <div className="mt-2">
+                    <h4 className="text-sm text-gray-300 mb-1">包含的工具包:</h4>
+                    <div className="flex flex-wrap gap-1.5">
+                      {image.packages.split(',').map((pkg, index) => (
+                        <span key={index} className="text-xs px-2 py-0.5 bg-indigo-500/10 text-indigo-300 rounded border border-indigo-500/20">
+                          {pkg.trim()}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
               <div className="flex items-center gap-4">
                 <span className={`text-sm px-2 py-1 rounded-full ${getStatusStyle(image.status).bg} ${getStatusStyle(image.status).text} border ${getStatusStyle(image.status).border}`}>
@@ -200,6 +245,7 @@ const ImagesPage: React.FC = () => {
                     className="text-red-400 hover:text-red-300 p-1.5 rounded-full hover:bg-red-500/10 transition-all duration-200"
                     onClick={() => handleDeleteImage(image.id)}
                     disabled={deleteLoading}
+                    aria-label="删除镜像"
                   >
                     <Trash2 className="w-4 h-4" />
                   </button>
@@ -223,7 +269,10 @@ const ImagesPage: React.FC = () => {
                 <div className="flex items-center gap-2 mb-2">
                   <h3 className="font-medium text-white">{image.title}</h3>
                   <Tooltip title="查看详情">
-                    <Info className="w-4 h-4 text-gray-400 hover:text-purple-400 cursor-pointer transition-colors" />
+                    <Info 
+                      className="w-4 h-4 text-gray-400 hover:text-purple-400 cursor-pointer transition-colors"
+                      aria-label="查看官方镜像详情"
+                    />
                   </Tooltip>
                 </div>
                 <p className="text-gray-400 text-sm mb-3">{image.description}</p>

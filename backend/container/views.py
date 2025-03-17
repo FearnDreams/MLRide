@@ -40,6 +40,10 @@ class DockerImageViewSet(viewsets.ModelViewSet):
             # 保存镜像记录
             image = serializer.save()
             
+            # 更新状态为构建中
+            image.status = 'building'
+            image.save(update_fields=['status'])
+            
             # 初始化Docker客户端
             docker_client = DockerClient()
             
@@ -47,7 +51,27 @@ class DockerImageViewSet(viewsets.ModelViewSet):
             base_image = f"python:{image.python_version}-slim"
             
             # 拉取基础镜像
-            docker_client.pull_image(base_image)
+            logger.info(f"Attempting to pull base image: {base_image}")
+            try:
+                image_info = docker_client.pull_image(base_image)
+                logger.info(f"Successfully pulled/found image: {image_info}")
+                
+                # 如果是备用镜像，则记录到镜像的错误消息中，但继续处理
+                if image_info.get('source') in ['alternative', 'minimal']:
+                    image.error_message = f"注意：使用了备用镜像，因为无法拉取 {base_image}。"
+                    image.save(update_fields=['error_message'])
+                    
+                    # 更新基础镜像名称为实际使用的镜像
+                    if image_info.get('tags') and len(image_info['tags']) > 0:
+                        base_image = image_info['tags'][0]
+                        logger.info(f"Using alternative base image: {base_image}")
+                
+            except Exception as e:
+                logger.error(f"Failed to pull image {base_image}: {str(e)}")
+                image.status = 'failed'
+                image.error_message = f"无法拉取基础镜像: {str(e)}"
+                image.save(update_fields=['status', 'error_message'])
+                raise Exception(f"无法拉取基础镜像 {base_image}: {str(e)}")
             
             # 构建自定义镜像名称
             custom_image_name = f"mlride-{image.creator.username}-{image.name}"
@@ -79,6 +103,10 @@ RUN mkdir -p /home/user && chmod 777 /home/user
 CMD ["jupyter", "notebook", "--ip=0.0.0.0", "--port=8888", "--no-browser", "--allow-root"]
 """
             
+            # 保存Dockerfile内容到数据库
+            image.dockerfile = dockerfile_content
+            image.save(update_fields=['dockerfile'])
+            
             # 构建自定义镜像
             try:
                 logger.info(f"Building custom image: {full_image_name}")
@@ -91,19 +119,23 @@ CMD ["jupyter", "notebook", "--ip=0.0.0.0", "--port=8888", "--no-browser", "--al
                 
                 # 更新状态为就绪
                 image.status = 'ready'
-                image.save()
+                image.save(update_fields=['status'])
                 
             except Exception as e:
                 logger.error(f"Failed to build custom image: {str(e)}", exc_info=True)
                 image.status = 'failed'
-                image.save()
-                raise
+                image.error_message = f"构建镜像失败: {str(e)}"
+                image.save(update_fields=['status', 'error_message'])
+                raise Exception(f"构建镜像 {full_image_name} 失败: {str(e)}")
             
         except Exception as e:
             # 如果发生错误，更新状态为失败
             if 'image' in locals():
                 image.status = 'failed'
-                image.save()
+                if not image.error_message:  # 只在尚未设置错误消息时设置
+                    image.error_message = f"创建镜像失败: {str(e)}"
+                image.save(update_fields=['status', 'error_message'])
+            logger.error(f"Error creating image: {str(e)}", exc_info=True)
             raise e
     
     def perform_destroy(self, instance):

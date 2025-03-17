@@ -46,9 +46,11 @@ export interface DockerImage {
   name: string;
   description: string;
   python_version: string;
+  pythonVersion?: string; // 添加可选的pythonVersion字段
   created: string;
-  status: 'pending' | 'building' | 'ready' | 'failed';
+  status: string; 
   creator: number;
+  packages?: string; // 可选字段，存储镜像包含的工具包信息，以逗号分隔
 }
 
 export const imagesService = {
@@ -147,10 +149,25 @@ export class ImageService {
       return response.data;
     } catch (error) {
       if (axios.isAxiosError(error)) {
-        // 处理API错误
-        const message = error.response?.data?.message || '创建镜像失败';
-        throw new Error(message);
+        // 处理API错误，尝试获取更详细的错误信息
+        console.error('创建镜像失败，详情:', {
+          status: error.response?.status,
+          statusText: error.response?.statusText,
+          data: error.response?.data,
+        });
+        
+        // 优先获取详细的错误消息
+        const errorMessage = 
+          error.response?.data?.error_message || 
+          error.response?.data?.detail || 
+          error.response?.data?.message || 
+          error.response?.data?.error ||
+          '创建镜像失败，请检查网络连接或Docker服务状态';
+        
+        throw new Error(errorMessage);
       }
+      // 对于非Axios错误，直接抛出
+      console.error('创建镜像时发生未知错误:', error);
       throw error;
     }
   }
@@ -183,3 +200,31 @@ export class ImageService {
     }
   }
 }
+
+// 为了与CreateProjectPage.tsx兼容，添加getDockerImages函数
+export const getDockerImages = async () => {
+  try {
+    // 直接使用imagesService确保API路径一致
+    const response = await imagesService.getUserImages();
+    console.log('原始镜像API响应:', response);
+    
+    // 确保返回格式一致
+    if (response.status === 'success' && response.data) {
+      const imagesData = Array.isArray(response.data) ? response.data : [response.data];
+      
+      console.log('处理后的镜像数据:', imagesData);
+      return { data: imagesData };
+    }
+    
+    // 如果API未正确响应，返回空数组
+    console.warn('API返回了不符合预期的响应:', response);
+    return { data: [] };
+  } catch (error) {
+    console.error('获取镜像列表失败:', error);
+    if (axios.isAxiosError(error)) {
+      const message = error.response?.data?.message || '获取镜像列表失败';
+      throw new Error(message);
+    }
+    throw error;
+  }
+};

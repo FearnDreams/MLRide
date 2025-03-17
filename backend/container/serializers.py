@@ -142,9 +142,11 @@ class ContainerInstanceSerializer(serializers.ModelSerializer):
         gpu_limit: GPU限制
         created_at: 创建时间
         started_at: 启动时间
+        port_mappings: 端口映射信息
     """
     
     image_details = DockerImageSerializer(source='image', read_only=True)
+    port_mappings = serializers.JSONField(required=False, allow_null=True)
     
     class Meta:
         model = ContainerInstance

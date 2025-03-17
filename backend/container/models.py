@@ -8,6 +8,7 @@ from django.conf import settings
 from django.core.validators import MinValueValidator
 from django.contrib.auth import get_user_model
 from django.utils import timezone
+import uuid
 
 User = get_user_model()
 
@@ -32,6 +33,13 @@ class DockerImage(models.Model):
         ('ready', '就绪'),
         ('failed', '失败')
     ]
+    
+    TYPE_CHOICES = (
+        ('ide', 'IDE开发环境'),
+        ('notebook', 'Jupyter Notebook'),
+        ('canvas', '可视化拖拽编程'),
+        ('base', '基础镜像'),
+    )
 
     name = models.CharField('镜像名称', max_length=50)
     description = models.TextField('描述', blank=True)
@@ -45,6 +53,15 @@ class DockerImage(models.Model):
         verbose_name='创建者'
     )
     image_tag = models.CharField('Docker镜像标签', max_length=100, blank=True, null=True)
+    
+    # 新增字段，但设置为可选
+    image_type = models.CharField('镜像类型', max_length=20, choices=TYPE_CHOICES, default='base', blank=True, null=True)
+    min_cpu = models.FloatField('最小CPU核心数', default=1, blank=True, null=True)
+    min_memory = models.IntegerField('最小内存(MB)', default=1024, blank=True, null=True)
+    min_gpu = models.IntegerField('最小GPU数量', default=0, blank=True, null=True)
+    dockerfile = models.TextField('Dockerfile内容', blank=True, null=True)
+    build_log = models.TextField('构建日志', blank=True, null=True)
+    error_message = models.TextField('错误信息', blank=True, null=True)
 
     class Meta:
         verbose_name = 'Docker镜像'
@@ -181,3 +198,44 @@ class ResourceQuota(models.Model):
 
     def __str__(self):
         return f"{self.user.username}'s quota"
+
+class Container(models.Model):
+    """容器模型"""
+    STATUS_CHOICES = (
+        ('created', '已创建'),
+        ('running', '运行中'),
+        ('exited', '已停止'),
+        ('paused', '已暂停'),
+        ('restarting', '重启中'),
+        ('removing', '删除中'),
+        ('error', '错误'),
+    )
+    
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    docker_id = models.CharField('Docker容器ID', max_length=64, blank=True, null=True)
+    name = models.CharField('容器名称', max_length=100)
+    image = models.ForeignKey(DockerImage, on_delete=models.CASCADE, related_name='containers', verbose_name='镜像')
+    status = models.CharField('状态', max_length=20, choices=STATUS_CHOICES, default='created')
+    created_at = models.DateTimeField('创建时间', auto_now_add=True)
+    updated_at = models.DateTimeField('更新时间', auto_now=True)
+    port_mappings = models.JSONField('端口映射', blank=True, null=True)
+    environment = models.JSONField('环境变量', blank=True, null=True)
+    volumes = models.JSONField('数据卷', blank=True, null=True)
+    
+    # 添加容器详细状态信息
+    container_logs = models.TextField('容器日志', blank=True, null=True)
+    exit_code = models.IntegerField('退出代码', null=True, blank=True)
+    error_message = models.TextField('错误信息', blank=True, null=True)
+    
+    # IDE服务状态
+    ide_ready = models.BooleanField('IDE服务就绪', default=False)
+    ide_url = models.CharField('IDE URL', max_length=200, blank=True, null=True)
+    ide_startup_logs = models.TextField('IDE启动日志', blank=True, null=True)
+    
+    class Meta:
+        verbose_name = '容器'
+        verbose_name_plural = '容器'
+        ordering = ['-created_at']
+    
+    def __str__(self):
+        return self.name

@@ -43,6 +43,8 @@ INSTALLED_APPS = [
     'rest_framework.authtoken',  # 添加Token认证
     'corsheaders',
     'container',  # 添加container应用
+    'project',  # 添加project应用
+    'jupyterapp',  # 添加jupyterapp应用
 ]
 
 MIDDLEWARE = [

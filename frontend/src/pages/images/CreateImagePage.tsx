@@ -211,9 +211,8 @@ export default function CreateImagePage() {
           variant="outline"
           onClick={() => navigate("/dashboard/images")}
           disabled={isSubmitting}
-          className="border-slate-700 bg-slate-800/50 hover:bg-slate-700/50 text-gray-300 hover:text-white transition-all duration-200 flex items-center gap-2"
         >
-          <ArrowLeft className="w-4 h-4" /> 返回
+          <ArrowLeft className="w-4 h-4 mr-2" /> 返回
         </Button>
       </div>
 
@@ -315,8 +314,8 @@ export default function CreateImagePage() {
             <div className="flex justify-end">
               <Button 
                 type="submit"
+                variant="default"
                 disabled={isSubmitting || Object.keys(errors).some((key) => Boolean(errors[key as keyof typeof errors]))}
-                className={`min-w-[100px] bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 border-0 shadow-md shadow-blue-900/20 text-gray-100 transition-all duration-200 ${isSubmitting ? 'opacity-70 cursor-not-allowed' : ''}`}
               >
                 {isSubmitting ? (
                   <>

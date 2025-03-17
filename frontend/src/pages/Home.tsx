@@ -1,9 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useLocation, useNavigate, Outlet } from 'react-router-dom';
 import { useSelector } from 'react-redux';
-import { Button } from '@/components/ui/button';
 import { 
-  Menu, 
   Search, 
   Bell, 
   HelpCircle, 
@@ -24,11 +22,7 @@ import { authService } from '@/services/auth';
 import { UserProfile } from '@/types/auth';
 import { Dropdown, Menu as AntMenu, message } from 'antd';
 
-interface HomeProps {
-  children?: React.ReactNode;
-}
-
-const Home: React.FC<HomeProps> = ({ children }) => {
+const Home: React.FC = () => {
   const [selectedTab, setSelectedTab] = useState("我的项目");
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const location = useLocation();
@@ -86,7 +80,6 @@ const Home: React.FC<HomeProps> = ({ children }) => {
   const sidebarItems = [
     { icon: Clock, label: "最近", path: "/dashboard/recent" },
     { icon: FolderOpen, label: "我的项目", path: "/dashboard/projects" },
-    { icon: User, label: "我的空间", path: "/dashboard/my-space" },
     { icon: Image, label: "镜像", path: "/dashboard/images" },
     { icon: Monitor, label: "计算资源", path: "/dashboard/compute" },
     { icon: Database, label: "案例库", path: "/dashboard/cases" },

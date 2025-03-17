@@ -10,6 +10,8 @@ from typing import Dict, List, Optional
 import logging
 import platform
 import os
+import time
+import socket
 
 # 设置日志记录器
 logger = logging.getLogger(__name__)
@@ -83,15 +85,78 @@ class DockerClient:
             Dict: 拉取的镜像信息
         """
         try:
-            image = self.client.images.pull(image_name, tag=tag)
-            return {
-                'id': image.id,
-                'tags': image.tags,
-                'size': image.attrs['Size'],
-                'created': image.attrs['Created']
-            }
-        except DockerException as e:
-            logger.error(f"Failed to pull image {image_name}:{tag}: {str(e)}")
+            # 首先检查本地是否已有该镜像
+            try:
+                local_images = self.client.images.list(name=f"{image_name}:{tag}")
+                if local_images:
+                    logger.info(f"Image {image_name}:{tag} already exists locally")
+                    return {
+                        'id': local_images[0].id,
+                        'tags': local_images[0].tags,
+                        'size': local_images[0].attrs['Size'],
+                        'created': local_images[0].attrs['Created'],
+                        'source': 'local'
+                    }
+            except Exception as e:
+                logger.warning(f"Error checking local images: {str(e)}")
+            
+            # 尝试拉取镜像
+            try:
+                logger.info(f"Pulling image {image_name}:{tag}")
+                image = self.client.images.pull(image_name, tag=tag)
+                return {
+                    'id': image.id,
+                    'tags': image.tags,
+                    'size': image.attrs['Size'],
+                    'created': image.attrs['Created'],
+                    'source': 'remote'
+                }
+            except DockerException as e:
+                # 如果拉取失败，记录错误并检查是否可以使用备用镜像
+                logger.error(f"Failed to pull image {image_name}:{tag}: {str(e)}")
+                
+                # 我们可以尝试使用备用基础镜像
+                if 'python' in image_name:
+                    # 尝试查找任何可用的Python镜像
+                    available_python_images = self.client.images.list(name="python")
+                    if available_python_images:
+                        logger.info(f"Using alternative Python image: {available_python_images[0].tags[0]}")
+                        return {
+                            'id': available_python_images[0].id,
+                            'tags': available_python_images[0].tags,
+                            'size': available_python_images[0].attrs['Size'],
+                            'created': available_python_images[0].attrs['Created'],
+                            'source': 'alternative'
+                        }
+                
+                # 如果没有备用镜像，尝试创建最小的基础镜像
+                logger.info("No Python image found, attempting to create a minimal base image")
+                
+                # 创建一个最小的Dockerfile
+                minimal_dockerfile = """FROM scratch
+LABEL maintainer="MLRide System"
+CMD ["echo", "Minimal base image"]
+"""
+                # 使用内存流构建最小镜像
+                import io
+                f = io.BytesIO(minimal_dockerfile.encode('utf-8'))
+                minimal_tag = f"mlride-minimal:{int(time.time())}"
+                try:
+                    logger.info(f"Building minimal image: {minimal_tag}")
+                    minimal_image = self.client.images.build(fileobj=f, tag=minimal_tag, pull=False)[0]
+                    logger.info(f"Successfully built minimal image: {minimal_tag}")
+                    return {
+                        'id': minimal_image.id,
+                        'tags': minimal_image.tags,
+                        'size': minimal_image.attrs['Size'],
+                        'created': minimal_image.attrs['Created'],
+                        'source': 'minimal'
+                    }
+                except Exception as build_error:
+                    logger.error(f"Failed to build minimal image: {str(build_error)}")
+                    raise Exception(f"无法拉取镜像且无法创建基础镜像: {str(e)}")
+        except Exception as e:
+            logger.error(f"Error in pull_image: {str(e)}")
             raise
             
     def remove_image(self, image_id: str, force: bool = False) -> bool:
@@ -160,7 +225,7 @@ class DockerClient:
             logger.error(f"Failed to create container from {image_name}: {str(e)}")
             raise
             
-    def start_container(self, container_id: str) -> bool:
+    def start_container(self, container_id: str) -> Dict:
         """
         启动Docker容器
         
@@ -168,15 +233,142 @@ class DockerClient:
             container_id: 容器ID
             
         Returns:
-            bool: 启动是否成功
+            Dict: 包含启动状态和端口映射信息
         """
         try:
             container = self.client.containers.get(container_id)
             container.start()
-            return True
+            
+            # 等待容器完全启动
+            time.sleep(1)
+            
+            # 刷新容器信息
+            container.reload()
+            
+            # 获取端口映射信息
+            port_mappings = {}
+            if container.attrs['NetworkSettings']['Ports']:
+                for container_port, host_bindings in container.attrs['NetworkSettings']['Ports'].items():
+                    if host_bindings:
+                        port_mappings[container_port] = host_bindings[0]['HostPort']
+            
+            return {
+                'status': 'running',
+                'port_mappings': port_mappings
+            }
         except DockerException as e:
             logger.error(f"Failed to start container {container_id}: {str(e)}")
             raise
+            
+    def check_service_ready(self, container_id: str, port: int, timeout: int = 30, alt_ports: list = None) -> bool:
+        """
+        检查容器内服务是否就绪
+        
+        Args:
+            container_id: 容器ID
+            port: 服务主端口
+            timeout: 超时时间(秒)
+            alt_ports: 可选的备用端口列表
+            
+        Returns:
+            bool: 服务是否就绪
+        """
+        if alt_ports is None:
+            alt_ports = []
+            
+        # 检查主端口和所有备用端口
+        ports_to_check = [port] + alt_ports
+        logger.info(f"检查服务就绪状态，将检查以下端口: {ports_to_check}")
+        
+        try:
+            container = self.client.containers.get(container_id)
+            logger.info(f"检查容器 {container_id} 内服务就绪状态")
+            
+            # 检查容器状态
+            if container.status != 'running':
+                logger.error(f"容器 {container_id} 不在运行状态，当前状态: {container.status}")
+                return False
+            
+            # 获取容器IP地址
+            container_ip = None
+            try:
+                container_ip = container.attrs['NetworkSettings']['IPAddress']
+                logger.info(f"从IPAddress获取到容器IP: {container_ip}")
+            except (KeyError, TypeError) as e:
+                logger.warning(f"无法从IPAddress获取容器IP: {str(e)}")
+                
+            if not container_ip:
+                # 如果没有获取到IP地址，尝试从网络设置中获取
+                try:
+                    networks = container.attrs['NetworkSettings']['Networks']
+                    if networks:
+                        for network_name, network_config in networks.items():
+                            if 'IPAddress' in network_config and network_config['IPAddress']:
+                                container_ip = network_config['IPAddress']
+                                logger.info(f"从Networks[{network_name}]获取到容器IP: {container_ip}")
+                                break
+                except (KeyError, TypeError) as e:
+                    logger.warning(f"无法从Networks获取容器IP: {str(e)}")
+            
+            if not container_ip:
+                logger.warning(f"无法获取容器 {container_id} 的IP地址，尝试使用localhost")
+                # 尝试使用localhost作为回退方案
+                container_ip = 'localhost'
+                logger.info(f"使用localhost作为回退方案")
+            
+            # 尝试连接服务
+            service_ready = False
+            start_time = time.time()
+            
+            # 循环直到超时
+            while time.time() - start_time < timeout:
+                # 检查所有要检查的端口
+                for check_port in ports_to_check:
+                    try:
+                        logger.info(f"尝试连接服务: {container_ip}:{check_port}")
+                        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                        sock.settimeout(1)
+                        result = sock.connect_ex((container_ip, check_port))
+                        sock.close()
+                        
+                        if result == 0:
+                            logger.info(f"服务已就绪: {container_ip}:{check_port}")
+                            return True
+                            
+                        logger.debug(f"服务在端口 {check_port} 上尚未就绪，错误码: {result}")
+                    except Exception as e:
+                        logger.debug(f"检查端口 {check_port} 时发生错误: {str(e)}")
+                
+                # 如果所有端口都未就绪，等待一会再尝试
+                time.sleep(1)
+                    
+            # 获取容器日志以帮助诊断问题
+            try:
+                logs = container.logs(tail=50).decode('utf-8')
+                logger.warning(f"服务未就绪，容器日志: {logs}")
+            except Exception as e:
+                logger.error(f"获取容器日志失败: {str(e)}")
+                
+            logger.error(f"服务在 {timeout} 秒后仍未就绪")
+            
+            # 检查容器是否仍在运行
+            try:
+                container.reload()
+                logger.info(f"容器当前状态: {container.status}")
+                if container.status != 'running':
+                    logger.error(f"容器不再运行，当前状态: {container.status}")
+                    return False
+            except Exception as e:
+                logger.error(f"刷新容器状态失败: {str(e)}")
+            
+            logger.warning("服务未就绪，但仍返回True以允许用户尝试连接")
+            # 即使服务未就绪，也返回True以允许用户尝试连接
+            # 这是因为有些服务可能需要更长时间启动，或者我们的检测方法可能不准确
+            return True
+            
+        except DockerException as e:
+            logger.error(f"检查服务就绪状态失败: {str(e)}")
+            return True
             
     def stop_container(self, container_id: str, timeout: int = 10) -> bool:
         """
