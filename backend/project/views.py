@@ -97,11 +97,32 @@ class ProjectViewSet(viewsets.ModelViewSet):
                         'PROJECT_TYPE': 'ide'
                     }
                 elif project.project_type == 'notebook':
+                    # 为Jupyter Notebook配置端口映射和工作目录
                     container_config['ports'] = {'8888/tcp': None}  # Jupyter端口
                     container_config['environment'] = {
                         'PROJECT_ID': str(project.id),
-                        'PROJECT_TYPE': 'notebook'
+                        'PROJECT_TYPE': 'notebook',
+                        'JUPYTER_TOKEN': '',  # 禁用token认证
+                        'JUPYTER_CONFIG_DIR': '/root/.jupyter',
+                        'JUPYTER_DATA_DIR': '/root/.local/share/jupyter',
+                        'JUPYTER_RUNTIME_DIR': '/root/.local/share/jupyter/runtime'
                     }
+                    # 添加工作目录挂载
+                    project_workspace = f'/workspace/project-{project.id}'
+                    container_config['volumes'] = {
+                        project_workspace: {'bind': '/workspace', 'mode': 'rw'}
+                    }
+                    # 设置启动命令
+                    container_config['command'] = [
+                        "jupyter", "notebook",
+                        "--ip=0.0.0.0",
+                        "--port=8888",
+                        "--no-browser",
+                        "--allow-root",
+                        "--NotebookApp.token=''",
+                        "--NotebookApp.password=''",
+                        "--notebook-dir=/workspace"
+                    ]
                 elif project.project_type == 'canvas':
                     container_config['ports'] = {'8080/tcp': None}  # Canvas端口
                     container_config['environment'] = {

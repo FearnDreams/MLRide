@@ -388,6 +388,23 @@ CMD ["echo", "Minimal base image"]
         except DockerException as e:
             logger.error(f"Failed to stop container {container_id}: {str(e)}")
             raise
+    
+    def get_container(self, container_id: str):
+        """
+        根据容器ID获取容器对象
+        
+        Args:
+            container_id: 容器ID
+            
+        Returns:
+            Container: Docker容器对象
+        """
+        try:
+            container = self.client.containers.get(container_id)
+            return container
+        except DockerException as e:
+            logger.error(f"获取容器失败 {container_id}: {str(e)}")
+            raise
             
     def remove_container(self, container_id: str, force: bool = False) -> bool:
         """

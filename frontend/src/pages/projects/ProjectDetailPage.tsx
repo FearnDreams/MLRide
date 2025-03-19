@@ -4,7 +4,9 @@ import { ArrowLeft, Play, Square, RefreshCw, Settings, Cpu, HardDrive, Zap, Book
 import { Button } from '@/components/ui/button';
 import { getProject, startProject, stopProject, getProjectStats, deleteProject } from '@/services/projects';
 import { ProjectResponse } from '@/services/projects';
-import { getJupyterSession, startJupyterSession, stopJupyterSession, JupyterSession } from '@/services/jupyter';
+import { getJupyterSession, startJupyterSession, stopJupyterSession } from '@/services/jupyter';
+import type { JupyterSession } from '@/types/jupyter';
+import JupyterNotebook from '@/components/jupyter/JupyterNotebook';
 import { useToast } from '@/components/ui/use-toast';
 import {
   AlertDialog,
@@ -28,6 +30,7 @@ const ProjectDetailPage: React.FC = () => {
   const [jupyterLoading, setJupyterLoading] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [forceShowJupyter, setForceShowJupyter] = useState(false);
 
   const { toast } = useToast();
 
@@ -55,9 +58,13 @@ const ProjectDetailPage: React.FC = () => {
 
   const fetchJupyterSession = async () => {
     if (!id) return;
+    
     setJupyterLoading(true);
     try {
-      const response = await getJupyterSession(parseInt(id));
+      // 确保id是纯数字
+      const cleanId = id.replace(/[^\d]/g, '');
+      console.log('项目ID清理前:', id, '清理后:', cleanId);
+      const response = await getJupyterSession(cleanId);
       if (response && response.data) {
         setJupyterSession(response.data as unknown as JupyterSession);
       }
@@ -190,14 +197,6 @@ const ProjectDetailPage: React.FC = () => {
     return null;
   };
 
-  const getJupyterUrl = () => {
-    if (!project || project.status !== 'running' || !jupyterSession || jupyterSession.status !== 'running') {
-      return null;
-    }
-    
-    return `/api/jupyter/proxy/${jupyterSession.id}/`;
-  };
-
   if (loading) {
     return (
       <div className="flex-1 flex items-center justify-center">
@@ -227,7 +226,6 @@ const ProjectDetailPage: React.FC = () => {
   }
 
   const ideUrl = getIdeUrl();
-  const jupyterUrl = getJupyterUrl();
 
   return (
     <div className="flex-1 flex flex-col">
@@ -437,12 +435,8 @@ const ProjectDetailPage: React.FC = () => {
       {/* IDE/Jupyter 界面 */}
       <div className="flex-1 bg-slate-800 rounded-xl border border-slate-600 overflow-hidden">
         {project.status === 'running' ? (
-          jupyterUrl ? (
-            <iframe 
-              src={jupyterUrl}
-              className="w-full h-full"
-              title={`${project.name} Jupyter`}
-            />
+          project.project_type === 'notebook' || forceShowJupyter ? (
+            <JupyterNotebook projectId={project.id} />
           ) : ideUrl ? (
             <iframe 
               src={ideUrl}
@@ -450,32 +444,47 @@ const ProjectDetailPage: React.FC = () => {
               title={`${project.name} 开发环境`}
             />
           ) : (
-            <div className="flex items-center justify-center h-full">
-              <div className="text-center max-w-md p-6">
-                <h2 className="text-xl font-semibold mb-2 text-white">环境已启动</h2>
-                <p className="text-gray-300 mb-4">
+            <div className="w-full h-full flex items-center justify-center">
+              <div className="text-center p-6 max-w-md">
+                <h3 className="text-xl font-medium text-gray-200 mb-4">环境已启动</h3>
+                <p className="text-gray-400 mb-6">
                   项目环境已成功启动，但未启动开发工具。请选择启动Jupyter笔记本或其他工具。
                 </p>
-                {jupyterSession && jupyterSession.status !== 'running' && (
+                <div className="flex flex-col justify-center space-y-4">
                   <Button 
-                    className="bg-purple-600 hover:bg-purple-500 text-white"
+                    variant="default"
+                    size="lg"
                     onClick={handleStartJupyter}
-                    disabled={jupyterLoading}
+                    disabled={jupyterLoading || !jupyterSession}
+                    className="flex items-center justify-center"
                   >
-                    {jupyterLoading ? (
-                      <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
-                    ) : (
-                      <BookOpen className="w-4 h-4 mr-2" />
-                    )}
+                    {jupyterLoading ? <RefreshCw className="w-4 h-4 mr-2 animate-spin" /> : <BookOpen className="w-4 h-4 mr-2" />}
                     启动Jupyter笔记本
                   </Button>
-                )}
+                  
+                  <Button 
+                    variant="outline"
+                    onClick={() => setForceShowJupyter(true)}
+                    className="flex items-center justify-center"
+                  >
+                    <BookOpen className="w-4 h-4 mr-2" />
+                    强制显示Jupyter界面
+                  </Button>
+                </div>
+                
+                {/* 添加调试信息 */}
+                <div className="mt-8 text-left text-xs text-gray-500 border-t border-gray-700 pt-4">
+                  <p>调试信息：</p>
+                  <p>项目类型: {project.project_type}</p>
+                  <p>项目状态: {project.status}</p>
+                  <p>Jupyter会话: {jupyterSession ? `ID: ${jupyterSession.id}, 状态: ${jupyterSession.status}` : '未创建'}</p>
+                </div>
               </div>
             </div>
           )
         ) : (
           <div className="flex items-center justify-center h-full">
-            <div className="text-center max-w-md p-6">
+            <div className="text-center p-6 max-w-md">
               <h2 className="text-xl font-semibold mb-2 text-white">项目环境未启动</h2>
               <p className="text-gray-300 mb-4">
                 {project.status === 'creating' 
