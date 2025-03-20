@@ -31,6 +31,12 @@ class JupyterSession(models.Model):
         null=True,
         verbose_name='访问URL'
     )
+    port = models.IntegerField(
+        default=8888,
+        null=True,
+        blank=True,
+        verbose_name='端口号'
+    )
     status = models.CharField(
         max_length=20, 
         choices=STATUS_CHOICES, 

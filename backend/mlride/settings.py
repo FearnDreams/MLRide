@@ -145,11 +145,15 @@ AUTH_USER_MODEL = 'authentication.User'
 # REST Framework settings
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': [
-        'rest_framework.authentication.TokenAuthentication',
         'rest_framework.authentication.SessionAuthentication',
+        'rest_framework.authentication.BasicAuthentication',
     ],
     'DEFAULT_PERMISSION_CLASSES': [
-        'rest_framework.permissions.IsAuthenticated',  # 默认需要认证
+        'rest_framework.permissions.AllowAny',  # 默认允许所有用户访问
+    ],
+    'DEFAULT_RENDERER_CLASSES': [
+        'rest_framework.renderers.JSONRenderer',
+        'rest_framework.renderers.BrowsableAPIRenderer',
     ],
 }
 
@@ -190,13 +194,16 @@ CSRF_TRUSTED_ORIGINS = [
     "http://127.0.0.1:5175",
 ]
 CSRF_COOKIE_DOMAIN = None
-CSRF_COOKIE_HTTPONLY = False
-CSRF_COOKIE_SECURE = False
-CSRF_COOKIE_SAMESITE = 'Lax'
-CSRF_USE_SESSIONS = False
+CSRF_COOKIE_HTTPONLY = False  # 允许JavaScript访问CSRF Cookie
+CSRF_COOKIE_SECURE = False  # 允许通过HTTP发送CSRF Cookie
+CSRF_COOKIE_SAMESITE = 'Lax'  # 同站点请求保护级别
+CSRF_USE_SESSIONS = False  # 不使用会话存储CSRF令牌
 CSRF_COOKIE_NAME = 'csrftoken'
 
 # Session设置
 SESSION_COOKIE_HTTPONLY = True
 SESSION_COOKIE_SAMESITE = 'Lax'
 SESSION_COOKIE_SECURE = False  # 开发环境设置为False
+
+# STATIC_ROOT 设置
+STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')

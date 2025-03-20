@@ -11,7 +11,8 @@ export interface JupyterSession {
 
 // Jupyter API响应类型
 export interface JupyterResponse {
-  status: 'success' | 'error';
-  message?: string;
-  data?: JupyterSession;
+  status: 'success' | 'warning' | 'error';
+  message: string;
+  data?: any;
+  error_details?: string;
 }
