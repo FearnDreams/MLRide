@@ -11,9 +11,11 @@ import {
 
 interface JupyterNotebookProps {
   projectId: number;
+  sessionId?: number;
+  onSessionError?: () => void;
 }
 
-const JupyterNotebook: React.FC<JupyterNotebookProps> = ({ projectId }) => {
+const JupyterNotebook: React.FC<JupyterNotebookProps> = ({ projectId, sessionId, onSessionError }) => {
   const [loading, setLoading] = useState(true);
   const [session, setSession] = useState<JupyterSession | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -39,6 +41,9 @@ const JupyterNotebook: React.FC<JupyterNotebookProps> = ({ projectId }) => {
       } catch (error: any) {
         setError('加载Jupyter失败');
         console.error('Jupyter加载错误:', error);
+        if (onSessionError) {
+          onSessionError();
+        }
       } finally {
         setLoading(false);
       }

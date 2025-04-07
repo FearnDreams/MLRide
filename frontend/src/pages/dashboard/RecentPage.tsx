@@ -17,8 +17,6 @@ const RecentPage: React.FC = () => {
     if (!projectType) return <Rocket className="w-5 h-5 text-indigo-400" />;
     
     switch (projectType.toLowerCase()) {
-      case 'ide':
-        return <Code className="w-5 h-5 text-blue-400" />;
       case 'notebook':
       case 'jupyter':
       case 'jupyter notebook':
@@ -37,8 +35,6 @@ const RecentPage: React.FC = () => {
     if (!projectType) return '未知类型';
     
     switch (projectType.toLowerCase()) {
-      case 'ide':
-        return 'IDE开发环境';
       case 'notebook':
       case 'jupyter':
       case 'jupyter notebook':
@@ -135,17 +131,7 @@ const RecentPage: React.FC = () => {
         {/* 快速创建 */}
         <div className="mb-8">
           <h2 className="text-xl font-bold mb-4 text-white">快速创建</h2>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            <Link to="/dashboard/projects/create-ide" className="block">
-              <div className="bg-slate-800/30 backdrop-blur-sm p-6 rounded-xl border border-slate-700/50 hover:border-blue-500/30 transition-all duration-300 hover:shadow-md hover:shadow-blue-500/5 flex items-center gap-4">
-                <div className="w-10 h-10 rounded-full bg-blue-500/10 flex items-center justify-center">
-                  <Code className="w-5 h-5 text-blue-400" />
-                </div>
-                <div>
-                  <h3 className="text-lg font-medium text-white">新建 IDE</h3>
-                </div>
-              </div>
-            </Link>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <Link to="/dashboard/projects/create-notebook" className="block">
               <div className="bg-slate-800/30 backdrop-blur-sm p-6 rounded-xl border border-slate-700/50 hover:border-green-500/30 transition-all duration-300 hover:shadow-md hover:shadow-green-500/5 flex items-center gap-4">
                 <div className="w-10 h-10 rounded-full bg-green-500/10 flex items-center justify-center">

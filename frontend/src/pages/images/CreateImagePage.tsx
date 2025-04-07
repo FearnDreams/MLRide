@@ -14,7 +14,7 @@ import {
 } from "@/components/ui/select";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Loader2, ArrowLeft } from "lucide-react";
-import { ImageService } from '@/services/images';
+import { imagesService } from '@/services/images';
 import { toast } from 'sonner';
 import axios from 'axios';
 
@@ -171,11 +171,19 @@ export default function CreateImagePage() {
     setIsSubmitting(true);
 
     try {
-      await ImageService.createImage({
+      // 准备要发送的数据，指定使用常规版本而非slim版本
+      const submitData = {
         name: formData.name,
         description: formData.description,
-        pythonVersion: formData.pythonVersion,
-      });
+        python_version: formData.pythonVersion, // 后端字段名
+        pythonVersion: formData.pythonVersion,  // 前端字段名
+        use_slim: false,  // 明确指定不使用slim版本
+      };
+      
+      // 记录发送到API的数据，方便调试
+      console.log('发送到API的数据:', submitData);
+      
+      await imagesService.createImage(submitData);
       
       // 显示成功提示
       toast.success('镜像创建成功！');
@@ -302,10 +310,10 @@ export default function CreateImagePage() {
                   <br />
                   不同版本的镜像构建时间可能不同：
                   <ul className="mt-1 ml-4 list-disc space-y-1">
-                    <li>Python 3.8和3.9版本：约1-2分钟</li>
-                    <li>Python 3.10和3.11版本：约2-4分钟</li>
+                    <li>Python 3.8和3.9版本：约2-4分钟</li>
+                    <li>Python 3.10和3.11版本：约3-5分钟</li>
                   </ul>
-                  请耐心等待构建完成。
+                  系统将直接使用标准Python版本构建镜像（非slim版本），请耐心等待构建完成。
                 </span>
               </p>
             </div>

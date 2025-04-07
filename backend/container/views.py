@@ -47,32 +47,130 @@ class DockerImageViewSet(viewsets.ModelViewSet):
             # 初始化Docker客户端
             docker_client = DockerClient()
             
-            # 构建基础镜像名称
-            base_image = f"python:{image.python_version}-slim"
+            # 直接使用常规Python版本（不带slim后缀）
+            version = image.python_version
+            base_image = f"python:{version}"
+            logger.info(f"使用常规Python版本: {base_image}")
             
-            # 拉取基础镜像
-            logger.info(f"Attempting to pull base image: {base_image}")
+            image_info = None
+            actual_python_version = None
+            
+            # 首先检查本地是否存在匹配的Python镜像
             try:
-                image_info = docker_client.pull_image(base_image)
-                logger.info(f"Successfully pulled/found image: {image_info}")
+                all_images = docker_client.client.images.list()
+                # 检查是否有精确匹配的本地镜像
+                local_image = None
+                for img in all_images:
+                    if f"python:{version}" in img.tags:
+                        local_image = img
+                        logger.info(f"找到本地精确匹配的Python镜像: {img.tags}")
+                        break
+                    # 也检查带registry前缀的镜像
+                    for tag in img.tags:
+                        if tag.endswith(f"/python:{version}") or tag == f"python:{version}":
+                            local_image = img
+                            logger.info(f"找到本地匹配的Python镜像: {tag}")
+                            break
+                    if local_image:
+                        break
                 
-                # 如果是备用镜像，则记录到镜像的错误消息中，但继续处理
-                if image_info.get('source') in ['alternative', 'minimal']:
-                    image.error_message = f"注意：使用了备用镜像，因为无法拉取 {base_image}。"
-                    image.save(update_fields=['error_message'])
-                    
-                    # 更新基础镜像名称为实际使用的镜像
-                    if image_info.get('tags') and len(image_info['tags']) > 0:
-                        base_image = image_info['tags'][0]
-                        logger.info(f"Using alternative base image: {base_image}")
-                
+                if local_image:
+                    logger.info(f"使用本地Python镜像: {local_image.tags}")
+                    image_info = {
+                        'id': local_image.id,
+                        'tags': local_image.tags,
+                        'size': local_image.attrs['Size'],
+                        'created': local_image.attrs['Created'],
+                        'source': 'local'
+                    }
+                    # 尝试获取本地镜像的实际Python版本
+                    actual_python_version = docker_client._verify_python_version_in_image(local_image.id)
+                    if actual_python_version:
+                        logger.info(f"本地镜像的Python版本: {actual_python_version}")
+                        
             except Exception as e:
-                logger.error(f"Failed to pull image {base_image}: {str(e)}")
-                image.status = 'failed'
-                image.error_message = f"无法拉取基础镜像: {str(e)}"
-                image.save(update_fields=['status', 'error_message'])
-                raise Exception(f"无法拉取基础镜像 {base_image}: {str(e)}")
+                logger.warning(f"检查本地镜像时出错: {str(e)}")
             
+            # 如果没有找到本地镜像，尝试从远程拉取
+            if not image_info:
+                try:
+                    # 解析基础镜像的名称和标签
+                    image_parts = base_image.split(':')
+                    image_name = image_parts[0]  # python
+                    image_tag = image_parts[1] if len(image_parts) > 1 else 'latest'
+                    
+                    # 拉取用户指定的基础镜像版本
+                    logger.info(f"拉取镜像: name={image_name}, tag={image_tag}")
+                    image_info = docker_client.pull_image(image_name=image_name, tag=image_tag)
+                    logger.info(f"成功拉取/找到镜像: {image_info}")
+                    
+                except Exception as e:
+                    logger.error(f"拉取镜像 {base_image} 失败: {str(e)}", exc_info=True)
+                    
+                    # 如果指定版本失败，尝试latest作为后备方案
+                    try:
+                        latest_image = "python:latest"
+                        logger.info(f"指定版本失败，尝试latest版本: {latest_image}")
+                        
+                        image_parts = latest_image.split(':')
+                        image_name = image_parts[0]
+                        image_tag = image_parts[1]
+                        
+                        image_info = docker_client.pull_image(image_name=image_name, tag=image_tag)
+                        logger.info(f"成功拉取/找到latest版本: {image_info}")
+                        
+                        # 更新使用的基础镜像
+                        base_image = latest_image
+                        image.error_message = f"注意: 无法获取Python {version}版本，已使用latest版本"
+                        image.save(update_fields=['error_message'])
+                    except Exception as e2:
+                        # 最后一个备选方案：检查本地系统镜像
+                        try:
+                            logger.info("尝试使用本地系统Python或从本地创建基础镜像")
+                            
+                            # 创建一个最小的Dockerfile直接使用现有的Python
+                            minimal_dockerfile = f"""FROM ubuntu:latest
+RUN apt-get update && apt-get install -y python3 python3-pip
+RUN ln -s /usr/bin/python3 /usr/bin/python
+RUN python -m pip install --upgrade pip
+ENV PYTHONUNBUFFERED=1
+"""
+                            # 构建最小化Python镜像
+                            minimal_image_name = f"python-minimal-{version}"
+                            minimal_image_tag = "latest"
+                            
+                            # 使用简单的Dockerfile构建基础镜像
+                            minimal_image = docker_client.build_image_from_dockerfile(
+                                dockerfile_content=minimal_dockerfile,
+                                image_name=minimal_image_name,
+                                image_tag=minimal_image_tag
+                            )
+                            
+                            logger.info(f"成功创建最小化Python镜像: {minimal_image}")
+                            
+                            # 使用这个最小镜像作为基础
+                            base_image = f"{minimal_image_name}:{minimal_image_tag}"
+                            image.error_message = f"注意: 由于无法获取指定版本的Python镜像，已创建最小化系统基础镜像"
+                            image.save(update_fields=['error_message'])
+                            
+                            # 使用这个新构建的镜像信息
+                            image_info = minimal_image
+                            
+                        except Exception as e3:
+                            # 所有尝试都失败
+                            logger.error(f"所有镜像获取方法都失败: {str(e3)}")
+                            image.status = 'failed'
+                            image.error_message = f"无法获取或创建Python镜像: {str(e)}"
+                            image.save(update_fields=['status', 'error_message'])
+                            raise Exception(f"无法获取或创建Python镜像，请检查Docker服务状态")
+            
+            # 确保我们有有效的基础镜像和镜像信息
+            if not base_image or not image_info:
+                image.status = 'failed'
+                image.error_message = "无法确定要使用的基础镜像"
+                image.save(update_fields=['status', 'error_message'])
+                raise Exception("无法确定要使用的基础镜像")
+                
             # 构建自定义镜像名称
             custom_image_name = f"mlride-{image.creator.username}-{image.name}"
             custom_image_tag = f"py{image.python_version}"
@@ -110,12 +208,27 @@ CMD ["jupyter", "notebook", "--ip=0.0.0.0", "--port=8888", "--no-browser", "--al
             # 构建自定义镜像
             try:
                 logger.info(f"Building custom image: {full_image_name}")
-                docker_client.build_image_from_dockerfile(
+                build_result = docker_client.build_image_from_dockerfile(
                     dockerfile_content=dockerfile_content,
                     image_name=custom_image_name,
-                    image_tag=custom_image_tag
+                    image_tag=custom_image_tag,
+                    python_version=version  # 传递预期的Python版本
                 )
                 logger.info(f"Successfully built custom image: {full_image_name}")
+                
+                # 检查构建的镜像中是否返回了实际版本信息
+                if 'actual_python_version' in build_result:
+                    actual_python_version = build_result['actual_python_version']
+                    logger.info(f"构建的镜像实际Python版本: {actual_python_version}")
+                    
+                    # 将实际版本信息保存到数据库
+                    image.actual_version = actual_python_version
+                    image.save(update_fields=['actual_version'])
+                    
+                    # 如果实际版本与预期不符，记录警告
+                    if not actual_python_version.startswith(version):
+                        image.error_message = f"警告: 镜像使用的实际Python版本({actual_python_version})与请求的版本({version})不完全匹配"
+                        image.save(update_fields=['error_message'])
                 
                 # 更新状态为就绪
                 image.status = 'ready'

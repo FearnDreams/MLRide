@@ -62,6 +62,8 @@ class DockerImage(models.Model):
     dockerfile = models.TextField('Dockerfile内容', blank=True, null=True)
     build_log = models.TextField('构建日志', blank=True, null=True)
     error_message = models.TextField('错误信息', blank=True, null=True)
+    use_slim = models.BooleanField('使用slim版本', default=True)
+    actual_version = models.CharField('实际Python版本', max_length=10, blank=True, null=True)
 
     class Meta:
         verbose_name = 'Docker镜像'

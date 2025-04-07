@@ -27,7 +27,7 @@ apiInstance.interceptors.request.use((config) => {
 export interface CreateProjectRequest {
   name: string;
   description?: string;
-  project_type: 'ide' | 'notebook' | 'canvas';
+  project_type: 'notebook' | 'canvas';
   image: number;
   is_public?: boolean;
 }

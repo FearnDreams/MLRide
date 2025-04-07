@@ -5,13 +5,17 @@ to provide high-level operations for managing Docker images and containers.
 """
 
 import docker
-from docker.errors import DockerException
+from docker.errors import DockerException, ImageNotFound, BuildError
 from typing import Dict, List, Optional
 import logging
 import platform
 import os
 import time
 import socket
+import requests
+from requests.adapters import HTTPAdapter, Retry
+import re
+import tempfile
 
 # 设置日志记录器
 logger = logging.getLogger(__name__)
@@ -32,6 +36,10 @@ class DockerClient:
         """
         self.logger = logging.getLogger(__name__)
         
+        # 设置Docker API超时和重试
+        self.timeout = int(os.environ.get("DOCKER_API_TIMEOUT", "180"))  # 默认180秒超时
+        self.max_retries = int(os.environ.get("DOCKER_API_RETRIES", "3"))  # 默认3次重试
+        
         # 检查Docker Desktop是否运行
         import subprocess
         try:
@@ -41,61 +49,58 @@ class DockerClient:
             self.logger.error(f"Docker Desktop可能未运行: {str(e)}")
             raise Exception("请确保Docker Desktop已启动并正在运行")
         
-        # 定义可能的Docker连接URL
-        connection_urls = []
+        # 初始化Docker客户端
+        self._init_client()
+    
+    def _init_client(self):
+        """
+        初始化Docker客户端连接
         
-        # 检查环境变量
+        尝试多种连接方式，优先使用环境变量定义的连接方式
+        """
+        # 可能的Docker连接方式
+        connection_methods = []
+        
+        # 从环境变量获取Docker主机地址
         docker_host = os.environ.get('DOCKER_HOST')
         if docker_host:
-            connection_urls.append(('环境变量', docker_host))
-            
-        # 根据操作系统添加合适的连接方式
-        if platform.system() == 'Windows':
-            connection_urls.extend([
-                ('命名管道', 'npipe:////./pipe/docker_engine'),
-                ('TCP', 'tcp://localhost:2375'),
-                ('TCP替代', 'tcp://127.0.0.1:2375')
-            ])
-        else:
-            connection_urls.append(('Unix Socket', 'unix://var/run/docker.sock'))
-            
-        # 最后添加默认连接方式
-        connection_urls.append(('默认环境', None))
+            connection_methods.append(('环境变量DOCKER_HOST', {'base_url': docker_host}))
         
-        # 尝试所有连接方式
-        last_error = None
+        # 其他常见的Docker连接方式
+        connection_methods.extend([
+            ('默认设置', {}),  # 使用默认设置
+            ('Unix套接字', {'base_url': 'unix://var/run/docker.sock'}),
+            ('TCP连接', {'base_url': 'tcp://localhost:2375'})
+        ])
+        
+        # 配置请求会话以添加重试逻辑
+        session = requests.Session()
+        retries = Retry(
+            total=self.max_retries,
+            backoff_factor=0.5,
+            status_forcelist=[500, 502, 503, 504]
+        )
+        session.mount('http://', HTTPAdapter(max_retries=retries))
+        session.mount('https://', HTTPAdapter(max_retries=retries))
+        
+        # 尝试连接直到成功
         connection_errors = []
+        last_error = None
         
-        for method, url in connection_urls:
+        for method, params in connection_methods:
             try:
-                self.logger.info(f"尝试使用{method}连接Docker: {url if url else '默认环境'}")
+                self.logger.info(f"尝试使用{method}连接Docker")
                 
-                if url:
-                    # 对于TCP连接,确保端口可访问
-                    if 'tcp://' in url:
-                        host = url.split('//')[1].split(':')[0]
-                        port = int(url.split(':')[-1])
-                        try:
-                            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                            sock.settimeout(2)
-                            result = sock.connect_ex((host, port))
-                            sock.close()
-                            if result != 0:
-                                self.logger.warning(f"端口 {port} 不可访问,跳过此连接方式")
-                                continue
-                        except Exception as e:
-                            self.logger.warning(f"检查端口 {port} 失败: {str(e)}")
-                            continue
-                    
-                    self.client = docker.DockerClient(base_url=url)
-                else:
-                    self.client = docker.from_env()
-            
-                # 测试连接
-                self.client.ping()
-                self.logger.info(f"成功使用{method}连接到Docker")
+                # 添加超时设置并使用配置的会话
+                client_params = {
+                    **params,
+                    'timeout': self.timeout
+                }
                 
-                # 获取Docker版本信息
+                self.client = docker.DockerClient(**client_params)
+                self.client.api._timeout = self.timeout
+                
+                # 测试连接是否成功
                 version_info = self.client.version()
                 self.logger.info(f"Docker版本信息: {version_info.get('Version', 'unknown')}")
                 
@@ -105,7 +110,6 @@ class DockerClient:
                     self.logger.info(f"Docker API版本: {api_version}")
                 
                 return  # 连接成功,退出初始化
-                
             except Exception as e:
                 error_msg = f"使用{method}连接Docker失败: {str(e)}"
                 self.logger.warning(error_msg)
@@ -167,35 +171,197 @@ class DockerClient:
     
     def pull_image(self, image_name: str, tag: str = 'latest') -> Dict:
         """
-        拉取Docker镜像
+        拉取Docker镜像，尝试找到或拉取指定版本的镜像
         
         Args:
-            image_name: 镜像名称
-            tag: 镜像标签,默认为latest
+            image_name: 镜像名称，例如'python'
+            tag: 镜像标签，例如'3.9-slim'或'3.11'，默认为'latest'
             
         Returns:
             Dict: 拉取的镜像信息
         """
         try:
-            # 首先检查本地是否已有该镜像
+            # 完整的镜像名称
+            full_image_name = f"{image_name}:{tag}"
+            self.logger.info(f"尝试获取镜像: {full_image_name}, 参数: image_name='{image_name}', tag='{tag}'")
+            
+            # 首先尝试查找本地镜像
             try:
-                local_images = self.client.images.list(name=f"{image_name}:{tag}")
-                if local_images:
-                    self.logger.info(f"Image {image_name}:{tag} already exists locally")
+                # 获取所有镜像
+                all_images = self.client.images.list()
+                
+                # 记录详细的镜像信息用于调试
+                self.logger.info(f"本地镜像总数: {len(all_images)}")
+                if len(all_images) > 0:
+                    all_tags_dict = {}
+                    for img in all_images:
+                        if img.tags:
+                            all_tags_dict[img.id[:12]] = img.tags
+                    self.logger.info(f"带标签的镜像: {all_tags_dict}")
+                
+                # 尝试多种方式查找匹配的镜像
+                matched_image = self._find_local_image(image_name, tag, all_images)
+                
+                if matched_image:
+                    best_tag = self._get_best_matching_tag(matched_image, full_image_name)
+                    self.logger.info(f"使用本地镜像: {best_tag}, ID: {matched_image.id[:12]}")
                     return {
-                        'id': local_images[0].id,
-                        'tags': local_images[0].tags,
-                        'size': local_images[0].attrs['Size'],
-                        'created': local_images[0].attrs['Created'],
+                        'id': matched_image.id,
+                        'tags': matched_image.tags,
+                        'size': matched_image.attrs['Size'],
+                        'created': matched_image.attrs['Created'],
                         'source': 'local'
                     }
+                else:
+                    self.logger.info(f"本地未找到匹配的镜像: {full_image_name}, 将尝试从远程拉取")
             except Exception as e:
-                self.logger.warning(f"Error checking local images: {str(e)}")
+                self.logger.warning(f"检查本地镜像时出错: {str(e)}")
             
-            # 尝试拉取镜像
+            # 尝试拉取镜像，添加重试机制
+            return self._pull_remote_image(image_name, tag)
+            
+        except Exception as e:
+            self.logger.error(f"拉取镜像过程中出错: {str(e)}")
+            raise
+            
+    def _find_local_image(self, image_name, tag, all_images):
+        """
+        在本地查找匹配的镜像
+        
+        Args:
+            image_name: 镜像名称
+            tag: 镜像标签
+            all_images: 所有本地镜像
+            
+        Returns:
+            找到的镜像对象，未找到返回None
+        """
+        full_image_name = f"{image_name}:{tag}"
+        self.logger.info(f"在本地查找镜像: {full_image_name}")
+        
+        # 1. 直接完全匹配 - "python:3.9-slim"
+        for img in all_images:
+            if full_image_name in img.tags:
+                self.logger.info(f"找到完全匹配的本地镜像: {full_image_name}, ID: {img.id[:12]}")
+                return img
+        
+        # 2. 匹配带registry前缀的标签 - "docker.io/python:3.9-slim"
+        for img in all_images:
+            for img_tag in img.tags:
+                if img_tag.endswith(f"/{full_image_name}") or img_tag.endswith(full_image_name):
+                    self.logger.info(f"找到带registry前缀的匹配: {img_tag}, ID: {img.id[:12]}")
+                    return img
+        
+        # 3. 分别解析名称和标签进行匹配
+        for img in all_images:
+            for img_tag in img.tags:
+                try:
+                    if ':' in img_tag:
+                        img_name, img_version = img_tag.rsplit(':', 1)
+                        # 处理registry前缀
+                        if '/' in img_name:
+                            img_name = img_name.split('/')[-1]
+                        
+                        self.logger.debug(f"比较: [{img_name}:{img_version}] 与请求的 [{image_name}:{tag}]")
+                        if img_name == image_name and img_version == tag:
+                            self.logger.info(f"找到名称和版本匹配: {img_tag}, ID: {img.id[:12]}")
+                            return img
+                except Exception:
+                    continue
+        
+        # 4. 尝试更模糊的匹配，例如标签部分匹配
+        if '-' in tag:  # 处理如"3.9-slim"这样的标签
+            base_version = tag.split('-')[0]  # 提取版本号，如"3.9"
+            self.logger.info(f"尝试以基础版本号 {base_version} 查找匹配")
+            
+            # 查找相同版本号的镜像
+            for img in all_images:
+                for img_tag in img.tags:
+                    try:
+                        if ':' in img_tag:
+                            img_name, img_version = img_tag.rsplit(':', 1)
+                            if '/' in img_name:
+                                img_name = img_name.split('/')[-1]
+                            
+                            if img_name == image_name and img_version.startswith(base_version):
+                                self.logger.info(f"找到版本号部分匹配: {img_tag}, ID: {img.id[:12]}")
+                                return img
+                    except Exception:
+                        continue
+        
+        # 没有找到匹配的镜像
+        self.logger.info(f"未找到匹配的本地镜像: {full_image_name}")
+        return None
+        
+    def _get_best_matching_tag(self, image, preferred_tag):
+        """
+        获取最接近请求的镜像标签
+        
+        Args:
+            image: 镜像对象
+            preferred_tag: 首选镜像标签
+            
+        Returns:
+            最佳匹配的标签
+        """
+        # 首先查找完全匹配
+        for tag in image.tags:
+            if tag == preferred_tag:
+                return tag
+                
+        # 查找包含首选标签的标签
+        for tag in image.tags:
+            if preferred_tag in tag:
+                return tag
+                
+        # 否则返回第一个标签
+        if image.tags:
+            return image.tags[0]
+            
+        # 如果没有标签，返回镜像ID
+        return image.id[:12]
+        
+    def _pull_remote_image(self, image_name, tag):
+        """
+        从远程拉取镜像
+        
+        Args:
+            image_name: 镜像名称
+            tag: 镜像标签
+            
+        Returns:
+            Dict: 拉取的镜像信息
+            
+        Raises:
+            Exception: 如果拉取失败
+        """
+        full_image_name = f"{image_name}:{tag}"
+        retry_count = 0
+        max_pull_retries = int(os.environ.get("DOCKER_PULL_RETRIES", "3"))
+        pull_error = None
+        
+        while retry_count < max_pull_retries:
             try:
-                self.logger.info(f"Pulling image {image_name}:{tag}")
-                image = self.client.images.pull(image_name, tag=tag)
+                self.logger.info(f"从远程拉取镜像: {full_image_name} (尝试 {retry_count + 1}/{max_pull_retries})")
+                
+                # 使用低级API拉取镜像
+                self.client.api.pull(image_name, tag=tag)
+                
+                # 尝试获取刚拉取的镜像
+                try:
+                    # 首先尝试完整名称
+                    image = self.client.images.get(full_image_name)
+                except ImageNotFound:
+                    # 如果找不到完整名称，则尝试搜索新拉取的镜像
+                    recent_images = self.client.images.list(name=image_name)
+                    for img in recent_images:
+                        if any(t.endswith(f":{tag}") for t in img.tags):
+                            image = img
+                            break
+                    else:
+                        raise Exception(f"成功拉取但无法找到镜像: {full_image_name}")
+                
+                self.logger.info(f"成功拉取镜像: {full_image_name}, ID: {image.id[:12]}, 标签: {image.tags}")
                 return {
                     'id': image.id,
                     'tags': image.tags,
@@ -204,53 +370,32 @@ class DockerClient:
                     'source': 'remote'
                 }
             except DockerException as e:
-                # 如果拉取失败，记录错误并检查是否可以使用备用镜像
-                self.logger.error(f"Failed to pull image {image_name}:{tag}: {str(e)}")
+                pull_error = e
+                error_msg = str(e)
                 
-                # 我们可以尝试使用备用基础镜像
-                if 'python' in image_name:
-                    # 尝试查找任何可用的Python镜像
-                    available_python_images = self.client.images.list(name="python")
-                    if available_python_images:
-                        self.logger.info(f"Using alternative Python image: {available_python_images[0].tags[0]}")
-                        return {
-                            'id': available_python_images[0].id,
-                            'tags': available_python_images[0].tags,
-                            'size': available_python_images[0].attrs['Size'],
-                            'created': available_python_images[0].attrs['Created'],
-                            'source': 'alternative'
-                        }
+                # 检查是否是网络类型错误
+                is_network_error = any(network_err in error_msg.lower() for network_err in 
+                                      ['timeout', 'connection refused', 'eof', 'network', 'unreachable'])
                 
-                # 如果没有备用镜像，尝试创建最小的基础镜像
-                self.logger.info("No Python image found, attempting to create a minimal base image")
-                
-                # 创建一个最小的Dockerfile
-                minimal_dockerfile = """FROM scratch
-LABEL maintainer="MLRide System"
-CMD ["echo", "Minimal base image"]
-"""
-                # 使用内存流构建最小镜像
-                import io
-                f = io.BytesIO(minimal_dockerfile.encode('utf-8'))
-                minimal_tag = f"mlride-minimal:{int(time.time())}"
-                try:
-                    self.logger.info(f"Building minimal image: {minimal_tag}")
-                    minimal_image = self.client.images.build(fileobj=f, tag=minimal_tag, pull=False)[0]
-                    self.logger.info(f"Successfully built minimal image: {minimal_tag}")
-                    return {
-                        'id': minimal_image.id,
-                        'tags': minimal_image.tags,
-                        'size': minimal_image.attrs['Size'],
-                        'created': minimal_image.attrs['Created'],
-                        'source': 'minimal'
-                    }
-                except Exception as build_error:
-                    self.logger.error(f"Failed to build minimal image: {str(build_error)}")
-                    raise Exception(f"无法拉取镜像且无法创建基础镜像: {str(e)}")
-        except Exception as e:
-            self.logger.error(f"Error in pull_image: {str(e)}")
-            raise
+                if is_network_error:
+                    retry_count += 1
+                    wait_time = retry_count * 2  # 逐步增加等待时间
+                    self.logger.warning(f"网络错误: {error_msg}，等待 {wait_time} 秒后重试...")
+                    time.sleep(wait_time)
+                else:
+                    # 如果不是网络错误，不需要重试
+                    self.logger.error(f"非网络错误，无法拉取: {error_msg}")
+                    break
+        
+        # 所有重试都失败了
+        if pull_error:
+            self.logger.error(f"经过 {max_pull_retries} 次尝试，无法拉取镜像 {full_image_name}: {str(pull_error)}")
+            self.logger.error(f"错误类型: {type(pull_error).__name__}")
+            raise Exception(f"无法获取指定版本的镜像 {full_image_name}。请确保网络连接正常且Docker服务可用。错误详情: {str(pull_error)}")
             
+        # 如果代码执行到这里，说明遇到了未处理的情况
+        raise Exception(f"拉取镜像 {full_image_name} 失败，原因未知")
+    
     def remove_image(self, image_id: str, force: bool = False) -> bool:
         """
         删除Docker镜像
@@ -664,59 +809,302 @@ CMD ["echo", "Minimal base image"]
         dockerfile_content: str,
         image_name: str,
         image_tag: str = 'latest',
-        build_args: Optional[Dict[str, str]] = None
+        build_args: Optional[Dict[str, str]] = None,
+        python_version: Optional[str] = None
     ) -> Dict:
         """
-        从Dockerfile内容构建Docker镜像
+        从Dockerfile内容构建镜像
         
         Args:
             dockerfile_content: Dockerfile内容
             image_name: 镜像名称
-            image_tag: 镜像标签
+            image_tag: 镜像标签,默认为latest
             build_args: 构建参数
+            python_version: 预期的Python版本，用于验证和标记
             
         Returns:
             Dict: 构建的镜像信息
         """
-        import tempfile
         import io
+        import time
         
         try:
-            # 创建临时目录
-            with tempfile.TemporaryDirectory() as temp_dir:
-                # 创建Dockerfile文件
-                dockerfile_path = os.path.join(temp_dir, 'Dockerfile')
-                with open(dockerfile_path, 'w') as f:
-                    f.write(dockerfile_content)
-                
-                self.logger.info(f"Building image {image_name}:{image_tag} from Dockerfile")
-                self.logger.debug(f"Dockerfile content:\n{dockerfile_content}")
-                
-                # 构建镜像
+            # 检查是否已有同名镜像
+            try:
+                local_image = self.client.images.get(f"{image_name}:{image_tag}")
+                self.logger.info(f"Image {image_name}:{image_tag} already exists locally with ID: {local_image.id}")
+                # 如果已经存在，先移除旧的
+                self.client.images.remove(local_image.id, force=True)
+                self.logger.info(f"Removed existing image {image_name}:{image_tag}")
+            except (ImageNotFound, DockerException) as e:
+                self.logger.info(f"No existing image found with name {image_name}:{image_tag}: {str(e)}")
+            
+            # 如果提供了Python版本，添加版本验证命令
+            if python_version:
+                dockerfile_content = self._add_version_verification(dockerfile_content, python_version)
+            
+            # 创建文件对象
+            f = io.BytesIO(dockerfile_content.encode('utf-8'))
+            
+            # 构建镜像
+            self.logger.info(f"Building image {image_name}:{image_tag} from Dockerfile")
+            
+            # 设置构建超时
+            build_timeout = 300  # 5分钟
+            
+            # 尝试构建，设置超时时间和构建参数
+            try:
                 image, logs = self.client.images.build(
-                    path=temp_dir,
+                    fileobj=f,
                     tag=f"{image_name}:{image_tag}",
-                    buildargs=build_args,
-                    rm=True
+                    rm=True,
+                    pull=True,  # 尝试拉取最新的基础镜像
+                    timeout=build_timeout,
+                    buildargs=build_args
                 )
                 
-                # 记录构建日志
+                # 输出构建日志
+                log_output = []
                 for log in logs:
                     if 'stream' in log:
                         log_line = log['stream'].strip()
                         if log_line:
-                            self.logger.debug(f"Build log: {log_line}")
+                            log_output.append(log_line)
+                            self.logger.debug(log_line)
                 
+                self.logger.info(f"Successfully built image {image_name}:{image_tag}")
+                
+                # 验证构建的镜像中的Python版本
+                if python_version:
+                    actual_version = self._verify_python_version_in_image(image.id)
+                    if actual_version:
+                        self.logger.info(f"验证镜像Python版本: 预期={python_version}, 实际={actual_version}")
+                        # 添加额外的标签记录实际版本
+                        self.client.images.get(image.id).tag(
+                            f"{image_name}", f"actual-py{actual_version}"
+                        )
+                
+                # 返回镜像信息
                 return {
                     'id': image.id,
                     'tags': image.tags,
-                    'size': image.attrs['Size'] if 'Size' in image.attrs else None,
-                    'created': image.attrs['Created'] if 'Created' in image.attrs else None
+                    'size': image.attrs['Size'],
+                    'created': image.attrs['Created'],
+                    'log': log_output
                 }
+            except (BuildError, DockerException) as build_error:
+                self.logger.error(f"Build error: {str(build_error)}")
                 
-        except DockerException as e:
-            self.logger.error(f"Failed to build image {image_name}:{image_tag}: {str(e)}")
-            raise 
+                # 尝试调整Dockerfile，移除可能导致问题的部分
+                self.logger.info("Attempting to build with modified Dockerfile")
+                
+                # 修改Dockerfile，尝试不依赖网络的构建
+                simplified_dockerfile = self._create_simplified_dockerfile(dockerfile_content)
+                f = io.BytesIO(simplified_dockerfile.encode('utf-8'))
+                
+                try:
+                    # 使用最小方式重试构建
+                    image, logs = self.client.images.build(
+                        fileobj=f,
+                        tag=f"{image_name}:{image_tag}",
+                        rm=True,
+                        pull=False,  # 不尝试拉取新镜像
+                        timeout=build_timeout
+                    )
+                    
+                    self.logger.info(f"Successfully built image with simplified Dockerfile: {image_name}:{image_tag}")
+                    
+                    # 验证构建的镜像中的Python版本
+                    if python_version:
+                        actual_version = self._verify_python_version_in_image(image.id)
+                        if actual_version:
+                            self.logger.info(f"验证镜像Python版本: 预期={python_version}, 实际={actual_version}")
+                            # 添加额外的标签记录实际版本
+                            self.client.images.get(image.id).tag(
+                                f"{image_name}", f"actual-py{actual_version}"
+                            )
+                    
+                    return {
+                        'id': image.id,
+                        'tags': image.tags,
+                        'size': image.attrs['Size'],
+                        'created': image.attrs['Created'],
+                        'note': '使用了简化版Dockerfile构建，可能缺少某些功能'
+                    }
+                except Exception as retry_error:
+                    self.logger.error(f"Simplified build also failed: {str(retry_error)}")
+                    raise Exception(f"无法构建Docker镜像: {str(build_error)}，重试也失败: {str(retry_error)}")
+                    
+        except Exception as e:
+            self.logger.error(f"Error building image from Dockerfile: {str(e)}", exc_info=True)
+            raise
+    
+    def _add_version_verification(self, dockerfile_content, expected_version):
+        """
+        在Dockerfile中添加Python版本验证步骤
+        
+        Args:
+            dockerfile_content (str): 原始Dockerfile内容
+            expected_version (str): 期望的Python版本
+            
+        Returns:
+            str: 添加了验证命令的Dockerfile内容
+        """
+        # 添加一个RUN命令来检查Python版本并输出到构建日志
+        verification_command = f"""
+# 验证Python版本
+RUN python --version && \\
+    echo "期望的Python版本: {expected_version}" && \\
+    python -c "import platform; print('实际Python版本:', platform.python_version())" && \\
+    if python -c "import platform; v=platform.python_version().split('.'); exit(0 if '{expected_version}'.startswith(v[0]+'.'+v[1]) else 1)"; then \\
+        echo "Python版本验证通过"; \\
+    else \\
+        echo "警告: 实际Python版本与期望版本({expected_version})不匹配"; \\
+    fi
+"""
+        # 将验证命令附加到Dockerfile末尾
+        dockerfile_lines = dockerfile_content.splitlines()
+        
+        # 找到合适的位置插入验证命令 - 在第一个FROM之后
+        for i, line in enumerate(dockerfile_lines):
+            if line.strip().startswith("FROM "):
+                # 在FROM行之后插入验证命令
+                dockerfile_lines.insert(i + 1, verification_command)
+                break
+        else:
+            # 如果没有FROM行，直接在开头添加
+            dockerfile_lines.insert(0, verification_command)
+        
+        return "\n".join(dockerfile_lines)
+        
+    def _verify_python_version_in_image(self, image_id: str) -> Optional[str]:
+        """
+        在镜像中验证Python版本
+        
+        Args:
+            image_id: 镜像ID
+            
+        Returns:
+            Optional[str]: 检测到的Python版本，如果检测失败则返回None
+        """
+        try:
+            # 创建临时容器来运行命令
+            container = self.client.containers.create(
+                image_id,
+                command="python -c 'import platform; print(platform.python_version())'",
+                detach=False
+            )
+            
+            # 启动容器
+            container.start()
+            
+            # 等待容器完成
+            exit_code = container.wait()['StatusCode']
+            
+            if exit_code == 0:
+                # 获取输出
+                logs = container.logs().decode('utf-8').strip()
+                self.logger.info(f"检测到镜像中的Python版本: {logs}")
+                
+                # 清理容器
+                container.remove()
+                
+                return logs
+            else:
+                self.logger.warning(f"Python版本检查失败，退出码: {exit_code}")
+                # 清理容器
+                container.remove()
+                return None
+                
+        except Exception as e:
+            self.logger.error(f"验证镜像中的Python版本时出错: {str(e)}")
+            return None
+
+    def _create_simplified_dockerfile(self, original_dockerfile):
+        """
+        创建简化版的Dockerfile，移除可能导致构建失败的操作
+        
+        主要用于网络受限环境，通过移除需要网络的操作来确保构建成功
+        
+        Args:
+            original_dockerfile (str): 原始Dockerfile内容
+            
+        Returns:
+            str: 简化后的Dockerfile内容
+        """
+        logger.info("创建简化版Dockerfile")
+        
+        # 分行处理Dockerfile
+        lines = original_dockerfile.splitlines()
+        simplified_lines = []
+        
+        # 指示下一行是否需要被保留
+        keep_next_line = True
+        
+        for line in lines:
+            line_stripped = line.strip()
+            
+            # 始终保留FROM指令
+            if line_stripped.startswith('FROM '):
+                simplified_lines.append(line)
+                keep_next_line = True
+                continue
+                
+            # 保留WORKDIR指令
+            if line_stripped.startswith('WORKDIR '):
+                simplified_lines.append(line)
+                continue
+                
+            # 保留ENV指令
+            if line_stripped.startswith('ENV '):
+                simplified_lines.append(line)
+                continue
+                
+            # 保留LABEL指令
+            if line_stripped.startswith('LABEL '):
+                simplified_lines.append(line)
+                continue
+                
+            # 保留CMD和ENTRYPOINT指令
+            if line_stripped.startswith('CMD ') or line_stripped.startswith('ENTRYPOINT '):
+                simplified_lines.append(line)
+                continue
+                
+            # 注释掉RUN pip install命令，因为它们需要网络
+            if line_stripped.startswith('RUN pip') or 'pip install' in line_stripped:
+                simplified_lines.append(f'# 已移除(需要网络): {line}')
+                continue
+            
+            # 保留目录创建命令
+            if 'mkdir' in line_stripped and line_stripped.startswith('RUN '):
+                simplified_lines.append(line)
+                continue
+                
+            # 处理多行RUN命令
+            if line_stripped.endswith('\\'):
+                if 'pip install' in line_stripped:
+                    simplified_lines.append(f'# 已移除(需要网络): {line}')
+                    keep_next_line = False
+                else:
+                    simplified_lines.append(line)
+                continue
+                
+            # 根据上一行的标志决定是否保留当前行
+            if not keep_next_line:
+                simplified_lines.append(f'# 已移除(需要网络): {line}')
+                if not line_stripped.endswith('\\'):
+                    keep_next_line = True  # 重置标志
+            else:
+                # 对于不确定的行，直接注释以避险
+                if line_stripped.startswith('RUN ') and ('apt-get' in line_stripped or 'yum' in line_stripped):
+                    simplified_lines.append(f'# 已移除(需要网络): {line}')
+                else:
+                    simplified_lines.append(line)
+        
+        # 添加注释说明这是简化版
+        simplified_lines.append('\n# 注意: 这是简化版Dockerfile，已移除需要网络的操作')
+        
+        return '\n'.join(simplified_lines)
 
     def copy_to_container(self, container_id, source_path, target_path):
         """

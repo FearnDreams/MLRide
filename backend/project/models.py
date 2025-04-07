@@ -16,7 +16,7 @@ class Project(models.Model):
     Attributes:
         name (str): 项目名称
         description (str): 项目描述
-        project_type (str): 项目类型(IDE/Notebook/Canvas)
+        project_type (str): 项目类型(Notebook/Canvas)
         created_at (datetime): 创建时间
         updated_at (datetime): 更新时间
         user (ForeignKey): 项目创建者
@@ -28,7 +28,6 @@ class Project(models.Model):
     
     # 项目类型选择
     TYPE_CHOICES = [
-        ('ide', 'IDE开发环境'),
         ('notebook', 'Jupyter Notebook'),
         ('canvas', '可视化拖拽编程'),
     ]
@@ -43,7 +42,7 @@ class Project(models.Model):
     
     name = models.CharField('项目名称', max_length=100)
     description = models.TextField('项目描述', blank=True)
-    project_type = models.CharField('项目类型', max_length=20, choices=TYPE_CHOICES, default='ide')
+    project_type = models.CharField('项目类型', max_length=20, choices=TYPE_CHOICES, default='notebook')
     created_at = models.DateTimeField('创建时间', default=timezone.now)
     updated_at = models.DateTimeField('更新时间', auto_now=True)
     user = models.ForeignKey(

@@ -65,9 +65,7 @@ const ProjectDetailPage: React.FC = () => {
       const cleanId = id.replace(/[^\d]/g, '');
       console.log('项目ID清理前:', id, '清理后:', cleanId);
       const response = await getJupyterSession(cleanId);
-      if (response && response.data) {
-        setJupyterSession(response.data as unknown as JupyterSession);
-      }
+      setJupyterSession(response);
     } catch (error) {
       console.error('获取Jupyter会话失败:', error);
     } finally {
@@ -143,14 +141,45 @@ const ProjectDetailPage: React.FC = () => {
     
     setStatusLoading(true);
     try {
-      await stopProject(parseInt(id));
-      const response = await getProject(parseInt(id));
-      if (response && response.data) {
-        setProject(response.data as unknown as ProjectResponse);
-        setJupyterSession(null);
-      }
+      // 尝试停止项目，如果失败可能需要重试
+      const stopProjectWithRetry = async (retries = 3) => {
+        try {
+          // 尝试停止项目
+          await stopProject(parseInt(id));
+          
+          // 停止成功后获取更新的项目状态
+          const response = await getProject(parseInt(id));
+          if (response && response.data) {
+            setProject(response.data as unknown as ProjectResponse);
+            // 清除Jupyter会话状态
+            setJupyterSession(null);
+            return true;
+          }
+          return false;
+        } catch (error) {
+          console.error(`停止项目尝试失败 (剩余重试次数: ${retries-1}):`, error);
+          if (retries > 1) {
+            // 等待一秒后重试
+            await new Promise(resolve => setTimeout(resolve, 1000));
+            return stopProjectWithRetry(retries - 1);
+          }
+          throw error;
+        }
+      };
+      
+      await stopProjectWithRetry();
+      
+      toast({
+        title: "成功",
+        description: "项目已成功停止",
+      });
     } catch (error) {
       console.error('停止项目失败:', error);
+      toast({
+        title: "错误",
+        description: "停止项目失败，请稍后重试",
+        variant: "destructive",
+      });
     } finally {
       setStatusLoading(false);
     }
@@ -181,51 +210,174 @@ const ProjectDetailPage: React.FC = () => {
     }
   };
 
-  const getIdeUrl = () => {
-    if (!project || project.status !== 'running' || !project.container_details) {
-      return null;
-    }
-
-    const { project_type } = project;
-    
-    const hostname = window.location.hostname;
-    
-    if (project_type === 'ide') {
-      return `http://${hostname}:3000`;
-    }
-    
-    return null;
+  // 处理Jupyter会话错误
+  const handleJupyterSessionError = () => {
+    toast({
+      title: "Jupyter错误",
+      description: "Jupyter会话发生错误，请尝试刷新页面或重启Jupyter",
+      variant: "destructive",
+    });
+    fetchJupyterSession(); // 重新获取会话状态
   };
 
-  if (loading) {
-    return (
-      <div className="flex-1 flex items-center justify-center">
-        <div className="flex flex-col items-center">
-          <RefreshCw className="w-8 h-8 text-blue-500 animate-spin mb-4" />
-          <p className="text-slate-400">加载项目信息...</p>
+  // 渲染基于项目类型的界面
+  const renderProjectContent = () => {
+    if (loading) {
+      return (
+        <div className="flex justify-center items-center h-64">
+          <Loader2 className="w-10 h-10 text-blue-400 animate-spin" />
         </div>
-      </div>
-    );
-  }
+      );
+    }
 
-  if (!project) {
-    return (
-      <div className="flex-1 flex items-center justify-center">
-        <div className="bg-red-500/10 border border-red-500/30 p-6 rounded-lg max-w-md text-center">
-          <h2 className="text-xl font-semibold mb-2 text-red-400">加载失败</h2>
-          <p className="text-slate-300 mb-4">项目不存在或已被删除</p>
+    if (!project) {
+      return (
+        <div className="text-center py-10">
+          <p className="text-gray-400">项目不存在或已被删除</p>
+        </div>
+      );
+    }
+
+    const project_type = project.project_type?.toLowerCase() || '';
+
+    // 检查项目容器状态，如果不是运行中，显示启动按钮
+    if (project.status !== 'running' && project.container_details) {
+      return (
+        <div className="text-center py-10">
+          <p className="text-gray-300 mb-4">项目当前未运行</p>
           <Button 
-            onClick={() => navigate('/dashboard/projects')}
-            variant="outline"
+            className="bg-green-600 hover:bg-green-700"
+            onClick={handleStartProject}
+            disabled={statusLoading}
           >
-            返回项目列表
+            {statusLoading ? (
+              <>
+                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                正在启动...
+              </>
+            ) : (
+              <>
+                <Play className="w-4 h-4 mr-2" />
+                启动项目
+              </>
+            )}
           </Button>
         </div>
+      );
+    }
+
+    // 根据项目类型渲染不同的内容
+    if (project_type === 'notebook') {
+      // 检查是否有Jupyter会话
+      if (!jupyterSession && !jupyterLoading && !forceShowJupyter) {
+        return (
+          <div className="text-center py-10">
+            <p className="text-gray-300 mb-4">Jupyter服务未启动</p>
+            <Button 
+              className="bg-green-600 hover:bg-green-700 mr-2"
+              onClick={handleStartJupyter}
+              disabled={jupyterLoading}
+            >
+              {jupyterLoading ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  正在启动...
+                </>
+              ) : (
+                <>
+                  <Play className="w-4 h-4 mr-2" />
+                  启动Jupyter
+                </>
+              )}
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => setForceShowJupyter(true)}
+            >
+              强制显示Notebook
+            </Button>
+          </div>
+        );
+      }
+
+      // 显示Jupyter界面
+      return (
+        <div className="h-full">
+          <JupyterNotebook 
+            projectId={parseInt(project.id.toString())}
+            sessionId={jupyterSession?.id} 
+            onSessionError={handleJupyterSessionError}
+          />
+        </div>
+      );
+    } else if (project_type === 'canvas') {
+      return (
+        <div className="text-center py-10">
+          <p className="text-gray-300">可视化拖拽编程界面正在开发中...</p>
+        </div>
+      );
+    } else {
+      return (
+        <div className="text-center py-10">
+          <p className="text-gray-300">未知项目类型或不支持的界面</p>
+        </div>
+      );
+    }
+  };
+
+  // 项目详细信息部分
+  const renderProjectDetails = () => {
+    if (!project) return null;
+    
+    return (
+      <div>
+        <h2 className="text-lg font-bold mb-4 text-white">项目详情</h2>
+        <div className="space-y-2 text-sm">
+          <div className="flex justify-between">
+            <span className="text-gray-400">项目类型:</span>
+            <span className="text-white font-medium">
+              {project.project_type === 'notebook' ? 'Jupyter Notebook' :
+               project.project_type === 'canvas' ? '可视化拖拽编程' : 
+               project.project_type}
+            </span>
+          </div>
+
+          <div className="flex justify-between">
+            <span className="text-gray-400">项目状态:</span>
+            <span className="text-white font-medium">
+              {project.status === 'running' ? '运行中' :
+               project.status === 'stopped' ? '已停止' :
+               project.status === 'error' ? '错误' :
+               project.status === 'creating' ? '创建中' : project.status}
+            </span>
+          </div>
+
+          <div className="flex justify-between">
+            <span className="text-gray-400">资源使用:</span>
+            <span className="text-white font-medium">
+              {statusLoading ? (
+                <span className="text-sm text-gray-400">加载中...</span>
+              ) : stats ? (
+                <span>{stats.cpu_usage?.toFixed(1)}% CPU | {stats.memory_usage?.toFixed(1)}MB 内存</span>
+              ) : (
+                <span className="text-sm text-gray-400">项目未运行</span>
+              )}
+            </span>
+          </div>
+
+          {project.image_details && (
+            <div className="flex justify-between">
+              <span className="text-gray-400">使用镜像:</span>
+              <span className="text-white font-medium">
+                {project.image_details.name}
+                {project.image_details.pythonVersion && ` (Python ${project.image_details.pythonVersion})`}
+              </span>
+            </div>
+          )}
+        </div>
       </div>
     );
-  }
-
-  const ideUrl = getIdeUrl();
+  };
 
   return (
     <div className="flex-1 flex flex-col">
@@ -241,22 +393,13 @@ const ProjectDetailPage: React.FC = () => {
             返回项目列表
           </Button>
           <div>
-            <h1 className="text-2xl font-bold text-white">{project.name}</h1>
-            <p className="text-gray-300">{project.description || '无项目描述'}</p>
-            {project.image_details && (
-              <div className="flex items-center gap-1.5 mt-1.5">
-                <Image className="w-4 h-4 text-blue-400" />
-                <span className="text-sm text-gray-400">
-                  使用镜像: {project.image_details.name}
-                  {project.image_details.pythonVersion && ` (Python ${project.image_details.pythonVersion})`}
-                </span>
-              </div>
-            )}
+            <h1 className="text-2xl font-bold text-white">{project?.name}</h1>
+            <p className="text-gray-300">{project?.description || '无项目描述'}</p>
           </div>
         </div>
         
         <div className="flex items-center space-x-2">
-          {project.status === 'running' ? (
+          {project?.status === 'running' ? (
             <Button 
               variant="outline" 
               className="bg-red-500/10 hover:bg-red-500/20 text-red-300 border-red-500/50"
@@ -286,37 +429,22 @@ const ProjectDetailPage: React.FC = () => {
             </Button>
           )}
           
-          {/* Jupyter控制按钮 */}
-          {project.status === 'running' && jupyterSession && (
-            jupyterSession.status === 'running' ? (
-              <Button 
-                variant="outline" 
-                className="bg-yellow-500/10 hover:bg-yellow-500/20 text-yellow-300 border-yellow-500/50"
-                onClick={handleStopJupyter}
-                disabled={jupyterLoading}
-              >
-                {jupyterLoading ? (
-                  <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
-                ) : (
-                  <Square className="w-4 h-4 mr-2" />
-                )}
-                停止Jupyter
-              </Button>
-            ) : (
-              <Button 
-                variant="outline" 
-                className="bg-purple-500/10 hover:bg-purple-500/20 text-purple-300 border-purple-500/50"
-                onClick={handleStartJupyter}
-                disabled={jupyterLoading}
-              >
-                {jupyterLoading ? (
-                  <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
-                ) : (
-                  <BookOpen className="w-4 h-4 mr-2" />
-                )}
-                启动Jupyter
-              </Button>
-            )
+          {/* Jupyter控制按钮 - 只有当Jupyter未启动时才显示启动按钮 */}
+          {project?.status === 'running' && jupyterSession && 
+           jupyterSession.status !== 'running' && (
+            <Button 
+              variant="outline" 
+              className="bg-purple-500/10 hover:bg-purple-500/20 text-purple-300 border-purple-500/50"
+              onClick={handleStartJupyter}
+              disabled={jupyterLoading}
+            >
+              {jupyterLoading ? (
+                <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
+              ) : (
+                <BookOpen className="w-4 h-4 mr-2" />
+              )}
+              启动Jupyter
+            </Button>
           )}
           
           <Button 
@@ -348,16 +476,16 @@ const ProjectDetailPage: React.FC = () => {
               <h3 className="text-sm font-medium text-gray-300">项目状态</h3>
               <div className="flex items-center">
                 <span className={`inline-block w-2 h-2 rounded-full mr-2 ${
-                  project.status === 'running' ? 'bg-green-500' :
-                  project.status === 'stopped' ? 'bg-yellow-500' :
-                  project.status === 'error' ? 'bg-red-500' :
+                  project?.status === 'running' ? 'bg-green-500' :
+                  project?.status === 'stopped' ? 'bg-yellow-500' :
+                  project?.status === 'error' ? 'bg-red-500' :
                   'bg-blue-500'
                 }`}></span>
                 <p className="text-lg font-semibold text-white">
-                  {project.status === 'running' ? '运行中' :
-                  project.status === 'stopped' ? '已停止' :
-                  project.status === 'error' ? '错误' :
-                  project.status === 'creating' ? '创建中' : project.status}
+                  {project?.status === 'running' ? '运行中' :
+                  project?.status === 'stopped' ? '已停止' :
+                  project?.status === 'error' ? '错误' :
+                  project?.status === 'creating' ? '创建中' : project?.status}
                 </p>
               </div>
             </div>
@@ -372,9 +500,8 @@ const ProjectDetailPage: React.FC = () => {
             <div>
               <h3 className="text-sm font-medium text-gray-300">项目类型</h3>
               <p className="text-lg font-semibold text-white">
-                {project.project_type === 'ide' ? 'IDE开发环境' :
-                project.project_type === 'notebook' ? 'Jupyter Notebook' :
-                project.project_type === 'canvas' ? '可视化拖拽编程' : project.project_type}
+                {project?.project_type === 'notebook' ? 'Jupyter Notebook' :
+                project?.project_type === 'canvas' ? '可视化拖拽编程' : project?.project_type}
               </p>
             </div>
           </div>
@@ -401,113 +528,9 @@ const ProjectDetailPage: React.FC = () => {
         </div>
       </div>
       
-      {/* Jupyter 状态 */}
-      {project.status === 'running' && jupyterSession && (
-        <div className="mb-6 bg-slate-800 rounded-xl border border-slate-600 p-4">
-          <div className="flex items-center">
-            <div className="w-10 h-10 rounded-full bg-indigo-500/20 flex items-center justify-center mr-3">
-              <BookOpen className="w-5 h-5 text-indigo-300" />
-            </div>
-            <div className="flex-1">
-              <h3 className="text-sm font-medium text-gray-300">Jupyter 会话状态</h3>
-              <div className="flex items-center">
-                <span className={`inline-block w-2 h-2 rounded-full mr-2 ${
-                  jupyterSession.status === 'running' ? 'bg-green-500' :
-                  jupyterSession.status === 'stopped' ? 'bg-yellow-500' :
-                  jupyterSession.status === 'error' ? 'bg-red-500' :
-                  'bg-blue-500'
-                }`}></span>
-                <p className="text-lg font-semibold text-white">
-                  {jupyterSession.status === 'running' ? '运行中' :
-                  jupyterSession.status === 'stopped' ? '已停止' :
-                  jupyterSession.status === 'error' ? '错误' :
-                  jupyterSession.status === 'creating' ? '创建中' : jupyterSession.status}
-                </p>
-              </div>
-            </div>
-            {jupyterLoading && (
-              <RefreshCw className="w-4 h-4 text-blue-300 animate-spin ml-2" />
-            )}
-          </div>
-        </div>
-      )}
-      
       {/* IDE/Jupyter 界面 */}
       <div className="flex-1 bg-slate-800 rounded-xl border border-slate-600 overflow-hidden">
-        {project.status === 'running' ? (
-          project.project_type === 'notebook' || forceShowJupyter ? (
-            <JupyterNotebook projectId={project.id} />
-          ) : ideUrl ? (
-            <iframe 
-              src={ideUrl}
-              className="w-full h-full"
-              title={`${project.name} 开发环境`}
-            />
-          ) : (
-            <div className="w-full h-full flex items-center justify-center">
-              <div className="text-center p-6 max-w-md">
-                <h3 className="text-xl font-medium text-gray-200 mb-4">环境已启动</h3>
-                <p className="text-gray-400 mb-6">
-                  项目环境已成功启动，但未启动开发工具。请选择启动Jupyter笔记本或其他工具。
-                </p>
-                <div className="flex flex-col justify-center space-y-4">
-                  <Button 
-                    variant="default"
-                    size="lg"
-                    onClick={handleStartJupyter}
-                    disabled={jupyterLoading || !jupyterSession}
-                    className="flex items-center justify-center"
-                  >
-                    {jupyterLoading ? <RefreshCw className="w-4 h-4 mr-2 animate-spin" /> : <BookOpen className="w-4 h-4 mr-2" />}
-                    启动Jupyter笔记本
-                  </Button>
-                  
-                  <Button 
-                    variant="outline"
-                    onClick={() => setForceShowJupyter(true)}
-                    className="flex items-center justify-center"
-                  >
-                    <BookOpen className="w-4 h-4 mr-2" />
-                    强制显示Jupyter界面
-                  </Button>
-                </div>
-                
-                {/* 添加调试信息 */}
-                <div className="mt-8 text-left text-xs text-gray-500 border-t border-gray-700 pt-4">
-                  <p>调试信息：</p>
-                  <p>项目类型: {project.project_type}</p>
-                  <p>项目状态: {project.status}</p>
-                  <p>Jupyter会话: {jupyterSession ? `ID: ${jupyterSession.id}, 状态: ${jupyterSession.status}` : '未创建'}</p>
-                </div>
-              </div>
-            </div>
-          )
-        ) : (
-          <div className="flex items-center justify-center h-full">
-            <div className="text-center p-6 max-w-md">
-              <h2 className="text-xl font-semibold mb-2 text-white">项目环境未启动</h2>
-              <p className="text-gray-300 mb-4">
-                {project.status === 'creating' 
-                  ? '项目环境正在创建中，请稍候...' 
-                  : '请点击"启动项目"按钮以启动项目环境'}
-              </p>
-              {project.status !== 'creating' && (
-                <Button 
-                  className="bg-blue-600 hover:bg-blue-500 text-white"
-                  onClick={handleStartProject}
-                  disabled={statusLoading}
-                >
-                  {statusLoading ? (
-                    <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
-                  ) : (
-                    <Play className="w-4 h-4 mr-2" />
-                  )}
-                  启动项目
-                </Button>
-              )}
-            </div>
-          </div>
-        )}
+        {renderProjectContent()}
       </div>
       
       {/* 删除确认对话框 */}

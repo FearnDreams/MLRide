@@ -78,7 +78,19 @@ export const imagesService = {
   // 创建新镜像
   createImage: async (data: any): Promise<ApiResponse> => {
     try {
-      const response = await api.post<ApiResponse>('container/images/', data);
+      // 转换数据字段名 - 将前端的pythonVersion转为后端的python_version
+      const apiData = {
+        ...data,
+        python_version: data.pythonVersion,
+        use_slim: false,  // 确保始终使用常规版本而非slim版本
+      };
+      
+      // 移除原始字段以避免冗余
+      if ('pythonVersion' in apiData) {
+        delete apiData.pythonVersion;
+      }
+      
+      const response = await api.post<ApiResponse>('container/images/', apiData);
       return response.data;
     } catch (error: any) {
       console.error('创建镜像失败:', error);
@@ -145,8 +157,18 @@ export class ImageService {
   // 创建新镜像
   static async createImage(data: CreateImageRequest): Promise<ImageResponse> {
     try {
-      const response = await apiInstance.post('/images/', data);
-      return response.data;
+      // 转换数据字段名 - 将前端的pythonVersion转为后端的python_version
+      const apiData = {
+        name: data.name,
+        description: data.description,
+        python_version: data.pythonVersion,
+      };
+      
+      const response = await api.post<ApiResponse>('container/images/', apiData);
+      if (!response.data.data) {
+        throw new Error('创建镜像失败: 服务器未返回有效数据');
+      }
+      return response.data.data as ImageResponse;
     } catch (error) {
       if (axios.isAxiosError(error)) {
         // 处理API错误，尝试获取更详细的错误信息
@@ -175,8 +197,13 @@ export class ImageService {
   // 获取镜像列表
   static async getImages(): Promise<ImageResponse[]> {
     try {
-      const response = await apiInstance.get('/images/');
-      return response.data;
+      const response = await api.get<ApiResponse>('container/images/');
+      if (!response.data.data) {
+        return [];
+      }
+      return Array.isArray(response.data.data) 
+        ? response.data.data as ImageResponse[]
+        : [response.data.data as ImageResponse];
     } catch (error) {
       if (axios.isAxiosError(error)) {
         const message = error.response?.data?.message || '获取镜像列表失败';
@@ -189,8 +216,11 @@ export class ImageService {
   // 获取单个镜像详情
   static async getImage(id: string): Promise<ImageResponse> {
     try {
-      const response = await apiInstance.get(`/images/${id}/`);
-      return response.data;
+      const response = await api.get<ApiResponse>(`container/images/${id}/`);
+      if (!response.data.data) {
+        throw new Error('获取镜像详情失败: 服务器未返回有效数据');
+      }
+      return response.data.data as ImageResponse;
     } catch (error) {
       if (axios.isAxiosError(error)) {
         const message = error.response?.data?.message || '获取镜像详情失败';

@@ -200,3 +200,33 @@ Ref/
 # 允许 frontend/src/lib
 !frontend/src/lib/
 !frontend/src/lib/*
+
+# 忽略Django静态文件收集目录
+backend/staticfiles/
+backend/workspaces/
+
+# 同时建议一并忽略以下目录
+backend/media/
+*.pyc
+__pycache__/
+.env
+*.sqlite3
+
+#忽略cursor的规则
+.cursorrules
+.cursor/
+
+# 忽略windsurf的规则
+.windsurfrules
+
+#忽略.gitignore
+.gitignore
+
+#忽略.gitattributes
+.gitattributes
+
+
+.gitignore
+
+#忽略代码统计
+.VSCodeCounter/

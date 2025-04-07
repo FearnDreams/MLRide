@@ -5,8 +5,11 @@ This module contains the serializers for the container management functionality.
 
 from rest_framework import serializers
 from django.utils import timezone
+import logging
 from .models import DockerImage, ContainerInstance, ResourceQuota
 
+# 设置日志记录器
+logger = logging.getLogger(__name__)
 
 class DockerImageSerializer(serializers.ModelSerializer):
     """Docker镜像序列化器
@@ -17,19 +20,63 @@ class DockerImageSerializer(serializers.ModelSerializer):
         id: 镜像ID
         name: 镜像名称
         description: 镜像描述
-        pythonVersion: Python版本
+        python_version: Python版本
+        creator: 创建者ID
         created: 创建时间
         status: 镜像状态
-        creator_username: 创建者用户名
+        image_tag: Docker镜像标签
+        use_slim: 是否使用slim版本
     """
     
-    pythonVersion = serializers.CharField(source='python_version')
-    creator_username = serializers.CharField(source='creator.username', read_only=True)
+    creator_name = serializers.CharField(source='creator.username', read_only=True)
+    creator = serializers.PrimaryKeyRelatedField(read_only=True)  # 设置为只读字段，不需要客户端提供
     
     class Meta:
         model = DockerImage
-        fields = ['id', 'name', 'description', 'pythonVersion', 'created', 'status', 'creator_username']
-        read_only_fields = ['id', 'created', 'status', 'creator_username']
+        fields = [
+            'id', 'name', 'description', 'python_version', 'creator', 
+            'created', 'status', 'image_tag', 'creator_name', 'error_message',
+            'use_slim'
+        ]
+        read_only_fields = ['id', 'created', 'status', 'image_tag', 'creator_name', 'error_message', 'creator']
+
+    def validate(self, data):
+        """
+        验证整个数据
+        """
+        # 记录传入的数据用于调试
+        logger.info(f"DockerImageSerializer validating data: {data}")
+        
+        # 记录请求上下文
+        request = self.context.get('request')
+        if request:
+            logger.info(f"Request user: {request.user}")
+            logger.info(f"Request data: {request.data}")
+        else:
+            logger.warning("No request in context")
+            
+        # 检查必需字段
+        if 'python_version' not in data:
+            logger.error("python_version field is missing from the data")
+            # 检查是否以替代名称提供
+            if self.initial_data.get('pythonVersion'):
+                logger.info(f"Found pythonVersion: {self.initial_data.get('pythonVersion')}")
+                data['python_version'] = self.initial_data.get('pythonVersion')
+                logger.info("Mapped pythonVersion to python_version")
+            else:
+                logger.error("No pythonVersion found in initial data either")
+                raise serializers.ValidationError({"python_version": "Python版本不能为空"})
+                
+        if 'name' not in data:
+            logger.error("name field is missing from the data")
+            raise serializers.ValidationError({"name": "镜像名称不能为空"})
+            
+        # 检查创建者
+        if 'creator' not in data and request:
+            logger.info(f"Setting creator from request user: {request.user.id}")
+            data['creator'] = request.user
+            
+        return data
 
     def validate_name(self, value):
         """
@@ -43,10 +90,11 @@ class DockerImageSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("镜像名称只能包含字母、数字、下划线和连字符")
         return value
 
-    def validate_pythonVersion(self, value):
+    def validate_python_version(self, value):
         """
         验证Python版本
         """
+        logger.info(f"Validating python_version: {value}")
         valid_versions = ['3.8', '3.9', '3.10', '3.11']
         if value not in valid_versions:
             raise serializers.ValidationError(f"Python版本必须是以下之一: {', '.join(valid_versions)}")
@@ -54,27 +102,30 @@ class DockerImageSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data):
         """
-        创建镜像
+        创建Docker镜像
+        
+        Args:
+            validated_data: 验证后的数据
+            
+        Returns:
+            DockerImage: 创建的Docker镜像对象
         """
-        # 从validated_data中获取python_version
-        python_version = validated_data.pop('python_version', None)
-        if not python_version:
-            raise serializers.ValidationError("Python版本是必需的")
-            
-        # 设置初始状态
-        validated_data['status'] = 'pending'
+        logger.info(f"Creating Docker image with data: {validated_data}")
+        request = self.context.get('request')
+        if request:
+            logger.info(f"Setting creator from request user: {request.user.id}")
+            validated_data['creator'] = request.user
+        else:
+            logger.warning("No request in context, creator might be missing")
         
-        # 确保creator字段存在
-        if not self.context.get('request'):
-            raise serializers.ValidationError("缺少请求上下文")
+        # 设置use_slim为False，始终使用常规版本
+        validated_data['use_slim'] = False
+        logger.info("Setting use_slim=False to always use regular Python versions")
             
-        validated_data['creator'] = self.context['request'].user
-        
-        # 创建镜像实例
         image = DockerImage.objects.create(
-            python_version=python_version,
             **validated_data
         )
+        logger.info(f"Created Docker image: {image.id}")
         return image
 
 

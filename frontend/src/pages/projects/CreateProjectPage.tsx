@@ -21,16 +21,16 @@ const CreateProjectPage: React.FC = () => {
   const { toast } = useToast();
 
   // 从URL参数读取项目类型
-  const getProjectTypeFromUrl = (): 'ide' | 'notebook' | 'canvas' => {
+  const getProjectTypeFromUrl = (): 'notebook' | 'canvas' => {
     const params = new URLSearchParams(location.search);
     const type = params.get('type');
-    if (type === 'ide' || type === 'notebook' || type === 'canvas') {
+    if (type === 'notebook' || type === 'canvas') {
       return type;
     }
-    return 'ide'; // 默认类型
+    return 'notebook'; // 默认类型
   };
 
-  const [projectType, setProjectType] = useState<'ide' | 'notebook' | 'canvas'>(getProjectTypeFromUrl());
+  const [projectType, setProjectType] = useState<'notebook' | 'canvas'>(getProjectTypeFromUrl());
   const [projectName, setProjectName] = useState('');
   const [projectDescription, setProjectDescription] = useState('');
   const [isPublic, setIsPublic] = useState(false);
@@ -173,12 +173,6 @@ const CreateProjectPage: React.FC = () => {
 
   const projectTypes = [
     {
-      value: 'ide',
-      title: 'IDE开发环境',
-      description: '使用Eclipse Theia在线编程环境进行代码开发',
-      icon: <Code className="w-5 h-5" />
-    },
-    {
       value: 'notebook',
       title: 'Jupyter Notebook',
       description: '使用Jupyter Notebook进行数据分析和代码执行',
@@ -231,7 +225,7 @@ const CreateProjectPage: React.FC = () => {
                         ? 'border-blue-500 bg-blue-500/20'
                         : 'border-slate-600 hover:border-slate-500'
                     }`}
-                    onClick={() => setProjectType(type.value as 'ide' | 'notebook' | 'canvas')}
+                    onClick={() => setProjectType(type.value as 'notebook' | 'canvas')}
                   >
                     {projectType === type.value && (
                       <div className="absolute top-2 right-2 w-6 h-6 rounded-full bg-blue-500 flex items-center justify-center">

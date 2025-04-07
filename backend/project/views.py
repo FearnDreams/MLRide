@@ -90,13 +90,7 @@ class ProjectViewSet(viewsets.ModelViewSet):
                 }
                 
                 # 根据项目类型配置端口和环境变量
-                if project.project_type == 'ide':
-                    container_config['ports'] = {'3000/tcp': None}  # IDE端口
-                    container_config['environment'] = {
-                        'PROJECT_ID': str(project.id),
-                        'PROJECT_TYPE': 'ide'
-                    }
-                elif project.project_type == 'notebook':
+                if project.project_type == 'notebook':
                     # 为Jupyter Notebook配置端口映射和工作目录
                     container_config['ports'] = {'8888/tcp': None}  # Jupyter端口
                     container_config['environment'] = {
@@ -105,23 +99,22 @@ class ProjectViewSet(viewsets.ModelViewSet):
                         'JUPYTER_TOKEN': '',  # 禁用token认证
                         'JUPYTER_CONFIG_DIR': '/root/.jupyter',
                         'JUPYTER_DATA_DIR': '/root/.local/share/jupyter',
-                        'JUPYTER_RUNTIME_DIR': '/root/.local/share/jupyter/runtime'
+                        'JUPYTER_RUNTIME_DIR': '/root/.local/share/jupyter/runtime',
+                        'PATH': '/usr/local/bin:/usr/bin:/bin:/usr/local/sbin:/usr/sbin:/sbin:/root/.local/bin'  # 添加PATH环境变量
                     }
                     # 添加工作目录挂载
                     project_workspace = f'/workspace/project-{project.id}'
                     container_config['volumes'] = {
                         project_workspace: {'bind': '/workspace', 'mode': 'rw'}
                     }
-                    # 设置启动命令
+                    
+                    # 不使用直接的jupyter命令作为启动命令，而是使用bash脚本在容器启动后安装和运行jupyter
                     container_config['command'] = [
-                        "jupyter", "notebook",
-                        "--ip=0.0.0.0",
-                        "--port=8888",
-                        "--no-browser",
-                        "--allow-root",
-                        "--NotebookApp.token=''",
-                        "--NotebookApp.password=''",
-                        "--notebook-dir=/workspace"
+                        "/bin/bash", 
+                        "-c", 
+                        "pip install --no-cache-dir notebook && " +
+                        "jupyter notebook --ip=0.0.0.0 --port=8888 --no-browser --allow-root " +
+                        "--NotebookApp.token='' --NotebookApp.password='' --notebook-dir=/workspace"
                     ]
                 elif project.project_type == 'canvas':
                     container_config['ports'] = {'8080/tcp': None}  # Canvas端口
@@ -201,6 +194,39 @@ class ProjectViewSet(viewsets.ModelViewSet):
         try:
             # 停止容器
             self.docker_client.stop_container(project.container.container_id)
+            
+            # 停止关联的Jupyter会话
+            try:
+                from jupyterapp.models import JupyterSession
+                # 获取关联的Jupyter会话（如果存在）
+                jupyter_session = JupyterSession.objects.filter(project=project).first()
+                if jupyter_session:
+                    logger.info(f"停止项目时发现关联的Jupyter会话: {jupyter_session.id}")
+                    # 获取PID文件路径
+                    import os, signal, time
+                    workspace_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 
+                                               'workspaces', f'project_{project.id}')
+                    pid_file = os.path.join(workspace_dir, '.jupyter.pid')
+                    
+                    # 如果PID文件存在，尝试终止进程
+                    if os.path.exists(pid_file):
+                        try:
+                            with open(pid_file, 'r') as f:
+                                pid = int(f.read().strip())
+                            os.kill(pid, signal.SIGTERM)
+                            time.sleep(1)  # 等待进程结束
+                            os.remove(pid_file)
+                            logger.info(f"成功终止Jupyter进程，PID: {pid}")
+                        except Exception as e:
+                            logger.warning(f"终止Jupyter进程时出错: {str(e)}")
+                    
+                    # 更新会话状态
+                    jupyter_session.status = 'stopped'
+                    jupyter_session.url = None
+                    jupyter_session.save()
+                    logger.info("已更新Jupyter会话状态为stopped")
+            except Exception as e:
+                logger.warning(f"尝试停止Jupyter会话时出错: {str(e)}")
             
             # 更新容器状态
             project.container.status = 'stopped'

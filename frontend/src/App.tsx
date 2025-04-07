@@ -46,7 +46,6 @@ const AppContent: React.FC = () => {
                         <Route path="recent" element={<RecentPage />} />
                         <Route path="projects" element={<ProjectsPage />} />
                         <Route path="projects/create" element={<CreateProjectPage />} />
-                        <Route path="projects/create-ide" element={<Navigate to="/dashboard/projects/create?type=ide" replace />} />
                         <Route path="projects/create-notebook" element={<Navigate to="/dashboard/projects/create?type=notebook" replace />} />
                         <Route path="projects/create-canvas" element={<Navigate to="/dashboard/projects/create?type=canvas" replace />} />
                         <Route path="projects/:id" element={<ProjectDetailPage />} />
