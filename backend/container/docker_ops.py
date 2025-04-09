@@ -829,6 +829,9 @@ class DockerClient:
         import time
         
         try:
+            # 在Dockerfile开头添加镜像源配置以加速构建
+            dockerfile_content = self._add_china_mirrors(dockerfile_content)
+            
             # 检查是否已有同名镜像
             try:
                 local_image = self.client.images.get(f"{image_name}:{image_tag}")
@@ -850,18 +853,63 @@ class DockerClient:
             self.logger.info(f"Building image {image_name}:{image_tag} from Dockerfile")
             
             # 设置构建超时
-            build_timeout = 300  # 5分钟
+            build_timeout = 900  # 15分钟
+            
+            # 添加构建参数，配置pip镜像和apt镜像
+            if not build_args:
+                build_args = {}
+            
+            # 添加中国区镜像源作为构建参数
+            build_args.update({
+                'PIP_INDEX_URL': 'https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple',
+                'PIP_TRUSTED_HOST': 'mirrors.tuna.tsinghua.edu.cn'
+            })
             
             # 尝试构建，设置超时时间和构建参数
             try:
-                image, logs = self.client.images.build(
-                    fileobj=f,
-                    tag=f"{image_name}:{image_tag}",
-                    rm=True,
-                    pull=True,  # 尝试拉取最新的基础镜像
-                    timeout=build_timeout,
-                    buildargs=build_args
-                )
+                # 添加网络重试逻辑
+                max_retries = 3
+                retry_count = 0
+                
+                while retry_count < max_retries:
+                    try:
+                        image, logs = self.client.images.build(
+                            fileobj=f,
+                            tag=f"{image_name}:{image_tag}",
+                            rm=True,
+                            pull=True,  # 尝试拉取最新的基础镜像
+                            timeout=build_timeout,
+                            buildargs=build_args,
+                            nocache=False,  # 启用缓存以提高构建速度
+                            network_mode="host"  # 使用主机网络模式可能在某些环境下提升连接性
+                        )
+                        break  # 如果成功，跳出循环
+                    except (BuildError, DockerException) as e:
+                        retry_count += 1
+                        if "TLS handshake timeout" in str(e) or "connection refused" in str(e).lower():
+                            self.logger.warning(f"网络错误，重试 {retry_count}/{max_retries}: {str(e)}")
+                            # 重新创建文件对象
+                            f = io.BytesIO(dockerfile_content.encode('utf-8'))
+                            # 如果是最后一次重试，尝试使用离线模式构建
+                            if retry_count == max_retries - 1:
+                                self.logger.info("尝试使用离线模式构建...")
+                                image, logs = self.client.images.build(
+                                    fileobj=f,
+                                    tag=f"{image_name}:{image_tag}",
+                                    rm=True,
+                                    pull=False,  # 不拉取镜像
+                                    timeout=build_timeout,
+                                    buildargs=build_args,
+                                    nocache=False
+                                )
+                                break
+                            time.sleep(3)  # 等待几秒再重试
+                        else:
+                            # 非网络错误，直接抛出
+                            raise e
+                else:
+                    # 所有重试都失败
+                    raise Exception("网络问题导致构建失败，请检查网络连接或配置")
                 
                 # 输出构建日志
                 log_output = []
@@ -909,7 +957,8 @@ class DockerClient:
                         tag=f"{image_name}:{image_tag}",
                         rm=True,
                         pull=False,  # 不尝试拉取新镜像
-                        timeout=build_timeout
+                        timeout=build_timeout,
+                        buildargs=build_args
                     )
                     
                     self.logger.info(f"Successfully built image with simplified Dockerfile: {image_name}:{image_tag}")
@@ -938,7 +987,49 @@ class DockerClient:
         except Exception as e:
             self.logger.error(f"Error building image from Dockerfile: {str(e)}", exc_info=True)
             raise
-    
+            
+    def _add_china_mirrors(self, dockerfile_content):
+        """
+        在Dockerfile中添加中国区镜像源配置
+        
+        Args:
+            dockerfile_content (str): 原始Dockerfile内容
+            
+        Returns:
+            str: 添加了镜像源配置的Dockerfile内容
+        """
+        # 添加镜像源配置
+        mirrors_config = """
+# 配置APT和PIP镜像源
+RUN echo 'deb https://mirrors.tuna.tsinghua.edu.cn/debian/ bullseye main contrib non-free' > /etc/apt/sources.list && \\
+    echo 'deb https://mirrors.tuna.tsinghua.edu.cn/debian/ bullseye-updates main contrib non-free' >> /etc/apt/sources.list && \\
+    echo 'deb https://mirrors.tuna.tsinghua.edu.cn/debian/ bullseye-backports main contrib non-free' >> /etc/apt/sources.list && \\
+    echo 'deb https://mirrors.tuna.tsinghua.edu.cn/debian-security bullseye-security main contrib non-free' >> /etc/apt/sources.list
+
+# 配置PIP镜像源
+RUN mkdir -p /root/.pip && \\
+    echo '[global]' > /root/.pip/pip.conf && \\
+    echo 'index-url = https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple' >> /root/.pip/pip.conf && \\
+    echo 'trusted-host = mirrors.tuna.tsinghua.edu.cn' >> /root/.pip/pip.conf
+"""
+        
+        # 查找Dockerfile的第一个FROM指令
+        dockerfile_lines = dockerfile_content.splitlines()
+        from_line_index = -1
+        
+        for i, line in enumerate(dockerfile_lines):
+            if line.strip().startswith("FROM "):
+                from_line_index = i
+                break
+        
+        if from_line_index >= 0:
+            # 在FROM后插入镜像源配置
+            dockerfile_lines.insert(from_line_index + 1, mirrors_config)
+            return "\n".join(dockerfile_lines)
+        else:
+            # 如果找不到FROM，直接在开头添加
+            return mirrors_config + "\n" + dockerfile_content
+            
     def _add_version_verification(self, dockerfile_content, expected_version):
         """
         在Dockerfile中添加Python版本验证步骤
@@ -1015,9 +1106,8 @@ RUN python --version && \\
                 # 清理容器
                 container.remove()
                 return None
-                
         except Exception as e:
-            self.logger.error(f"验证镜像中的Python版本时出错: {str(e)}")
+            self.logger.error(f"验证Python版本时出错: {str(e)}")
             return None
 
     def _create_simplified_dockerfile(self, original_dockerfile):

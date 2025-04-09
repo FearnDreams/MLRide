@@ -26,6 +26,66 @@ const PYTHON_VERSIONS = [
   { value: "3.11", label: "Python 3.11" },
 ];
 
+// PyTorch版本选项
+const PYTORCH_VERSIONS = [
+  { value: "none", label: "不使用PyTorch" },
+  { value: "1.10", label: "PyTorch 1.10" },
+  { value: "1.11", label: "PyTorch 1.11" },
+  { value: "1.12", label: "PyTorch 1.12" },
+  { value: "1.13", label: "PyTorch 1.13" },
+  { value: "2.0", label: "PyTorch 2.0" },
+  { value: "2.1", label: "PyTorch 2.1" },
+  { value: "2.2", label: "PyTorch 2.2" },
+  { value: "2.3", label: "PyTorch 2.3" },
+  { value: "2.4", label: "PyTorch 2.4" },
+  { value: "2.5", label: "PyTorch 2.5" },
+  { value: "2.6", label: "PyTorch 2.6" },
+  { value: "2.7", label: "PyTorch 2.7" },
+];
+
+// CUDA版本选项（根据PyTorch版本会动态过滤）
+const CUDA_VERSIONS = [
+  { value: "none", label: "不使用CUDA" },
+  { value: "11.0", label: "CUDA 11.0" },
+  { value: "11.1", label: "CUDA 11.1" },
+  { value: "11.2", label: "CUDA 11.2" },
+  { value: "11.3", label: "CUDA 11.3" },
+  { value: "11.6", label: "CUDA 11.6" },
+  { value: "11.7", label: "CUDA 11.7" },
+  { value: "11.8", label: "CUDA 11.8" },
+  { value: "12.1", label: "CUDA 12.1" },
+  { value: "12.4", label: "CUDA 12.4" },
+  { value: "12.6", label: "CUDA 12.6" },
+];
+
+// PyTorch和CUDA版本兼容性映射
+const COMPATIBILITY_MAP: Record<string, string[]> = {
+  // PyTorch 2.7
+  "2.7": ['11.8', '12.6'],
+  // PyTorch 2.6
+  "2.6": ['11.8', '12.4'],
+  // PyTorch 2.5
+  "2.5": ['11.8', '12.1', '12.4'],
+  // PyTorch 2.4
+  "2.4": ['11.8', '12.1'],
+  // PyTorch 2.3
+  "2.3": ['11.8', '12.1'],
+  // PyTorch 2.2
+  "2.2": ['11.8', '12.1'],
+  // PyTorch 2.1
+  "2.1": ['11.8', '12.1'],
+  // PyTorch 2.0
+  "2.0": ['11.7', '11.8'],
+  // PyTorch 1.13
+  "1.13": ['11.6', '11.7'],
+  // PyTorch 1.12
+  "1.12": ['11.3', '11.6'],
+  // PyTorch 1.11
+  "1.11": ['11.1', '11.2', '11.3'],
+  // PyTorch 1.10
+  "1.10": ['11.0', '11.1', '11.3']
+};
+
 // 定义验证规则类型
 type ValidationRule = {
   required?: boolean;
@@ -59,6 +119,8 @@ const VALIDATION_RULES: ValidationRules = {
   pythonVersion: {
     required: true,
   },
+  pytorchVersion: {},
+  cudaVersion: {},
 };
 
 // 错误提示信息
@@ -74,6 +136,8 @@ const ERROR_MESSAGES: ErrorMessages = {
   pythonVersion: {
     required: "请选择Python版本",
   },
+  pytorchVersion: {},
+  cudaVersion: {},
 };
 
 export default function CreateImagePage() {
@@ -82,15 +146,71 @@ export default function CreateImagePage() {
     name: "",
     description: "",
     pythonVersion: "",
+    pytorchVersion: "",
+    cudaVersion: "",
   });
 
   const [errors, setErrors] = React.useState<{
     name?: string;
     description?: string;
     pythonVersion?: string;
+    pytorchVersion?: string;
+    cudaVersion?: string;
   }>({});
 
   const [isSubmitting, setIsSubmitting] = React.useState(false);
+
+  // 根据当前选择的PyTorch版本，获取兼容的CUDA版本
+  const getCompatibleCudaVersions = () => {
+    if (!formData.pytorchVersion) {
+      return [];
+    }
+    
+    return COMPATIBILITY_MAP[formData.pytorchVersion] || [];
+  };
+
+  // 获取可用的CUDA版本选项
+  const availableCudaVersions = React.useMemo(() => {
+    if (!formData.pytorchVersion) {
+      return [{ value: "not_applicable", label: "请先选择PyTorch版本" }];
+    }
+    
+    const compatibleVersions = getCompatibleCudaVersions();
+    if (compatibleVersions.length === 0) {
+      return [{ value: "not_compatible", label: "所选PyTorch版本没有兼容的CUDA版本" }];
+    }
+    
+    return [
+      { value: "none", label: "不使用CUDA" },
+      ...CUDA_VERSIONS.filter(v => compatibleVersions.includes(v.value))
+    ];
+  }, [formData.pytorchVersion]);
+
+  // 当PyTorch版本变更时，重置CUDA版本
+  React.useEffect(() => {
+    if (formData.pytorchVersion) {
+      const compatibleCudaVersions = getCompatibleCudaVersions();
+      // 如果当前CUDA版本不兼容，则重置它
+      if (
+        formData.cudaVersion && 
+        compatibleCudaVersions.length > 0 && 
+        !compatibleCudaVersions.includes(formData.cudaVersion)
+      ) {
+        setFormData((prev) => ({
+          ...prev,
+          cudaVersion: "",
+        }));
+      }
+    } else {
+      // 如果没有选PyTorch，也清空CUDA选择
+      if (formData.cudaVersion) {
+        setFormData((prev) => ({
+          ...prev,
+          cudaVersion: "",
+        }));
+      }
+    }
+  }, [formData.pytorchVersion]);
 
   // 验证表单字段
   const validateField = (name: string, value: string) => {
@@ -145,12 +265,44 @@ export default function CreateImagePage() {
     }));
   };
 
+  // 处理PyTorch版本选择
+  const handlePytorchVersionChange = (version: string) => {
+    setFormData((prev) => ({
+      ...prev,
+      pytorchVersion: version,
+    }));
+
+    // 验证字段
+    const error = validateField("pytorchVersion", version);
+    setErrors((prev) => ({
+      ...prev,
+      pytorchVersion: error,
+    }));
+  };
+
+  // 处理CUDA版本选择
+  const handleCudaVersionChange = (version: string) => {
+    setFormData((prev) => ({
+      ...prev,
+      cudaVersion: version,
+    }));
+
+    // 验证字段
+    const error = validateField("cudaVersion", version);
+    setErrors((prev) => ({
+      ...prev,
+      cudaVersion: error,
+    }));
+  };
+
   // 验证整个表单
   const validateForm = () => {
     const newErrors = {
       name: validateField("name", formData.name),
       description: validateField("description", formData.description),
       pythonVersion: validateField("pythonVersion", formData.pythonVersion),
+      pytorchVersion: validateField("pytorchVersion", formData.pytorchVersion),
+      cudaVersion: validateField("cudaVersion", formData.cudaVersion),
     };
 
     setErrors(newErrors);
@@ -171,13 +323,17 @@ export default function CreateImagePage() {
     setIsSubmitting(true);
 
     try {
-      // 准备要发送的数据，指定使用常规版本而非slim版本
+      // 准备要发送的数据
       const submitData = {
         name: formData.name,
         description: formData.description,
-        python_version: formData.pythonVersion, // 后端字段名
-        pythonVersion: formData.pythonVersion,  // 前端字段名
-        use_slim: false,  // 明确指定不使用slim版本
+        python_version: formData.pythonVersion,
+        pythonVersion: formData.pythonVersion,
+        use_slim: false,
+        // 仅当有选择PyTorch版本且不是"none"时才添加相关字段
+        ...(formData.pytorchVersion && formData.pytorchVersion !== "none" ? { pytorch_version: formData.pytorchVersion } : {}),
+        // 仅当有选择CUDA版本且不是"none"时才添加相关字段
+        ...(formData.cudaVersion && formData.cudaVersion !== "none" ? { cuda_version: formData.cudaVersion } : {}),
       };
       
       // 记录发送到API的数据，方便调试
@@ -299,13 +455,73 @@ export default function CreateImagePage() {
               )}
             </div>
 
+            {/* PyTorch版本选择 */}
+            <div className="space-y-2">
+              <Label className="text-gray-300">
+                PyTorch版本
+              </Label>
+              <Select
+                value={formData.pytorchVersion}
+                onValueChange={handlePytorchVersionChange}
+                disabled={isSubmitting}
+              >
+                <SelectTrigger className={`bg-slate-700/50 border-slate-600/50 text-gray-300 focus:border-blue-500/50 hover:border-blue-500/30 transition-colors ${errors.pytorchVersion ? "border-red-500" : ""}`}>
+                  <SelectValue placeholder="选择PyTorch版本" />
+                </SelectTrigger>
+                <SelectContent className="bg-slate-800/90 backdrop-blur-md border border-slate-700/50 text-gray-300">
+                  {PYTORCH_VERSIONS.map((version) => (
+                    <SelectItem 
+                      key={version.value} 
+                      value={version.value}
+                      className="focus:bg-slate-700/50 focus:text-white text-gray-300"
+                    >
+                      {version.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {errors.pytorchVersion && (
+                <p className="text-sm text-red-400">{errors.pytorchVersion}</p>
+              )}
+            </div>
+
+            {/* CUDA版本选择 */}
+            <div className="space-y-2">
+              <Label className="text-gray-300">
+                CUDA版本
+              </Label>
+              <Select
+                value={formData.cudaVersion}
+                onValueChange={handleCudaVersionChange}
+                disabled={isSubmitting}
+              >
+                <SelectTrigger className={`bg-slate-700/50 border-slate-600/50 text-gray-300 focus:border-blue-500/50 hover:border-blue-500/30 transition-colors ${errors.cudaVersion ? "border-red-500" : ""}`}>
+                  <SelectValue placeholder="选择CUDA版本" />
+                </SelectTrigger>
+                <SelectContent className="bg-slate-800/90 backdrop-blur-md border border-slate-700/50 text-gray-300">
+                  {availableCudaVersions.map((version) => (
+                    <SelectItem 
+                      key={version.value} 
+                      value={version.value}
+                      className="focus:bg-slate-700/50 focus:text-white text-gray-300"
+                    >
+                      {version.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {errors.cudaVersion && (
+                <p className="text-sm text-red-400">{errors.cudaVersion}</p>
+              )}
+            </div>
+
             {/* 添加构建时间提示 */}
             <div className="mt-2 p-4 bg-blue-900/20 backdrop-blur-sm rounded-lg border border-blue-500/30 shadow-sm">
-              <p className="text-sm text-blue-400 flex items-start space-x-3">
+              <div className="text-sm text-blue-400 flex items-start space-x-3">
                 <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-blue-400 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                 </svg>
-                <span className="leading-relaxed">
+                <div className="leading-relaxed">
                   <strong className="font-medium">提示：</strong>
                   <br />
                   不同版本的镜像构建时间可能不同：
@@ -314,8 +530,8 @@ export default function CreateImagePage() {
                     <li>Python 3.10和3.11版本：约3-5分钟</li>
                   </ul>
                   系统将直接使用标准Python版本构建镜像（非slim版本），请耐心等待构建完成。
-                </span>
-              </p>
+                </div>
+              </div>
             </div>
 
             {/* 提交按钮 */}

@@ -64,6 +64,9 @@ class DockerImage(models.Model):
     error_message = models.TextField('错误信息', blank=True, null=True)
     use_slim = models.BooleanField('使用slim版本', default=True)
     actual_version = models.CharField('实际Python版本', max_length=10, blank=True, null=True)
+    # 添加PyTorch和CUDA支持
+    pytorch_version = models.CharField('PyTorch版本', max_length=10, blank=True, null=True)
+    cuda_version = models.CharField('CUDA版本', max_length=10, blank=True, null=True)
 
     class Meta:
         verbose_name = 'Docker镜像'
