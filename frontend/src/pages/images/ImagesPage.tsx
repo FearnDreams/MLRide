@@ -216,30 +216,6 @@ const ImagesPage: React.FC = () => {
                       </div>
                       <span className="text-sm text-gray-300">创建于 {new Date(image.created).toLocaleDateString()}</span>
                     </div>
-                    
-                    {/* 添加PyTorch版本信息 */}
-                    {image.pytorch_version && (
-                      <div className="flex items-center gap-2">
-                        <div className="w-5 h-5 rounded-full bg-purple-500/20 flex items-center justify-center">
-                          <span className="text-xs text-purple-400">PT</span>
-                        </div>
-                        <span className="text-sm text-gray-300 bg-purple-500/10 px-2 py-0.5 rounded-full border border-purple-500/30">
-                          PyTorch {image.pytorch_version}
-                        </span>
-                      </div>
-                    )}
-                    
-                    {/* 添加CUDA版本信息 */}
-                    {image.cuda_version && (
-                      <div className="flex items-center gap-2">
-                        <div className="w-5 h-5 rounded-full bg-yellow-500/20 flex items-center justify-center">
-                          <span className="text-xs text-yellow-400">CU</span>
-                        </div>
-                        <span className="text-sm text-gray-300 bg-yellow-500/10 px-2 py-0.5 rounded-full border border-yellow-500/30">
-                          CUDA {image.cuda_version}
-                        </span>
-                      </div>
-                    )}
                   </div>
                 </div>
 

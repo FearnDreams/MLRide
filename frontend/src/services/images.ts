@@ -28,8 +28,6 @@ export interface CreateImageRequest {
   name: string;
   description?: string;
   pythonVersion: string;
-  pytorch_version?: string;
-  cuda_version?: string;
 }
 
 // 定义镜像响应接口
@@ -38,8 +36,6 @@ export interface ImageResponse {
   name: string;
   description: string;
   pythonVersion: string;
-  pytorch_version?: string;
-  cuda_version?: string;
   created: string;
   status: string;
   creator_username: string;
@@ -51,8 +47,6 @@ export interface DockerImage {
   description: string;
   python_version: string;
   pythonVersion?: string; // 添加可选的pythonVersion字段
-  pytorch_version?: string; // 添加PyTorch版本字段
-  cuda_version?: string; // 添加CUDA版本字段
   created: string;
   status: string; 
   creator: number;
@@ -95,8 +89,6 @@ export const imagesService = {
       if ('pythonVersion' in apiData) {
         delete apiData.pythonVersion;
       }
-      
-      console.log('发送到API的镜像创建数据:', apiData);
       
       const response = await api.post<ApiResponse>('container/images/', apiData);
       return response.data;

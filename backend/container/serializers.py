@@ -26,8 +26,6 @@ class DockerImageSerializer(serializers.ModelSerializer):
         status: 镜像状态
         image_tag: Docker镜像标签
         use_slim: 是否使用slim版本
-        pytorch_version: PyTorch版本
-        cuda_version: CUDA版本
     """
     
     creator_name = serializers.CharField(source='creator.username', read_only=True)
@@ -38,7 +36,7 @@ class DockerImageSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'name', 'description', 'python_version', 'creator', 
             'created', 'status', 'image_tag', 'creator_name', 'error_message',
-            'use_slim', 'pytorch_version', 'cuda_version'
+            'use_slim'
         ]
         read_only_fields = ['id', 'created', 'status', 'image_tag', 'creator_name', 'error_message', 'creator']
 
@@ -78,22 +76,6 @@ class DockerImageSerializer(serializers.ModelSerializer):
             logger.info(f"Setting creator from request user: {request.user.id}")
             data['creator'] = request.user
             
-        # 验证PyTorch和CUDA版本的兼容性
-        pytorch_version = data.get('pytorch_version')
-        cuda_version = data.get('cuda_version')
-        python_version = data.get('python_version')
-        
-        if pytorch_version and cuda_version:
-            logger.info(f"Validating compatibility: Python {python_version}, PyTorch {pytorch_version}, CUDA {cuda_version}")
-            
-            # 检查Python、PyTorch和CUDA版本的兼容性
-            is_compatible = self._check_compatibility(python_version, pytorch_version, cuda_version)
-            if not is_compatible:
-                raise serializers.ValidationError(
-                    f"Python {python_version}, PyTorch {pytorch_version} 和 CUDA {cuda_version} 版本不兼容。"
-                    "请参考PyTorch官方的兼容性表格选择适合的版本组合。"
-                )
-                
         return data
 
     def validate_name(self, value):
@@ -116,32 +98,6 @@ class DockerImageSerializer(serializers.ModelSerializer):
         valid_versions = ['3.8', '3.9', '3.10', '3.11']
         if value not in valid_versions:
             raise serializers.ValidationError(f"Python版本必须是以下之一: {', '.join(valid_versions)}")
-        return value
-
-    def validate_pytorch_version(self, value):
-        """
-        验证PyTorch版本
-        """
-        if not value:  # 如果为空则跳过验证
-            return value
-            
-        logger.info(f"Validating pytorch_version: {value}")
-        valid_versions = ['1.10', '1.11', '1.12', '1.13', '2.0', '2.1', '2.2', '2.3', '2.4', '2.5', '2.6', '2.7']
-        if value not in valid_versions:
-            raise serializers.ValidationError(f"PyTorch版本必须是以下之一: {', '.join(valid_versions)}")
-        return value
-        
-    def validate_cuda_version(self, value):
-        """
-        验证CUDA版本
-        """
-        if not value:  # 如果为空则跳过验证
-            return value
-            
-        logger.info(f"Validating cuda_version: {value}")
-        valid_versions = ['11.0', '11.1', '11.2', '11.3', '11.6', '11.7', '11.8', '12.1', '12.4', '12.6']
-        if value not in valid_versions:
-            raise serializers.ValidationError(f"CUDA版本必须是以下之一: {', '.join(valid_versions)}")
         return value
 
     def create(self, validated_data):
@@ -171,99 +127,6 @@ class DockerImageSerializer(serializers.ModelSerializer):
         )
         logger.info(f"Created Docker image: {image.id}")
         return image
-
-    def _check_compatibility(self, python_version, pytorch_version, cuda_version):
-        """
-        检查Python、PyTorch和CUDA版本的兼容性
-        
-        根据PyTorch官方的兼容性表格建立兼容性规则
-        """
-        # 兼容性映射表
-        compatibility_map = {
-            # PyTorch 2.7
-            '2.7': {
-                'python': ['3.9', '3.10', '3.11'],
-                'cuda': ['11.8', '12.6']
-            },
-            # PyTorch 2.6
-            '2.6': {
-                'python': ['3.9', '3.10', '3.11'],
-                'cuda': ['11.8', '12.4']
-            },
-            # PyTorch 2.5
-            '2.5': {
-                'python': ['3.9', '3.10', '3.11'],
-                'cuda': ['11.8', '12.1', '12.4']
-            },
-            # PyTorch 2.4
-            '2.4': {
-                'python': ['3.8', '3.9', '3.10', '3.11'],
-                'cuda': ['11.8', '12.1']
-            },
-            # PyTorch 2.3
-            '2.3': {
-                'python': ['3.8', '3.9', '3.10', '3.11'],
-                'cuda': ['11.8', '12.1']
-            },
-            # PyTorch 2.2
-            '2.2': {
-                'python': ['3.8', '3.9', '3.10', '3.11'],
-                'cuda': ['11.8', '12.1']
-            },
-            # PyTorch 2.1
-            '2.1': {
-                'python': ['3.8', '3.9', '3.10', '3.11'],
-                'cuda': ['11.8', '12.1']
-            },
-            # PyTorch 2.0
-            '2.0': {
-                'python': ['3.8', '3.9', '3.10', '3.11'],
-                'cuda': ['11.7', '11.8']
-            },
-            # PyTorch 1.13
-            '1.13': {
-                'python': ['3.7', '3.8', '3.9', '3.10'],
-                'cuda': ['11.6', '11.7']
-            },
-            # PyTorch 1.12
-            '1.12': {
-                'python': ['3.7', '3.8', '3.9', '3.10'],
-                'cuda': ['11.3', '11.6']
-            },
-            # PyTorch 1.11
-            '1.11': {
-                'python': ['3.7', '3.8', '3.9', '3.10'],
-                'cuda': ['11.1', '11.2', '11.3']
-            },
-            # PyTorch 1.10
-            '1.10': {
-                'python': ['3.7', '3.8', '3.9', '3.10'],
-                'cuda': ['11.0', '11.1', '11.3']
-            },
-        }
-        
-        # 检查PyTorch版本是否存在于映射表中
-        if pytorch_version not in compatibility_map:
-            logger.warning(f"PyTorch version {pytorch_version} not found in compatibility map")
-            return False
-            
-        # 检查Python版本是否兼容
-        if python_version not in compatibility_map[pytorch_version]['python']:
-            logger.warning(
-                f"Python {python_version} is not compatible with PyTorch {pytorch_version}. "
-                f"Compatible Python versions: {compatibility_map[pytorch_version]['python']}"
-            )
-            return False
-            
-        # 检查CUDA版本是否兼容
-        if cuda_version not in compatibility_map[pytorch_version]['cuda']:
-            logger.warning(
-                f"CUDA {cuda_version} is not compatible with PyTorch {pytorch_version}. "
-                f"Compatible CUDA versions: {compatibility_map[pytorch_version]['cuda']}"
-            )
-            return False
-            
-        return True
 
 
 class ResourceQuotaSerializer(serializers.ModelSerializer):
