@@ -4,9 +4,13 @@ export interface JupyterSession {
   project: number;
   token: string | null;
   url: string | null;
+  port: number | null;
+  workspace_dir: string | null;
+  process_id: number | null;
   status: 'creating' | 'running' | 'stopped' | 'error';
   created_at: string;
   updated_at: string;
+  direct_access_url?: string | null;  // 直接访问URL
 }
 
 // Jupyter API响应类型

@@ -1,14 +1,17 @@
-from django.urls import path, re_path
+from django.urls import path, include
 from rest_framework.routers import DefaultRouter
 from .views import JupyterSessionViewSet
 from .proxy import JupyterProxyView
 
-# 创建路由器并注册viewsets
+# 创建路由器并注册视图集
 router = DefaultRouter()
 router.register(r'sessions', JupyterSessionViewSet)
 
-# URL模式列表
 urlpatterns = [
-    # 代理所有Jupyter请求
-    re_path(r'^proxy/(?P<path>.*)$', JupyterProxyView.as_view(), name='jupyter_proxy'),
-] + router.urls
+    # 包含路由器生成的URL
+    path('', include(router.urls)),
+    
+    # Jupyter代理路由 - 添加项目ID参数
+    path('proxy/<str:project_id>/<path:path>', JupyterProxyView.as_view(), name='jupyter-proxy-with-path'),
+    path('proxy/<str:project_id>/', JupyterProxyView.as_view(), name='jupyter-proxy-root'),
+]

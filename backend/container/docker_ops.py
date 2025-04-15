@@ -16,6 +16,8 @@ import requests
 from requests.adapters import HTTPAdapter, Retry
 import re
 import tempfile
+import subprocess
+import datetime
 
 # 设置日志记录器
 logger = logging.getLogger(__name__)
@@ -40,14 +42,68 @@ class DockerClient:
         self.timeout = int(os.environ.get("DOCKER_API_TIMEOUT", "180"))  # 默认180秒超时
         self.max_retries = int(os.environ.get("DOCKER_API_RETRIES", "3"))  # 默认3次重试
         
+        # 检查操作系统
+        self.is_windows = platform.system().lower() == 'windows'
+        self.logger.info(f"操作系统: {platform.system()}")
+        
+        # 设置Windows环境下的Docker Host
+        if self.is_windows and not os.environ.get('DOCKER_HOST'):
+            # 对于Windows环境，如果未设置DOCKER_HOST，默认使用TCP连接
+            # 因为我们已经验证TCP连接(localhost:2375)可以正常工作
+            os.environ['DOCKER_HOST'] = 'tcp://localhost:2375'
+            self.logger.info("Windows环境: 自动设置DOCKER_HOST=tcp://localhost:2375")
+            
+            # 创建配置文件目录
+            config_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'config')
+            os.makedirs(config_dir, exist_ok=True)
+            
+            # 保存Docker配置到文件，以便后续使用
+            config_path = os.path.join(config_dir, 'docker_config.json')
+            try:
+                with open(config_path, 'w') as f:
+                    import json
+                    json.dump({
+                        'docker_host': 'tcp://localhost:2375',
+                        'os': platform.system(),
+                        'last_update': str(datetime.datetime.now())
+                    }, f, indent=2)
+                self.logger.info(f"Docker连接配置已保存到 {config_path}")
+            except Exception as e:
+                self.logger.warning(f"保存Docker配置失败: {str(e)}")
+        
         # 检查Docker Desktop是否运行
-        import subprocess
         try:
-            subprocess.run(['docker', 'info'], capture_output=True, check=True)
-            self.logger.info("Docker Desktop正在运行")
+            if self.is_windows:
+                # Windows上使用tasklist检查Docker进程
+                docker_running = False
+                
+                try:
+                    # 检查Docker Desktop进程
+                    result = subprocess.run(['tasklist', '/FI', 'IMAGENAME eq Docker Desktop.exe'], 
+                                           capture_output=True, text=True, check=False)
+                    if 'Docker Desktop.exe' in result.stdout:
+                        docker_running = True
+                        self.logger.info("Docker Desktop进程正在运行")
+                    else:
+                        # 检查Docker Engine服务
+                        result = subprocess.run(['sc', 'query', 'docker'], 
+                                               capture_output=True, text=True, check=False)
+                        if 'RUNNING' in result.stdout:
+                            docker_running = True
+                            self.logger.info("Docker Engine服务正在运行")
+                except Exception as e:
+                    self.logger.warning(f"检查Docker进程失败: {str(e)}")
+                    
+                if not docker_running:
+                    self.logger.error("Docker Desktop可能未运行")
+                    raise Exception("请确保Docker Desktop已启动并正在运行")
+            else:
+                # 非Windows系统使用docker info命令
+                subprocess.run(['docker', 'info'], capture_output=True, check=True)
+                self.logger.info("Docker正在运行")
         except Exception as e:
-            self.logger.error(f"Docker Desktop可能未运行: {str(e)}")
-            raise Exception("请确保Docker Desktop已启动并正在运行")
+            self.logger.error(f"Docker可能未运行: {str(e)}")
+            raise Exception("请确保Docker已启动并正在运行")
         
         # 初始化Docker客户端
         self._init_client()
@@ -65,6 +121,39 @@ class DockerClient:
         docker_host = os.environ.get('DOCKER_HOST')
         if docker_host:
             connection_methods.append(('环境变量DOCKER_HOST', {'base_url': docker_host}))
+        
+        # 识别操作系统
+        is_windows = platform.system().lower() == 'windows'
+        
+        # Windows环境下的Docker连接方式（按优先级排序）
+        if is_windows:
+            # 添加Windows专用的连接方式
+            connection_methods.extend([
+                # 根据测试结果，TCP连接最可靠，放在首位
+                ('Windows本地TCP', {'base_url': 'tcp://localhost:2375'}),
+                # Docker Desktop默认命名管道
+                ('Windows默认命名管道', {'base_url': 'npipe:////./pipe/docker_engine'}),
+                # Docker Desktop CLI使用的命名管道
+                ('Docker CLI命名管道', {'base_url': 'npipe:////./pipe/docker_cli'}),
+                # 另一个可能的命名管道路径
+                ('备用命名管道', {'base_url': 'npipe:////./pipe/com.docker.docker'})
+            ])
+            
+            # 尝试获取Docker Context信息，自动检测正确的连接方式
+            try:
+                docker_context_cmd = ["docker", "context", "inspect"]
+                result = subprocess.run(docker_context_cmd, capture_output=True, text=True, check=False)
+                if result.returncode == 0:
+                    self.logger.info(f"获取到Docker Context信息: {result.stdout[:200]}...")
+                    
+                    # 解析JSON输出
+                    if "EndpointName" in result.stdout and "wsl" in result.stdout.lower():
+                        # 这可能是WSL模式
+                        # WSL模式下TCP连接可能更稳定
+                        connection_methods.insert(0, ('WSL Context检测', {'base_url': 'tcp://localhost:2375'}))
+                        self.logger.info("检测到可能运行在WSL环境中的Docker")
+            except Exception as e:
+                self.logger.warning(f"获取Docker Context信息失败: {str(e)}")
         
         # 其他常见的Docker连接方式
         connection_methods.extend([
@@ -97,6 +186,7 @@ class DockerClient:
                     'timeout': self.timeout
                 }
                 
+                # 创建客户端
                 self.client = docker.DockerClient(**client_params)
                 self.client.api._timeout = self.timeout
                 
@@ -109,6 +199,15 @@ class DockerClient:
                 if api_version:
                     self.logger.info(f"Docker API版本: {api_version}")
                 
+                # 连接成功提示
+                self.logger.info(f"成功使用{method}连接到Docker")
+                self.connection_method = method
+                
+                if self.is_windows:
+                    # 对于Windows，保存成功的连接方式以供日后使用
+                    if 'base_url' in params and params['base_url']:
+                        self.logger.info(f"Windows环境成功连接Docker，建议设置环境变量: DOCKER_HOST={params['base_url']}")
+                
                 return  # 连接成功,退出初始化
             except Exception as e:
                 error_msg = f"使用{method}连接Docker失败: {str(e)}"
@@ -120,6 +219,14 @@ class DockerClient:
         # 如果所有连接方式都失败
         error_msg = "无法连接到Docker服务。尝试了以下方法:\n" + "\n".join(connection_errors)
         self.logger.error(error_msg)
+        
+        # 针对Windows的特殊建议
+        if is_windows:
+            self.logger.error("\nWindows环境连接Docker失败，请尝试以下步骤:")
+            self.logger.error("1. 确认Docker Desktop已启动并正常运行")
+            self.logger.error("2. 在命令行设置环境变量: set DOCKER_HOST=npipe:////./pipe/docker_engine")
+            self.logger.error("3. 检查Docker Desktop设置是否启用了'Expose daemon on tcp://localhost:2375 without TLS'选项")
+            self.logger.error("4. 重启Docker Desktop和应用程序")
         
         # 收集系统信息以帮助诊断
         try:
@@ -136,14 +243,25 @@ class DockerClient:
             
             # 检查Docker配置
             try:
-                with open(os.path.expanduser('~/.docker/config.json'), 'r') as f:
-                    docker_config = f.read()
-                    self.logger.info(f"Docker配置: {docker_config}")
+                if is_windows:
+                    docker_config_path = os.path.join(os.environ.get('USERPROFILE', ''), '.docker', 'config.json')
+                else:
+                    docker_config_path = os.path.expanduser('~/.docker/config.json')
+                    
+                if os.path.exists(docker_config_path):
+                    with open(docker_config_path, 'r') as f:
+                        docker_config = f.read()
+                        self.logger.info(f"Docker配置: {docker_config}")
+                else:
+                    self.logger.warning(f"Docker配置文件不存在: {docker_config_path}")
             except Exception as e:
                 self.logger.warning(f"无法读取Docker配置: {str(e)}")
                 
         except Exception as e:
             self.logger.error(f"获取系统信息失败: {str(e)}")
+        
+        # 提供设置DOCKER_HOST环境变量的建议
+        self.logger.error("建议: 请尝试设置DOCKER_HOST环境变量指向正确的Docker守护进程地址")
         
         raise Exception(error_msg)
     

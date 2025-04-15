@@ -63,10 +63,7 @@ const JupyterNotebook: React.FC<JupyterNotebookProps> = ({ projectId, sessionId,
   const handleOpenNewWindow = () => {
     if (!session?.url) return;
     
-    const url = session.url.includes('localhost') 
-      ? `http://${window.location.hostname}:8888` 
-      : session.url;
-      
+    const url = session.direct_access_url || session.url;
     window.open(url, '_blank');
   };
 
@@ -103,9 +100,7 @@ const JupyterNotebook: React.FC<JupyterNotebookProps> = ({ projectId, sessionId,
     );
   }
 
-  const directUrl = session.url.includes('localhost') 
-    ? `http://${window.location.hostname}:8888` 
-    : session.url;
+  const directUrl = session.direct_access_url || session.url;
 
   const jupyterFrame = (
     <iframe

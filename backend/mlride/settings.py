@@ -12,6 +12,15 @@ https://docs.djangoproject.com/en/4.2/ref/settings/
 
 from pathlib import Path
 import os
+import platform
+
+# 设置Docker连接环境变量
+if platform.system().lower() == 'windows':
+    # 在Windows上，通过TCP连接Docker (本地端口2375)
+    os.environ.setdefault('DOCKER_HOST', 'tcp://localhost:2375')
+else:
+    # 在Unix/Linux上，使用默认的套接字
+    os.environ.setdefault('DOCKER_HOST', 'unix:///var/run/docker.sock')
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent

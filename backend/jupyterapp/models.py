@@ -32,10 +32,20 @@ class JupyterSession(models.Model):
         verbose_name='访问URL'
     )
     port = models.IntegerField(
-        default=8888,
+        blank=True, 
         null=True,
-        blank=True,
         verbose_name='端口号'
+    )
+    workspace_dir = models.CharField(
+        max_length=255,
+        blank=True,
+        null=True,
+        verbose_name='工作目录'
+    )
+    process_id = models.IntegerField(
+        blank=True,
+        null=True,
+        verbose_name='进程ID'
     )
     status = models.CharField(
         max_length=20, 
