@@ -11,6 +11,12 @@ export interface JupyterSession {
   created_at: string;
   updated_at: string;
   direct_access_url?: string | null;  // 直接访问URL
+  running_in_docker?: boolean;  // 是否在Docker容器中运行
+  docker_image?: string;  // 使用的Docker镜像标签
+  kernel_info?: {
+    name: string;
+    display_name: string;
+  }; // 内核信息
 }
 
 // Jupyter API响应类型

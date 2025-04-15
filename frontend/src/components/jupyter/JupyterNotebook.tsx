@@ -1,21 +1,27 @@
 import React, { useState, useEffect } from 'react';
 import { getJupyterSession } from '@/services/jupyter';
 import type { JupyterSession } from '@/types/jupyter';
-import { RefreshCw, Maximize, ExternalLink, Info } from 'lucide-react';
+import { RefreshCw, Maximize, ExternalLink, Info, Server } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   AlertDialog,
   AlertDialogContent,
   AlertDialogTrigger
 } from '@/components/ui/alert-dialog';
+import { Badge } from '../../components/ui/badge';
 
 interface JupyterNotebookProps {
   projectId: number;
-  sessionId?: number;
+  sessionId?: number; // 可选的会话ID，用于恢复特定会话
   onSessionError?: () => void;
 }
 
-const JupyterNotebook: React.FC<JupyterNotebookProps> = ({ projectId, sessionId, onSessionError }) => {
+const JupyterNotebook: React.FC<JupyterNotebookProps> = ({ 
+  projectId, 
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  sessionId, 
+  onSessionError 
+}) => {
   const [loading, setLoading] = useState(true);
   const [session, setSession] = useState<JupyterSession | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -144,6 +150,22 @@ const JupyterNotebook: React.FC<JupyterNotebookProps> = ({ projectId, sessionId,
             }} 
           />
           Jupyter
+          {session.running_in_docker && (
+            <Badge variant="outline" className="ml-2 bg-blue-900/30 text-blue-300 border-blue-500/50">
+              <Server className="w-3 h-3 mr-1" />
+              Docker
+            </Badge>
+          )}
+          {session.docker_image && (
+            <Badge variant="outline" className="ml-2 bg-slate-900/30 text-slate-300 border-slate-500/50 text-xs">
+              {session.docker_image.split(':')[1] || 'custom'}
+            </Badge>
+          )}
+          {session.kernel_info && (
+            <Badge variant="outline" className="ml-2 bg-green-900/30 text-green-300 border-green-500/50 text-xs">
+              {session.kernel_info.display_name}
+            </Badge>
+          )}
         </h3>
         <div className="flex space-x-2">
           <Button
@@ -195,6 +217,15 @@ const JupyterNotebook: React.FC<JupyterNotebookProps> = ({ projectId, sessionId,
                   <p><span className="text-slate-400">Direct URL:</span> {directUrl}</p>
                   <p><span className="text-slate-400">Created:</span> {session.created_at}</p>
                   <p><span className="text-slate-400">Updated:</span> {session.updated_at}</p>
+                  {session.running_in_docker && (
+                    <p><span className="text-slate-400">环境:</span> <span className="text-green-400">Docker容器</span></p>
+                  )}
+                  {session.docker_image && (
+                    <p><span className="text-slate-400">镜像:</span> {session.docker_image}</p>
+                  )}
+                  {session.kernel_info && (
+                    <p><span className="text-slate-400">内核:</span> <span className="text-green-400">{session.kernel_info.display_name}</span></p>
+                  )}
                 </div>
                 <div className="mt-4 space-y-2">
                   <Button

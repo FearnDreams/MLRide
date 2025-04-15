@@ -13,6 +13,7 @@ https://docs.djangoproject.com/en/4.2/ref/settings/
 from pathlib import Path
 import os
 import platform
+import logging
 
 # 设置Docker连接环境变量
 if platform.system().lower() == 'windows':
@@ -216,3 +217,72 @@ SESSION_COOKIE_SECURE = False  # 开发环境设置为False
 
 # STATIC_ROOT 设置
 STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
+
+# 配置日志记录
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'formatters': {
+        'verbose': {
+            'format': '{levelname} {asctime} {module} {process:d} {thread:d} {message}',
+            'style': '{',
+        },
+        'simple': {
+            'format': '{levelname} {message}',
+            'style': '{',
+        },
+    },
+    'handlers': {
+        'console': {
+            'level': 'DEBUG', # 将控制台日志级别设置为DEBUG
+            'class': 'logging.StreamHandler',
+            'formatter': 'verbose' # 使用更详细的格式
+        },
+        'file': {
+            'level': 'DEBUG',
+            'class': 'logging.FileHandler',
+            'filename': os.path.join(BASE_DIR, 'logs', 'django_debug.log'), # 日志文件路径
+            'formatter': 'verbose'
+        },
+    },
+    'loggers': {
+        'django': {
+            'handlers': ['console', 'file'],
+            'level': 'INFO', # Django自身的日志级别
+            'propagate': True,
+        },
+        'django.request': {
+            'handlers': ['console', 'file'],
+            'level': 'INFO',
+            'propagate': False,
+        },
+        'container': { # container应用的日志
+            'handlers': ['console', 'file'],
+            'level': 'DEBUG',
+            'propagate': False,
+        },
+        'project': { # project应用的日志
+            'handlers': ['console', 'file'],
+            'level': 'DEBUG',
+            'propagate': False,
+        },
+        'jupyterapp': { # jupyterapp应用的日志
+            'handlers': ['console', 'file'],
+            'level': 'DEBUG',
+            'propagate': False,
+        },
+        'docker_helper': { # docker_helper的日志
+            'handlers': ['console', 'file'],
+            'level': 'DEBUG',
+            'propagate': False,
+        },
+    },
+    'root': { # 根日志记录器，捕获未明确指定的日志
+        'handlers': ['console', 'file'],
+        'level': 'DEBUG',
+    }
+}
+
+# 确保logs目录存在
+LOGS_DIR = os.path.join(BASE_DIR, 'logs')
+os.makedirs(LOGS_DIR, exist_ok=True)

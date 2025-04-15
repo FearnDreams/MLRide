@@ -18,6 +18,8 @@ import re
 import tempfile
 import subprocess
 import datetime
+import tarfile
+import io
 
 # 设置日志记录器
 logger = logging.getLogger(__name__)
@@ -1231,117 +1233,245 @@ RUN python --version && \\
         Args:
             container_id: 容器ID
             source_path: 源文件路径
-            target_path: 目标路径
+            target_path: 容器内的目标文件路径 (不是目录)
             
         Returns:
             bool: 是否成功
         """
         try:
             container = self.client.containers.get(container_id)
+            
+            # 创建一个内存中的tar归档
+            pw_tarstream = io.BytesIO()
+            pw_tar = tarfile.TarFile(fileobj=pw_tarstream, mode='w')
+            
+            # 获取源文件信息
+            file_info = tarfile.TarInfo(name=os.path.basename(target_path))
+            file_info.size = os.path.getsize(source_path)
+            file_info.mtime = time.time()
+            # 保持默认权限
+            # file_info.mode = 0o644 
+            
+            # 将文件内容添加到tar归档中
             with open(source_path, 'rb') as source_file:
-                data = source_file.read()
-                container.put_archive(os.path.dirname(target_path), 
-                                    docker.utils.make_archive(os.path.basename(target_path), data))
-            return True
+                pw_tar.addfile(file_info, source_file)
+            
+            pw_tar.close()
+            pw_tarstream.seek(0)
+            
+            # 将tar流放入容器的目标目录
+            # put_archive需要目标路径是一个目录
+            target_dir = os.path.dirname(target_path)
+            result = container.put_archive(target_dir, pw_tarstream)
+            
+            if result:
+                self.logger.info(f"成功复制 {source_path} 到容器 {container_id}:{target_path}")
+                return True
+            else:
+                self.logger.error(f"复制文件到容器失败 (put_archive 返回 False): {container_id}:{target_path}")
+                return False
+                
         except Exception as e:
-            self.logger.error(f"复制文件到容器失败: {str(e)}")
+            self.logger.error(f"复制文件到容器时发生异常: {str(e)}")
+            import traceback
+            self.logger.error(traceback.format_exc())
             return False
             
     def check_jupyter_in_container(self, container_id):
-        """
-        检查容器中是否存在Jupyter进程
+        """检查容器中是否已安装Jupyter
         
         Args:
             container_id: 容器ID
             
         Returns:
-            bool: 是否存在Jupyter进程
+            dict: 包含Jupyter检查结果的字典
         """
         try:
-            # 获取容器对象
-            self.logger.info(f"检查容器 {container_id[:12]} 中的Jupyter进程")
             container = self.client.containers.get(container_id)
             
-            # 使用多个命令检查Jupyter进程
-            # 1. 使用pgrep命令检查多种可能的进程名
-            self.logger.info("使用pgrep命令检查Jupyter进程")
-            pgrep_cmd = "pgrep -f 'jupyter-notebook\|jupyter-server\|jupyter-lab' || true"
-            exec_result = container.exec_run(
-                cmd=pgrep_cmd,
-                privileged=True
-            )
+            # 检查jupyter是否已安装
+            check_cmd = "which jupyter || echo 'NOT_INSTALLED'"
+            result = container.exec_run(check_cmd)
+            installed = not result.output.decode('utf-8', errors='ignore').strip().endswith('NOT_INSTALLED')
             
-            if hasattr(exec_result, 'exit_code') and exec_result.exit_code == 0:
-                # 获取进程ID
-                if hasattr(exec_result, 'output'):
-                    output = exec_result.output
-                    if isinstance(output, bytes):
-                        output = output.decode('utf-8', errors='ignore')
-                    if output.strip():  # 确保输出不为空
-                        self.logger.info(f"找到Jupyter进程，PID: {output.strip()}")
-                        return True
+            # 检查kernel列表
+            kernels = []
+            if installed:
+                try:
+                    kernel_cmd = "jupyter kernelspec list"
+                    kernel_result = container.exec_run(kernel_cmd)
+                    kernel_output = kernel_result.output.decode('utf-8', errors='ignore')
+                    # 解析kernel输出
+                    for line in kernel_output.splitlines():
+                        if "python" in line.lower():
+                            kernels.append(line.strip())
+                except:
+                    pass
             
-            # 2. 使用ps命令检查多种可能的进程
-            self.logger.info("使用ps命令检查Jupyter进程")
-            ps_cmd = "ps aux | grep -E 'jupyter-notebook|jupyter-server|jupyter-lab' | grep -v grep || true"
-            ps_result = container.exec_run(
-                cmd=ps_cmd,
-                privileged=True
-            )
-            
-            if hasattr(ps_result, 'exit_code') and ps_result.exit_code == 0:
-                # 检查输出是否包含jupyter进程
-                if hasattr(ps_result, 'output'):
-                    output = ps_result.output
-                    if isinstance(output, bytes):
-                        output = output.decode('utf-8', errors='ignore')
-                    if output.strip():  # 确保输出不为空
-                        self.logger.info(f"使用ps命令找到Jupyter进程: {output[:100]}")
-                        return True
-            
-            # 3. 检查Jupyter进程是否监听在端口8888上
-            self.logger.info("检查端口8888上是否有监听")
-            port_cmd = "(netstat -tlnp 2>/dev/null || ss -tlnp) | grep :8888 || true"
-            port_result = container.exec_run(
-                cmd=port_cmd,
-                privileged=True
-            )
-            
-            if hasattr(port_result, 'exit_code') and port_result.exit_code == 0:
-                if hasattr(port_result, 'output'):
-                    output = port_result.output
-                    if isinstance(output, bytes):
-                        output = output.decode('utf-8', errors='ignore')
-                    if output.strip():  # 确保输出不为空
-                        self.logger.info(f"端口8888上有监听: {output[:100]}")
-                        return True
-            
-            # 4. 尝试访问Jupyter服务
-            self.logger.info("尝试使用curl访问Jupyter服务")
-            curl_cmd = "(curl -s --head http://localhost:8888 || wget -qO- http://localhost:8888) 2>/dev/null || true"
-            curl_result = container.exec_run(
-                cmd=curl_cmd,
-                privileged=True
-            )
-            
-            if hasattr(curl_result, 'exit_code') and curl_result.exit_code == 0:
-                if hasattr(curl_result, 'output'):
-                    output = curl_result.output
-                    if isinstance(output, bytes):
-                        output = output.decode('utf-8', errors='ignore')
-                    if output.strip() and ("jupyter" in output.lower() or "html" in output.lower()):
-                        self.logger.info("通过HTTP访问到Jupyter服务")
-                        return True
-            
-            # 如果以上方法都没有找到Jupyter进程，则认为没有运行
-            self.logger.warning(f"容器 {container_id[:12]} 中未找到运行的Jupyter进程")
-            return False
+            return {
+                "installed": installed,
+                "output": result.output.decode('utf-8', errors='ignore'),
+                "kernels": kernels
+            }
         except Exception as e:
-            self.logger.error(f"检查Jupyter进程失败: {str(e)}")
+            self.logger.error(f"检查容器Jupyter状态失败: {str(e)}")
+            return {"installed": False, "error": str(e)}
+            
+    def install_jupyter_kernel_in_container(self, container_id, kernel_name=None):
+        """在容器中安装Jupyter内核
+        
+        Args:
+            container_id: 容器ID
+            kernel_name: 内核名称，默认为自动生成
+            
+        Returns:
+            dict: 安装结果
+        """
+        try:
+            container = self.client.containers.get(container_id)
+            self.logger.info(f"开始在容器 {container_id[:12]} 中安装Jupyter内核")
+            
+            # 如果未指定kernel名称，使用容器ID的前8位作为名称
+            if not kernel_name:
+                kernel_name = f"python-container-{container_id[:8]}"
+            self.logger.info(f"目标内核名称: {kernel_name}")
+            
+            # 检查pip是否存在，优先使用pip3
+            pip_cmd_check = "(pip3 --version > /dev/null 2>&1 && echo 'pip3') || (pip --version > /dev/null 2>&1 && echo 'pip') || echo 'PIP_NOT_FOUND'"
+            pip_result = container.exec_run(["bash", "-c", pip_cmd_check], environment={'PATH': '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin'}) # Add ENV
+            pip_cmd = pip_result.output.decode('utf-8', errors='ignore').strip()
+            
+            if pip_cmd == 'PIP_NOT_FOUND':
+                self.logger.error("容器中未找到pip或pip3，无法安装ipykernel")
+                return {"success": False, "error": "pip not found in container"}
+            self.logger.info(f"使用pip命令: {pip_cmd}")
+                
+            # 在容器中安装ipykernel
+            install_ipykernel_cmd = f"{pip_cmd} install --no-cache-dir --upgrade ipykernel"
+            self.logger.info(f"执行安装ipykernel命令: {install_ipykernel_cmd}")
+            install_result = container.exec_run(install_ipykernel_cmd, privileged=True, environment={'PATH': '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin'}) # Add ENV
+            
+            if install_result.exit_code != 0:
+                error_output = install_result.output.decode('utf-8', errors='ignore')
+                self.logger.error(f"安装ipykernel失败, Exit Code: {install_result.exit_code}\\nOutput:\\n{error_output[:500]}")
+                return {"success": False, "error": f"Failed to install ipykernel: {error_output[:100]}"}
+            self.logger.info("ipykernel安装成功")
+
+            # --- 获取容器中的Python版本信息 和 可执行文件名 (新方法) ---
+            python_version = 'Unknown'
+            python_exec_name = None
+            
+            # 尝试 python3
+            cmd_py3_ver = "python3 -V"
+            py3_ver_result = container.exec_run(cmd_py3_ver, environment={'PATH': '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin'})
+            if py3_ver_result.exit_code == 0:
+                python_version_str = py3_ver_result.output.decode('utf-8', errors='ignore').strip()
+                match = re.search(r'(\d+\.\d+(\.\d+)?)', python_version_str)
+                if match:
+                    python_version = match.group(1)
+                    python_exec_name = "python3"
+                    self.logger.info(f"找到 Python 3 版本: {python_version} (可执行名: {python_exec_name})")
+            
+            # 如果没找到 python3 或版本解析失败，尝试 python
+            if python_exec_name is None:
+                cmd_py_ver = "python -V"
+                py_ver_result = container.exec_run(cmd_py_ver, environment={'PATH': '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin'})
+                if py_ver_result.exit_code == 0:
+                    python_version_str = py_ver_result.output.decode('utf-8', errors='ignore').strip()
+                    match = re.search(r'(\d+\.\d+(\.\d+)?)', python_version_str)
+                    if match:
+                        python_version = match.group(1)
+                        python_exec_name = "python"
+                        self.logger.info(f"找到 Python 版本: {python_version} (可执行名: {python_exec_name})")
+            
+            # 如果两者都失败
+            if python_exec_name is None:
+                self.logger.error("无法执行 'python3 -V' 或 'python -V' 来确定 Python 版本和可执行文件名")
+                return {"success": False, "error": "Could not determine Python version or executable name (python/python3)."}
+                
+            self.logger.info(f"容器中的 Python 版本: {python_version}")
+
+            # 构建内核显示名称
+            display_name = f"Docker Image (Python {python_version})"
+            self.logger.info(f"内核显示名称: {display_name}")
+
+            # --- 获取Python可执行文件路径 (修复版) ---
+            # (此部分不再需要，我们直接使用上面找到的 python_exec_name)
+            # python_exec_path = None
+            # # 优先尝试 python3
+            # cmd_py3 = "command -v python3"
+            # py3_result = container.exec_run(cmd_py3, environment={'PATH': '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin'})
+            # if py3_result.exit_code == 0:
+            #     python_exec_path = py3_result.output.decode('utf-8', errors='ignore').strip()
+            #     self.logger.info(f"找到 Python 3 可执行文件: {python_exec_path}")
+            # else:
+            #     # 尝试 python
+            #     cmd_py = "command -v python"
+            #     py_result = container.exec_run(cmd_py, environment={'PATH': '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin'})
+            #     if py_result.exit_code == 0:
+            #         python_exec_path = py_result.output.decode('utf-8', errors='ignore').strip()
+            #         self.logger.info(f"找到 Python 可执行文件: {python_exec_path}")
+            #     else:
+            #         # 两者都找不到
+            #         self.logger.error("在容器中未找到 python 或 python3 命令")
+            #         return {"success": False, "error": "Python executable (python or python3) not found in container."}
+
+            # # 验证路径是否有效
+            # if not python_exec_path: # 或添加其他检查，如是否包含空格等
+            #     self.logger.error(f"获取到的 Python 路径无效: '{python_exec_path}'")
+            #     return {"success": False, "error": "Invalid Python executable path obtained."}
+
+            # self.logger.info(f"最终使用的 Python 可执行文件: {python_exec_path}")
+
+            # 在容器中注册内核 (系统范围，不带 --prefix)
+            # 修正 register_cmd 中的转义字符, 并使用 python_exec_name
+            register_cmd = f'{python_exec_name} -m ipykernel install --name={kernel_name} --display-name="{display_name}"'
+            self.logger.info(f"执行注册内核命令 (系统范围): {register_cmd}")
+            register_result = container.exec_run(["bash", "-c", register_cmd], privileged=True, environment={'PATH': '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin'})
+            output = register_result.output.decode('utf-8', errors='ignore')
+
+            if register_result.exit_code != 0:
+                self.logger.error(f"注册内核失败, Exit Code: {register_result.exit_code}\\nOutput:\\n{output[:500]}")
+                return {"success": False, "error": f"Failed to register kernel: {output[:100]}"}
+            self.logger.info(f"内核注册命令执行成功，输出: {output.strip()}")
+
+            # 增加短暂延迟，等待文件系统更新
+            time.sleep(2)
+            
+            # --- 验证内核文件 (主要用于调试，即使列表确认失败也继续) ---
+            possible_paths_to_check = [
+                f"/usr/local/share/jupyter/kernelspecs/{kernel_name}",
+                f"/usr/share/jupyter/kernelspecs/{kernel_name}"
+            ]
+            kernelspec_file_found = False
+            self.logger.info(f"开始验证内核文件，检查路径: {possible_paths_to_check}")
+            for check_dir in possible_paths_to_check:
+                kernelspec_file = f"{check_dir}/kernel.json"
+                check_file_cmd = f"cat {kernelspec_file} || echo 'FILE_NOT_FOUND'"
+                self.logger.info(f"尝试读取内核文件: {kernelspec_file}")
+                file_check_result = container.exec_run(["bash", "-c", check_file_cmd], environment={'PATH': '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin'}) # Add ENV
+                file_content = file_check_result.output.decode('utf-8', errors='ignore').strip()
+                if file_content != 'FILE_NOT_FOUND':
+                    kernelspec_file_found = True
+                    self.logger.info(f"找到内核文件于: {kernelspec_file}")
+                    break
+            if not kernelspec_file_found:
+                 self.logger.warning(f"在检查路径 {possible_paths_to_check} 中未找到内核文件 kernel.json! 但将继续操作。")
+
+            # 返回成功，因为安装命令本身是成功的
+            return {
+                "success": True,
+                "output": output,
+                "kernel_name": kernel_name,
+                "display_name": display_name,
+                "python_version": python_version,
+            }
+
+        except Exception as e:
+            self.logger.error(f"在容器中安装Jupyter内核时发生异常: {str(e)}")
             import traceback
             self.logger.error(traceback.format_exc())
-            # 出错时返回False，表示没有找到Jupyter进程
-            return False
+            return {"success": False, "error": str(e)}
 
     def start_jupyter_in_container(self, container_id, port=8888, token=None):
         """

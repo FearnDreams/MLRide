@@ -104,7 +104,7 @@ class JupyterSessionViewSet(viewsets.ModelViewSet):
             return Response({"error": "必须提供项目ID"}, status=400)
             
         try:
-            # 获取或创建项目的工作目录
+            # 获取项目信息
             project = Project.objects.get(id=project_id)
             workspace_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'workspaces', f'project_{project_id}')
             os.makedirs(workspace_dir, exist_ok=True)
@@ -218,6 +218,371 @@ c.NotebookApp.port = {session.port}  # 使用项目特定端口
                     except Exception as e:
                         logger.info(f"读取或删除PID文件失败: {str(e)}")
                 
+                # 检查该项目是否关联了容器和Docker镜像
+                use_docker = False
+                docker_client = None
+                
+                if project.container and project.image and project.image.image_tag:
+                    logger.info(f"项目已关联容器ID={project.container.container_id}和镜像={project.image.image_tag}")
+                    # 尝试使用Docker启动Jupyter
+                    try:
+                        from container.docker_ops import DockerClient
+                        docker_client = DockerClient()
+                        
+                        # 检查容器状态
+                        container_id = project.container.container_id
+                        logger.info(f"检查容器状态: ID={container_id}")
+                        
+                        # 获取容器对象
+                        container_info = docker_client.get_container(container_id)
+                        
+                        # 使用对象属性检查状态
+                        if container_info and container_info.status == 'running':
+                            logger.info(f"容器已在运行中: ID={container_id}")
+                            use_docker = True
+                        else:
+                            # 如果容器存在但没有运行，尝试启动它
+                            logger.info(f"容器存在但未运行，尝试启动: ID={container_id}")
+                            docker_client.start_container(container_id)
+                            time.sleep(5)  # 等待容器启动
+                            
+                            # 再次检查状态，刷新容器对象
+                            container_info = docker_client.get_container(container_id)
+                            if container_info and container_info.status == 'running':
+                                logger.info(f"成功启动容器: ID={container_id}")
+                                use_docker = True
+                            else:
+                                logger.warning(f"无法启动容器: ID={container_id}")
+                    except Exception as e:
+                        logger.error(f"检查/启动容器时出错: {str(e)}")
+                        
+                if use_docker and docker_client:
+                    try:
+                        logger.info("使用Docker容器启动Jupyter")
+                        
+                        # 检查容器是否安装了jupyter
+                        jupyter_check = docker_client.check_jupyter_in_container(project.container.container_id)
+                        if not jupyter_check.get('installed', False):
+                            logger.warning("容器中没有安装Jupyter，尝试安装")
+                            
+                            # 在容器中安装jupyter
+                            install_cmd = f"pip install --no-cache-dir notebook ipykernel"
+                            docker_client.client.containers.get(project.container.container_id).exec_run(
+                                install_cmd, 
+                                privileged=True,
+                                stream=False
+                            )
+                            
+                            # 再次检查是否安装成功
+                            jupyter_check = docker_client.check_jupyter_in_container(project.container.container_id)
+                            if not jupyter_check.get('installed', False):
+                                logger.error("无法在容器中安装Jupyter")
+                                raise Exception("无法在容器中安装Jupyter")
+                        
+                        # 安装和注册内核
+                        logger.info("检查容器内是否有已注册的内核")
+                        kernel_name = f"python-docker-{project.id}"
+                        
+                        # 获取当前内核列表
+                        current_kernels = jupyter_check.get('kernels', [])
+                        logger.info(f"当前内核列表 (来自 check_jupyter_in_container): {current_kernels}")
+                        
+                        # 检查目标内核是否已存在
+                        kernel_exists = any(kernel_name in kernel_spec for kernel_spec in current_kernels)
+                        
+                        if not kernel_exists:
+                            logger.info(f"未找到目标内核 {kernel_name}，开始安装")
+                            kernel_result = docker_client.install_jupyter_kernel_in_container(
+                                project.container.container_id,
+                                kernel_name # 使用我们定义的内核名称
+                            )
+                            
+                            if kernel_result.get('success', False):
+                                registered_info = kernel_result.get('registered_kernel_info')
+                                if registered_info:
+                                     logger.info(f"内核安装并注册成功: {registered_info}")
+                                else:
+                                    logger.warning("内核安装声称成功，但在列表确认时失败")
+                                    # 尝试再次检查内核列表
+                                    jupyter_check_after_install = docker_client.check_jupyter_in_container(project.container.container_id)
+                                    logger.info(f"安装后再次检查内核列表: {jupyter_check_after_install.get('kernels', [])}")
+                            else:
+                                logger.error(f"内核安装失败: {kernel_result.get('error')}")
+                                # 即使安装失败，也继续尝试启动Jupyter，可能已有其他内核
+                        else:
+                            logger.info(f"目标内核 {kernel_name} 已存在于容器中")
+                        
+                        # 复制jupyter配置文件到容器
+                        container_config_dir = "/root/.jupyter"
+                        
+                        # 为确保配置目录存在，先创建
+                        docker_client.client.containers.get(project.container.container_id).exec_run(
+                            f"mkdir -p {container_config_dir}",
+                            privileged=True
+                        )
+                        
+                        # 生成适用于容器内的配置
+                        kernel_name = f"python-docker-{project.id}"
+                        # 定义需要 Jupyter 扫描的内核目录 (移除，因为配置项不被识别)
+                        # kernel_dirs = ... # 不再需要此行
+                        container_config = f"""
+# Jupyter notebook配置文件
+c = get_config()
+c.ServerApp.token = ''
+c.ServerApp.password = ''
+c.ServerApp.allow_origin = '*'
+c.ServerApp.allow_remote_access = True
+c.ServerApp.disable_check_xsrf = True
+c.ServerApp.open_browser = False
+c.ServerApp.ip = '0.0.0.0'
+c.ServerApp.port = 8888
+c.ServerApp.tornado_settings = {{"headers": {{"Content-Security-Policy": "", "X-Frame-Options": ""}}}}
+c.ServerApp.trust_xheaders = True
+c.ServerApp.allow_root = True
+c.ServerApp.root_dir = "/workspace"
+
+# 确保使用容器内的Python环境作为默认内核
+c.MultiKernelManager.default_kernel_name = "{kernel_name}"
+# c.MultiKernelManager.ensure_native_kernel = False # 移除，因为配置项不被识别
+
+# 显式指定内核查找目录 (移除)
+# c.KernelSpecManager.kernel_dirs = ... # 移除插值
+
+# 旧版本兼容配置 (保持这些，因为日志中有相关警告)
+c.NotebookApp.token = ''
+c.NotebookApp.password = ''
+c.NotebookApp.allow_origin = '*'
+c.NotebookApp.allow_remote_access = True
+c.NotebookApp.disable_check_xsrf = True
+c.NotebookApp.open_browser = False
+c.NotebookApp.port = 8888
+"""
+                        
+                        # 将配置写入临时文件，然后复制到容器
+                        config_temp_file = os.path.join(workspace_dir, 'jupyter_container_config.py')
+                        with open(config_temp_file, 'w') as f:
+                            f.write(container_config)
+                        
+                        docker_client.copy_to_container(
+                            project.container.container_id,
+                            config_temp_file,
+                            f"{container_config_dir}/jupyter_notebook_config.py"
+                        )
+                        
+                        # 清理旧的内核缓存 (如果存在) - 尝试取消注释解决内核识别问题
+                        clear_cache_cmd = "rm -rf /root/.local/share/jupyter/kernels/* || true"
+                        logger.info(f"执行清理内核缓存命令: {clear_cache_cmd}")
+                        docker_client.client.containers.get(project.container.container_id).exec_run(
+                            ["bash", "-c", clear_cache_cmd],
+                            privileged=True
+                        )
+                        
+                        # --- 再次确认 Jupyter 命令路径 (改回 which) ---
+                        jupyter_path_cmd = "which jupyter" # 改回使用 which
+                        logger.info(f"执行命令查找 Jupyter 路径: {jupyter_path_cmd}")
+                        # 添加 environment 参数
+                        jupyter_path_result = docker_client.client.containers.get(project.container.container_id).exec_run(
+                            jupyter_path_cmd,
+                            environment={'PATH': '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin'}
+                        )
+                        
+                        # 检查退出码
+                        if jupyter_path_result.exit_code != 0:
+                            # 尝试获取更详细的错误输出
+                            err_output = jupyter_path_result.output.decode('utf-8', errors='ignore').strip()
+                            logger.error(f"在容器中查找 Jupyter 命令 ('which jupyter') 失败 (exit code: {jupyter_path_result.exit_code}), Output: {err_output}")
+                            # which 失败通常是 exit code 1 (找不到)
+                            if jupyter_path_result.exit_code == 1:
+                                raise Exception("Jupyter command not found using 'which'.")
+                            else:
+                                # 保留对 126 的检查以防万一
+                                raise Exception(f"Failed to find Jupyter command using 'which' (exit code {jupyter_path_result.exit_code}). Check permissions or PATH.")
+                        
+                        # 获取并清理路径
+                        jupyter_path = jupyter_path_result.output.decode('utf-8', errors='ignore').strip()
+                        
+                        # 验证路径是否有效 (例如不为空，不包含换行或异常字符)
+                        if not jupyter_path or '\n' in jupyter_path or not jupyter_path.startswith('/'):
+                            logger.error(f"'which jupyter' 返回的路径无效: '{jupyter_path}'")
+                            raise Exception(f"Invalid path returned by 'which jupyter': {jupyter_path}")
+                            
+                        logger.info(f"确认 Jupyter 命令路径: {jupyter_path}")
+                        
+                        # --- 添加执行权限 (保留) ---
+                        chmod_cmd = f"chmod +x {jupyter_path}"
+                        logger.info(f"为 Jupyter 添加执行权限: {chmod_cmd}")
+                        chmod_result = docker_client.client.containers.get(project.container.container_id).exec_run(
+                            ["bash", "-c", chmod_cmd],
+                            privileged=True
+                        )
+                        if chmod_result.exit_code != 0:
+                            # 记录警告但继续，也许它已经有权限了
+                            chmod_output = chmod_result.output.decode('utf-8', errors='ignore')[:200]
+                            logger.warning(f"chmod +x 命令失败 (Exit Code: {chmod_result.exit_code}), Output: {chmod_output}. 尝试继续...")
+                        else:
+                            logger.info("成功为 Jupyter 添加执行权限")
+                        
+                        # 在容器中启动Jupyter
+                        # 使用 --debug 获取更详细的日志
+                        # 注意：不再重定向到 /var/log/jupyter.log，直接让其输出到容器 stdout/stderr
+                        # 修正命令构造，确保 jupyter_path 是干净的
+                        jupyter_cmd = f"{jupyter_path.strip()} notebook --config=/root/.jupyter/jupyter_notebook_config.py --allow-root --debug"
+                        logger.info(f"准备执行Jupyter启动命令: {jupyter_cmd}")
+                        
+                        # 使用 bash -c 执行，并且后台运行 (依然 detach)
+                        logger.info(f"实际执行的后台命令: nohup {jupyter_cmd} &") # 打印实际执行的命令
+                        exec_result = docker_client.client.containers.get(project.container.container_id).exec_run(
+                            ["bash", "-c", f"nohup {jupyter_cmd} &"] , # 使用 nohup 和 & 在后台运行
+                            detach=False, # detach=False 配合 & 使用，让 exec_run 等待 bash 命令结束，而不是等待 nohup 的后台进程
+                            stream=False,
+                            privileged=True,
+                            environment={
+                                "JUPYTER_CONFIG_DIR": "/root/.jupyter",
+                                "PYTHONPATH": "/usr/local/bin:/usr/bin:/bin", # 可能需要更全的PATH
+                                "PATH": "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin", # 明确设置PATH
+                                "HOME": "/root", # 显式设置HOME可能有助于找到.local
+                                "PYTHONUNBUFFERED": "1" # 确保日志立即输出
+                            }
+                        )
+                        
+                        # 检查 exec_run 的退出码
+                        if exec_result.exit_code != 0:
+                             log_output_on_error = exec_result.output.decode('utf-8', errors='ignore')[:500]
+                             logger.error(f"执行后台启动命令失败, Exit Code: {exec_result.exit_code}, Output: {log_output_on_error}")
+                             raise Exception(f"Failed to execute jupyter start command, exit code: {exec_result.exit_code}") # 抛出异常以便捕获
+                        else:
+                            logger.info(f"在容器中启动Jupyter的后台命令已成功执行 (exec_run exit_code=0)")
+                        
+                        # 等待Jupyter启动 (给后台进程一点时间)
+                        time.sleep(8)
+                        
+                        # --- 直接获取容器日志 ---
+                        try:
+                            container_obj = docker_client.client.containers.get(project.container.container_id)
+                            container_logs = container_obj.logs(tail=100, stdout=True, stderr=True)
+                            log_output = container_logs.decode('utf-8', errors='ignore').strip()
+                            if log_output:
+                                logger.info(f"容器最新日志 (stdout/stderr):\n------ START CONTAINER LOG ------\n{log_output}\n------ END CONTAINER LOG ------")
+                            else:
+                                logger.warning("无法获取到容器的最新日志")
+                        except Exception as log_e:
+                            logger.error(f"获取容器日志时出错: {str(log_e)}")
+
+                        # 获取容器端口映射 (需要刷新容器对象)
+                        container_info = docker_client.get_container(project.container.container_id)
+                        port_mappings = container_info.attrs.get('NetworkSettings', {}).get('Ports', {})
+                        
+                        # 查找jupyter端口映射
+                        host_port = None
+                        jupyter_container_port = '8888/tcp' # Jupyter默认是TCP
+                        if jupyter_container_port in port_mappings and port_mappings[jupyter_container_port]:
+                             host_port = port_mappings[jupyter_container_port][0].get('HostPort')
+                        
+                        if not host_port:
+                            # 如果没有找到映射，使用我们自己分配的端口
+                            host_port = str(session.port)
+                            logger.info(f"未找到端口映射，将使用会话端口 {host_port} 并尝试重新绑定")
+                            
+                            # 尝试停止并重新启动容器以绑定端口
+                            try:
+                                docker_client.client.api.stop(project.container.container_id)
+                                time.sleep(2)
+                                docker_client.client.api.start(
+                                    project.container.container_id,
+                                    port_bindings={8888: session.port}
+                                )
+                                time.sleep(5)
+                                logger.info(f"容器已重启并尝试绑定端口 {session.port}")
+                            except Exception as restart_e:
+                                logger.error(f"重启容器以绑定端口时出错: {str(restart_e)}")
+                                # 如果重启失败，继续尝试使用原始端口
+                                host_port = str(session.port)
+                        
+                        logger.info(f"容器Jupyter端口映射: 容器内8888 -> 主机 {host_port}")
+                        
+                        # 构建访问URL
+                        scheme = request.scheme
+                        host = request.get_host()
+                        base_url = f"{scheme}://{host}"
+                        
+                        # 使用端口映射构建URL
+                        proxy_url = f"{base_url}/api/jupyter/proxy/{project.id}/"
+                        direct_url = f"http://localhost:{host_port}/tree"
+                        
+                        logger.info(f"Docker容器中的Jupyter访问URL: 代理={proxy_url}, 直接={direct_url}")
+                        
+                        # 更新会话状态
+                        session.status = 'running'
+                        session.url = proxy_url
+                        session.process_id = None  # 容器中运行，不需要进程ID
+                        session.save()
+                        
+                        # 更新项目和容器状态
+                        project.status = 'running'
+                        project.save()
+                        
+                        if project.container:
+                            project.container.status = 'running'
+                            project.container.save()
+                        
+                        # 获取容器内的内核信息
+                        try:
+                            # 检查容器内的内核信息
+                            kernel_check_cmd = "jupyter kernelspec list --json"
+                            kernel_info_result = docker_client.client.containers.get(project.container.container_id).exec_run(
+                                kernel_check_cmd
+                            )
+                            kernel_info = {}
+                            
+                            if kernel_info_result.exit_code == 0:
+                                import json
+                                kernel_output = kernel_info_result.output.decode('utf-8', errors='ignore')
+                                try:
+                                    kernel_data = json.loads(kernel_output)
+                                    kernel_name = f"python-docker-{project.id}"
+                                    if kernel_name in kernel_data.get('kernelspecs', {}):
+                                        spec_info = kernel_data['kernelspecs'][kernel_name]
+                                        kernel_info = {
+                                            'name': kernel_name,
+                                            'display_name': spec_info.get('spec', {}).get('display_name', f'Docker Python ({project.id})')
+                                        }
+                                    else:
+                                        # 如果找不到特定内核，使用第一个Python内核
+                                        for k_name, k_info in kernel_data.get('kernelspecs', {}).items():
+                                            if 'python' in k_name.lower():
+                                                kernel_info = {
+                                                    'name': k_name,
+                                                    'display_name': k_info.get('spec', {}).get('display_name', 'Docker Python')
+                                                }
+                                                break
+                                except json.JSONDecodeError:
+                                    logger.warning(f"无法解析内核JSON数据: {kernel_output[:200]}")
+                            
+                            logger.info(f"获取到的内核信息: {kernel_info}")
+                        except Exception as e:
+                            logger.warning(f"获取内核信息失败: {str(e)}")
+                            kernel_info = {}
+                        
+                        # 成功使用Docker启动Jupyter
+                        serialized_data = self.get_serializer(session).data
+                        serialized_data['direct_access_url'] = direct_url
+                        serialized_data['running_in_docker'] = True # 确保这里设置为 True
+                        serialized_data['docker_image'] = project.image.image_tag
+                        
+                        # 添加内核信息
+                        if kernel_info:
+                            serialized_data['kernel_info'] = kernel_info
+                        else: # 如果获取失败，尝试给一个默认值
+                            serialized_data['kernel_info'] = {'name': kernel_name, 'display_name': f'Docker Image ({project.id})'}
+                        
+                        logger.info(f"成功在Docker容器中启动Jupyter并返回会话数据: {serialized_data}")
+                        return Response(serialized_data)
+                    except Exception as e:
+                        logger.error(f"使用Docker启动Jupyter失败: {str(e)}")
+                        # 如果Docker启动失败，回退到本地启动
+                        logger.info("尝试回退到本地启动Jupyter")
+                
+                # 如果没有使用Docker或Docker启动失败，回退到本地启动Jupyter
                 try:
                     # 获取当前Python解释器路径
                     python_path = sys.executable
@@ -370,12 +735,48 @@ c.NotebookApp.port = {session.port}  # 使用项目特定端口
             
             serialized_data = self.get_serializer(session).data
             
-            # 添加直接访问URL，确保使用正确的端口号
-            direct_access_url = f"http://localhost:{session.port}/tree"
-            serialized_data['direct_access_url'] = direct_access_url
-            
-            # 记录正确的直接访问URL
-            logger.info(f"直接访问URL: {direct_access_url}")
+            # --- 修复：根据运行环境确定直接访问URL和状态 ---
+            if session.status == 'running':
+                is_docker = session.process_id is None
+                serialized_data['running_in_docker'] = is_docker
+                
+                if is_docker:
+                    # Docker环境: 重新获取映射的主机端口
+                    try:
+                        from container.docker_ops import DockerClient
+                        docker_client = DockerClient()
+                        container_info = docker_client.get_container(project.container.container_id)
+                        port_mappings = container_info.attrs.get('NetworkSettings', {}).get('Ports', {})
+                        host_port = None
+                        jupyter_container_port = '8888/tcp'
+                        if jupyter_container_port in port_mappings and port_mappings[jupyter_container_port]:
+                            host_port = port_mappings[jupyter_container_port][0].get('HostPort')
+                        
+                        if host_port:
+                            direct_access_url = f"http://localhost:{host_port}/tree"
+                            logger.info(f"Docker运行中，获取到映射端口 {host_port}, 直接URL: {direct_access_url}")
+                        else:
+                            # 如果找不到映射，使用会话端口作为后备（可能不准确）
+                            direct_access_url = f"http://localhost:{session.port}/tree"
+                            logger.warning(f"Docker运行中，但未找到8888端口映射，回退使用会话端口 {session.port}")
+                            
+                    except Exception as e:
+                        logger.error(f"获取Docker端口映射失败: {str(e)}，回退使用会话端口 {session.port}")
+                        direct_access_url = f"http://localhost:{session.port}/tree"
+                else:
+                    # 本地环境: 使用会话端口
+                    direct_access_url = f"http://localhost:{session.port}/tree"
+                    logger.info(f"本地运行中，直接URL: {direct_access_url}")
+                    
+                serialized_data['direct_access_url'] = direct_access_url
+                
+            else:
+                # 非运行状态: 默认值
+                serialized_data['running_in_docker'] = False
+                # 提供一个默认或基于会话端口的URL，虽然此时可能无效
+                direct_access_url = f"http://localhost:{session.port}/tree" 
+                serialized_data['direct_access_url'] = direct_access_url
+                logger.info(f"会话非运行状态，默认直接URL: {direct_access_url}")
             
             logger.info(f"返回会话数据: {serialized_data}")
             return Response(serialized_data)
