@@ -87,20 +87,48 @@ api.interceptors.request.use(
 // 响应拦截器
 api.interceptors.response.use(
     (response: AxiosResponse) => {
-        console.log('API响应成功:', {
-            status: response.status,
-            data: response.data
-        });
+        console.log('API响应原始数据:', response.data);
 
         // 修改响应数据结构以匹配ApiResponse接口
-        if (response.data) {
-            response.data = {
-                status: response.data.status || 'success',
-                message: response.data.message || '操作成功',
-                data: response.data.data || response.data
-            };
+        const responseData = response.data;
+
+        // 更准确地判断响应是否已经是标准格式 (需要同时包含 status, message, data)
+        const isStandardFormat = responseData &&
+                                 typeof responseData === 'object' &&
+                                 'status' in responseData &&
+                                 'message' in responseData &&
+                                 'data' in responseData;
+
+        if (isStandardFormat) {
+            console.log('响应已是标准格式 (包含status, message, data):', responseData);
+            // 不需要修改，直接返回原始 AxiosResponse，后续调用者应访问 response.data
+            return response;
         }
-        
+
+        // 处理成功响应 (需要包装)
+        if (response.status >= 200 && response.status < 300) {
+            console.log('需要包装的成功响应:', responseData);
+            // 将原始数据包装在 data 字段中
+            response.data = {
+                status: 'success',
+                message: '操作成功', // 或者可以尝试从 headers 或其他地方获取消息
+                data: responseData
+            };
+            console.log('处理后的响应数据:', response.data);
+        } else {
+            // 对于非 2xx 的状态码，即使不是标准错误格式，也包装一下
+            console.log('需要包装的非成功响应:', responseData);
+            // 尝试从原始数据中提取错误信息
+            const errorMessage = responseData?.message || responseData?.detail || '操作失败';
+            response.data = {
+                status: 'error',
+                message: errorMessage,
+                data: responseData // 保留原始错误数据以便调试
+            };
+            console.log('处理后的错误响应数据:', response.data);
+        }
+
+        // 返回修改后的 AxiosResponse
         return response;
     },
     (error) => {
@@ -115,13 +143,19 @@ api.interceptors.response.use(
         // 处理401未授权错误
         if (error.response?.status === 401) {
             localStorage.removeItem('token');
+            error.response.data = {
+                status: 'error',
+                message: '未授权访问',
+                data: null
+            };
+            return Promise.reject(error);
         }
         
         // 处理错误响应
         if (error.response?.data) {
             const errorData = error.response.data;
             
-            // 检查字段验证错误（如项目名称重名）
+            // 检查字段验证错误
             if (errorData.name && Array.isArray(errorData.name) && errorData.name.length > 0) {
                 error.response.data = {
                     status: 'error',
@@ -137,7 +171,7 @@ api.interceptors.response.use(
                     data: errorData
                 };
             }
-            // 其他常规错误
+            // 其他错误
             else {
                 error.response.data = {
                     status: 'error',

@@ -28,6 +28,10 @@ export interface CreateImageRequest {
   name: string;
   description?: string;
   pythonVersion: string;
+  is_pytorch?: boolean;
+  pytorch_version?: string | null;
+  cuda_available?: boolean;
+  cuda_version?: string | null;
 }
 
 // 定义镜像响应接口
@@ -39,6 +43,10 @@ export interface ImageResponse {
   created: string;
   status: string;
   creator_username: string;
+  is_pytorch?: boolean;
+  pytorch_version?: string;
+  cuda_available?: boolean;
+  cuda_version?: string;
 }
 
 export interface DockerImage {
@@ -50,7 +58,14 @@ export interface DockerImage {
   created: string;
   status: string; 
   creator: number;
+  creator_name?: string; // 添加可选的创建者名称字段
   packages?: string; // 可选字段，存储镜像包含的工具包信息，以逗号分隔
+  is_pytorch?: boolean;
+  pytorch_version?: string;
+  cuda_available?: boolean;
+  cuda_version?: string;
+  image_tag?: string; // 添加可选的Docker镜像标签字段
+  error_message?: string; // 添加可选的错误信息字段
 }
 
 export const imagesService = {
@@ -90,15 +105,52 @@ export const imagesService = {
         delete apiData.pythonVersion;
       }
       
+      console.log('发送到API的数据:', apiData);
       const response = await api.post<ApiResponse>('container/images/', apiData);
       return response.data;
     } catch (error: any) {
       console.error('创建镜像失败:', error);
       
+      // 详细记录错误信息
+      if (axios.isAxiosError(error)) {
+        console.error('API错误详情:', {
+          status: error.response?.status,
+          statusText: error.response?.statusText,
+          data: error.response?.data,
+        });
+        
+        // 处理后端验证错误
+        if (error.response?.status === 400 && error.response?.data) {
+          const errorData = error.response.data;
+          let errorMessage = '创建镜像失败: ';
+          
+          // 处理不同格式的错误响应
+          if (errorData.detail) {
+            errorMessage += errorData.detail;
+          } else if (errorData.message) {
+            errorMessage += errorData.message;
+          } else if (typeof errorData === 'object') {
+            // 处理字段错误
+            Object.keys(errorData).forEach(key => {
+              if (Array.isArray(errorData[key])) {
+                errorMessage += `${key}: ${errorData[key].join(', ')}. `;
+              } else if (typeof errorData[key] === 'string') {
+                errorMessage += `${key}: ${errorData[key]}. `;
+              }
+            });
+          }
+          
+          throw {
+            status: 'error',
+            message: errorMessage
+          };
+        }
+      }
+      
       if (error.response?.data) {
         throw {
           status: 'error',
-          message: error.response.data.message || '创建镜像失败'
+          message: error.response.data.message || error.response.data.detail || '创建镜像失败'
         };
       }
       throw {
@@ -149,6 +201,49 @@ export const imagesService = {
         message: error.message || '删除镜像失败'
       };
     }
+  },
+  
+  // 更新镜像
+  updateImage: async (id: number, data: { name?: string; description?: string; python_version?: string }): Promise<ApiResponse> => {
+    try {
+      console.log('开始调用updateImage API', {id, data});
+      
+      // 记录CSRF Token
+      const csrfToken = document.cookie.split('; ').find(row => row.startsWith('csrftoken='))?.split('=')[1];
+      console.log('当前CSRF Token:', csrfToken || '未找到');
+      
+      // 使用api.patch发送请求
+      const response = await api.patch<ApiResponse>(`container/images/${id}/`, data);
+      console.log('更新镜像API原始响应:', response);
+      
+      // 无论响应如何解析,只要HTTP状态码是成功的,我们就认为操作成功
+      // 因为手动刷新后数据确实被更新了
+      return {
+        status: 'success',
+        message: '更新镜像成功',
+        data: response.data.data
+      };
+    } catch (error: any) {
+      console.error('更新镜像API错误详情:', {
+        message: error.message,
+        status: error.response?.status,
+        statusText: error.response?.statusText,
+        data: error.response?.data
+      });
+      
+      if (error.response?.data) {
+        throw {
+          status: 'error',
+          message: error.response.data.message || error.response.data.detail || '更新镜像失败',
+          data: error.response.data
+        };
+      }
+      throw {
+        status: 'error',
+        message: error.message || '更新镜像失败',
+        data: undefined
+      };
+    }
   }
 };
 
@@ -162,6 +257,10 @@ export class ImageService {
         name: data.name,
         description: data.description,
         python_version: data.pythonVersion,
+        is_pytorch: data.is_pytorch,
+        pytorch_version: data.pytorch_version,
+        cuda_available: data.cuda_available,
+        cuda_version: data.cuda_version,
       };
       
       const response = await api.post<ApiResponse>('container/images/', apiData);
@@ -242,19 +341,28 @@ export const getDockerImages = async () => {
     if (response.status === 'success' && response.data) {
       const imagesData = Array.isArray(response.data) ? response.data : [response.data];
       
-      console.log('处理后的镜像数据:', imagesData);
-      return { data: imagesData };
+      // 添加镜像类型标记
+      const enhancedImages = imagesData.map(img => {
+        let imageType = "Python";
+        if (img.is_pytorch) {
+          imageType = img.cuda_available ? "PyTorch+CUDA" : "PyTorch";
+        }
+        
+        return {
+          ...img,
+          imageType
+        };
+      });
+      
+      console.log('处理后的镜像数据:', enhancedImages);
+      return { data: enhancedImages };
     }
     
     // 如果API未正确响应，返回空数组
     console.warn('API返回了不符合预期的响应:', response);
     return { data: [] };
   } catch (error) {
-    console.error('获取镜像列表失败:', error);
-    if (axios.isAxiosError(error)) {
-      const message = error.response?.data?.message || '获取镜像列表失败';
-      throw new Error(message);
-    }
-    throw error;
+    console.error('获取Docker镜像失败:', error);
+    return { data: [] };
   }
 };

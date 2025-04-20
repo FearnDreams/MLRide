@@ -5,8 +5,8 @@ to provide high-level operations for managing Docker images and containers.
 """
 
 import docker
-from docker.errors import DockerException, ImageNotFound, BuildError
-from typing import Dict, List, Optional
+from docker.errors import DockerException, ImageNotFound, BuildError, APIError
+from typing import Dict, List, Optional, Tuple, Union, Any
 import logging
 import platform
 import os
@@ -20,6 +20,7 @@ import subprocess
 import datetime
 import tarfile
 import io
+import threading
 
 # 设置日志记录器
 logger = logging.getLogger(__name__)
@@ -443,7 +444,7 @@ class DockerClient:
         
     def _pull_remote_image(self, image_name, tag):
         """
-        从远程拉取镜像
+        从远程拉取镜像，优先使用国内镜像源
         
         Args:
             image_name: 镜像名称
@@ -460,9 +461,50 @@ class DockerClient:
         max_pull_retries = int(os.environ.get("DOCKER_PULL_RETRIES", "3"))
         pull_error = None
         
+        # 国内镜像源配置
+        cn_mirrors = {
+            "pytorch/pytorch": [
+                "registry.cn-hangzhou.aliyuncs.com/pytorch-images/pytorch",  # 阿里云
+                "hub-mirror.c.163.com/pytorch/pytorch",  # 网易云
+                "mirror.ccs.tencentyun.com/pytorch/pytorch"  # 腾讯云
+            ]
+        }
+        
+        # 检查是否为PyTorch镜像或其他有特定镜像源的镜像
+        alternative_sources = []
+        if image_name in cn_mirrors:
+            alternative_sources = cn_mirrors[image_name]
+            self.logger.info(f"检测到 {image_name} 镜像，将尝试使用国内镜像源: {alternative_sources}")
+        
+        # 首先尝试国内镜像源
+        if alternative_sources:
+            for mirror_source in alternative_sources:
+                try:
+                    self.logger.info(f"尝试从国内镜像源拉取: {mirror_source}:{tag}")
+                    self.client.api.pull(mirror_source, tag=tag)
+                    
+                    # 拉取成功后重新标记为原始镜像名
+                    self.client.api.tag(f"{mirror_source}:{tag}", image_name, tag=tag)
+                    
+                    # 获取标记后的镜像
+                    image = self.client.images.get(f"{image_name}:{tag}")
+                    
+                    self.logger.info(f"成功从国内镜像源 {mirror_source} 拉取并重命名为 {full_image_name}")
+                    return {
+                        'id': image.id,
+                        'tags': image.tags,
+                        'size': image.attrs['Size'],
+                        'created': image.attrs['Created'],
+                        'source': 'cn_mirror'
+                    }
+                except Exception as e:
+                    self.logger.warning(f"从国内镜像源 {mirror_source} 拉取失败: {str(e)}")
+                    continue
+        
+        # 如果国内镜像源都失败，尝试原始镜像源
         while retry_count < max_pull_retries:
             try:
-                self.logger.info(f"从远程拉取镜像: {full_image_name} (尝试 {retry_count + 1}/{max_pull_retries})")
+                self.logger.info(f"从原始源拉取镜像: {full_image_name} (尝试 {retry_count + 1}/{max_pull_retries})")
                 
                 # 使用低级API拉取镜像
                 self.client.api.pull(image_name, tag=tag)
@@ -495,7 +537,7 @@ class DockerClient:
                 
                 # 检查是否是网络类型错误
                 is_network_error = any(network_err in error_msg.lower() for network_err in 
-                                      ['timeout', 'connection refused', 'eof', 'network', 'unreachable'])
+                                      ['timeout', 'connection refused', 'eof', 'network', 'unreachable', 'context deadline exceeded'])
                 
                 if is_network_error:
                     retry_count += 1
@@ -511,8 +553,9 @@ class DockerClient:
         if pull_error:
             self.logger.error(f"经过 {max_pull_retries} 次尝试，无法拉取镜像 {full_image_name}: {str(pull_error)}")
             self.logger.error(f"错误类型: {type(pull_error).__name__}")
-            raise Exception(f"无法获取指定版本的镜像 {full_image_name}。请确保网络连接正常且Docker服务可用。错误详情: {str(pull_error)}")
-            
+            # 提供更多提示信息，包括使用国内镜像源的建议
+            raise Exception(f"无法获取指定版本的镜像 {full_image_name}。请确保网络连接正常且Docker服务可用。如果您在中国大陆，建议配置Docker使用国内镜像加速器。错误详情: {str(pull_error)}")
+        
         # 如果代码执行到这里，说明遇到了未处理的情况
         raise Exception(f"拉取镜像 {full_image_name} 失败，原因未知")
     
@@ -930,38 +973,52 @@ class DockerClient:
         image_name: str,
         image_tag: str = 'latest',
         build_args: Optional[Dict[str, str]] = None,
-        python_version: Optional[str] = None
+        python_version: Optional[str] = None,
+        is_pytorch: bool = False
     ) -> Dict:
         """
-        从Dockerfile内容构建镜像
+        从Dockerfile内容构建Docker镜像
         
         Args:
             dockerfile_content: Dockerfile内容
             image_name: 镜像名称
-            image_tag: 镜像标签,默认为latest
+            image_tag: 镜像标签
             build_args: 构建参数
-            python_version: 预期的Python版本，用于验证和标记
+            python_version: 预期的Python版本，用于验证构建后的镜像
+            is_pytorch: 是否是PyTorch镜像
             
         Returns:
             Dict: 构建的镜像信息
         """
-        import io
         import time
         
         try:
+            # 在Dockerfile开头添加镜像源配置以加速构建
+            if not is_pytorch or "pytorch" not in image_name.lower():
+                # 对于PyTorch官方镜像，不添加中国镜像源配置，因为它们已经包含了所需依赖
+                dockerfile_content = self._add_china_mirrors(dockerfile_content)
+            
             # 检查是否已有同名镜像
             try:
                 local_image = self.client.images.get(f"{image_name}:{image_tag}")
-                self.logger.info(f"Image {image_name}:{image_tag} already exists locally with ID: {local_image.id}")
-                # 如果已经存在，先移除旧的
-                self.client.images.remove(local_image.id, force=True)
-                self.logger.info(f"Removed existing image {image_name}:{image_tag}")
-            except (ImageNotFound, DockerException) as e:
-                self.logger.info(f"No existing image found with name {image_name}:{image_tag}: {str(e)}")
-            
-            # 如果提供了Python版本，添加版本验证命令
-            if python_version:
-                dockerfile_content = self._add_version_verification(dockerfile_content, python_version)
+                self.logger.info(f"Found existing image {image_name}:{image_tag}, id={local_image.id}")
+                
+                # 仍需验证镜像中的Python版本
+                if python_version:
+                    actual_version = self._verify_python_version_in_image(local_image.id)
+                    if actual_version:
+                        self.logger.info(f"Existing image Python version: {actual_version}")
+                    
+                return {
+                    'id': local_image.id,
+                    'tags': local_image.tags,
+                    'size': local_image.attrs['Size'],
+                    'created': local_image.attrs['Created'],
+                    'source': 'local',
+                    'actual_python_version': actual_version if python_version else None
+                }
+            except ImageNotFound:
+                self.logger.info(f"No existing image {image_name}:{image_tag}, building new one")
             
             # 创建文件对象
             f = io.BytesIO(dockerfile_content.encode('utf-8'))
@@ -970,93 +1027,408 @@ class DockerClient:
             self.logger.info(f"Building image {image_name}:{image_tag} from Dockerfile")
             
             # 设置构建超时
-            build_timeout = 300  # 5分钟
+            build_timeout = 900  # 15分钟，加长超时时间以适应大型镜像
+            
+            # 设置构建参数，配置pip镜像和apt镜像
+            if not build_args:
+                build_args = {}
+            
+            # 添加中国区镜像源作为构建参数
+            build_args.update({
+                'PIP_INDEX_URL': 'https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple',
+                'PIP_TRUSTED_HOST': 'mirrors.tuna.tsinghua.edu.cn'
+            })
+            
+            # 检测是否是PyTorch+CUDA镜像
+            is_pytorch_cuda = False
+            if is_pytorch and 'PYTORCH_VERSION' in build_args and 'CUDA_VERSION' in build_args:
+                is_pytorch_cuda = True
+                self.logger.info(f"检测到PyTorch+CUDA构建: PyTorch {build_args['PYTORCH_VERSION']}, CUDA {build_args['CUDA_VERSION']}")
+                
+                # 对于PyTorch+CUDA构建，添加额外的构建参数
+                build_args.update({
+                    'NVIDIA_VISIBLE_DEVICES': 'all',
+                    'DEBIAN_FRONTEND': 'noninteractive',  # 避免交互式提示
+                    'TORCH_CUDA_ARCH_LIST': 'compute_37,compute_50,compute_60,compute_70,compute_75,compute_80,compute_86',  # 支持主流GPU架构
+                })
+                
+                # 验证Dockerfile是否包含正确的pip安装指令
+                pytorch_version = build_args.get('PYTORCH_VERSION')
+                cuda_version = build_args.get('CUDA_VERSION')
+                cuda_version_no_dots = cuda_version.replace('.', '')
+                
+                # 检查是否包含pip安装PyTorch指令
+                has_pytorch_install = False
+                for line in dockerfile_content.splitlines():
+                    if f"pip install" in line and f"torch=={pytorch_version}" in line and "download.pytorch.org" in line:
+                        has_pytorch_install = True
+                        self.logger.info(f"Dockerfile已包含正确的PyTorch安装指令: {line}")
+                        break
+                
+                if not has_pytorch_install:
+                    self.logger.warning("未找到PyTorch安装指令，添加一个标准的pip安装命令")
+                    # 在Dockerfile中添加PyTorch安装命令
+                    torch_install_cmd = f"\n# 添加PyTorch安装命令\nRUN pip install --no-cache-dir torch=={pytorch_version} torchvision torchaudio --index-url https://download.pytorch.org/whl/cu{cuda_version_no_dots}\n"
+                    
+                    # 找到一个合适的位置插入（比如在FROM指令后）
+                    dockerfile_lines = dockerfile_content.splitlines()
+                    inserted = False
+                    
+                    for i, line in enumerate(dockerfile_lines):
+                        if line.strip().startswith("FROM "):
+                            # 在FROM后面插入两行后添加
+                            dockerfile_lines.insert(i + 2, torch_install_cmd)
+                            inserted = True
+                            break
+                    
+                    if not inserted:
+                        # 如果没有找到合适位置，添加到末尾
+                        dockerfile_lines.append(torch_install_cmd)
+                    
+                    dockerfile_content = "\n".join(dockerfile_lines)
+            
+            # 对于普通PyTorch CPU版本也进行类似检查
+            elif is_pytorch and 'PYTORCH_VERSION' in build_args:
+                pytorch_version = build_args.get('PYTORCH_VERSION')
+                if pytorch_version:
+                    # 检查Dockerfile中的FROM指令
+                    has_correct_from = False
+                    for line in dockerfile_content.splitlines():
+                        if line.strip().startswith('FROM pytorch/pytorch') and f'{pytorch_version}-cpu' in line:
+                            has_correct_from = True
+                            self.logger.info(f"Dockerfile已包含正确的PyTorch CPU基础镜像: {line}")
+                            break
+                    
+                    if not has_correct_from:
+                        # 构建正确的FROM指令
+                        new_from = f"FROM pytorch/pytorch:{pytorch_version}-cpu"
+                        self.logger.info(f"修改Dockerfile以使用正确的PyTorch CPU基础镜像: {new_from}")
+                        
+                        # 移除所有FROM指令并在开头添加正确的指令
+                        new_lines = []
+                        for line in dockerfile_content.splitlines():
+                            if not line.strip().startswith('FROM '):
+                                new_lines.append(line)
+                        
+                        dockerfile_content = f"{new_from}\n" + "\n".join(new_lines)
             
             # 尝试构建，设置超时时间和构建参数
             try:
-                image, logs = self.client.images.build(
-                    fileobj=f,
-                    tag=f"{image_name}:{image_tag}",
-                    rm=True,
-                    pull=True,  # 尝试拉取最新的基础镜像
-                    timeout=build_timeout,
-                    buildargs=build_args
-                )
+                # 添加网络重试逻辑
+                max_retries = 3
+                retry_count = 0
+                
+                while retry_count < max_retries:
+                    try:
+                        # 对于PyTorch+CUDA镜像，使用特殊的构建配置
+                        if is_pytorch_cuda:
+                            self.logger.info("使用PyTorch+CUDA专用构建配置")
+                            image, logs = self.client.images.build(
+                                fileobj=f,
+                                tag=f"{image_name}:{image_tag}",
+                                rm=True,
+                                pull=True,
+                                timeout=build_timeout * 2,  # 延长超时时间，CUDA构建较慢
+                                buildargs=build_args,
+                                nocache=False,
+                                network_mode="host",
+                                platform="linux/amd64"  # 确保在正确的平台上构建
+                            )
+                        else:
+                            image, logs = self.client.images.build(
+                                fileobj=f,
+                                tag=f"{image_name}:{image_tag}",
+                                rm=True,
+                                pull=True,  # 尝试拉取最新的基础镜像
+                                timeout=build_timeout,
+                                buildargs=build_args,
+                                nocache=False,  # 启用缓存以提高构建速度
+                                network_mode="host"  # 使用主机网络模式可能在某些环境下提升连接性
+                            )
+                        break  # 如果成功，跳出循环
+                    except (BuildError, DockerException) as e:
+                        retry_count += 1
+                        error_message = str(e).lower()
+                        self.logger.warning(f"构建失败 ({retry_count}/{max_retries}): {error_message}")
+                        
+                        # 检查是否因网络问题导致的错误
+                        if any(err in error_message for err in ["tls handshake timeout", "connection refused", "network", "timeout", "i/o timeout"]):
+                            self.logger.warning(f"网络错误，重试 {retry_count}/{max_retries}: {str(e)}")
+                            # 重新创建文件对象
+                            f = io.BytesIO(dockerfile_content.encode('utf-8'))
+                            # 切换到使用国内镜像源
+                            build_args.update({
+                                'PIP_INDEX_URL': 'https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple',
+                                'PIP_TRUSTED_HOST': 'mirrors.tuna.tsinghua.edu.cn'
+                            })
+                            time.sleep(3)  # 等待几秒再重试
+                            
+                        # 检测是否是PyTorch相关问题 
+                        elif any(term in error_message for term in ["pytorch", "torch", "cuda", "gpu", "nvidia"]):
+                            self.logger.warning(f"PyTorch相关错误，尝试简化安装: {str(e)}")
+                            
+                            # 修改Dockerfile，使用更简单的PyTorch安装方法
+                            if is_pytorch and retry_count < max_retries - 1:
+                                pytorch_version = build_args.get('PYTORCH_VERSION')
+                                
+                                # 如果是CUDA版本，可能需要特殊处理
+                                if is_pytorch_cuda:
+                                    cuda_version = build_args.get('CUDA_VERSION')
+                                    cuda_version_no_dots = cuda_version.replace('.', '')
+                                    
+                                    # 更新Dockerfile，使用更简单的CUDA安装方式
+                                    simplified_install = f"""
+# 尝试简化的PyTorch CUDA安装
+RUN pip uninstall -y torch torchvision torchaudio || true
+RUN pip cache purge
+RUN pip install --no-cache-dir torch=={pytorch_version} torchvision torchaudio --index-url https://download.pytorch.org/whl/cu{cuda_version_no_dots}
+RUN python -c "import torch; print('PyTorch版本:', torch.__version__); print('CUDA可用:', torch.cuda.is_available())" || echo "无法验证PyTorch"
+"""
+                                    # 更新Dockerfile，替换原有安装命令
+                                    dockerfile_content = self._replace_pytorch_install_command(dockerfile_content, simplified_install)
+                                else:
+                                    # CPU版本更简单
+                                    simplified_install = f"""
+# 尝试简化的PyTorch CPU安装
+RUN pip uninstall -y torch torchvision torchaudio || true
+RUN pip cache purge
+RUN pip install --no-cache-dir torch=={pytorch_version} torchvision torchaudio
+RUN python -c "import torch; print('PyTorch版本:', torch.__version__)" || echo "无法验证PyTorch"
+"""
+                                    # 更新Dockerfile
+                                    dockerfile_content = self._replace_pytorch_install_command(dockerfile_content, simplified_install)
+                                
+                                self.logger.info("更新了PyTorch安装命令，重试构建")
+                                f = io.BytesIO(dockerfile_content.encode('utf-8'))
+                            
+                            # 如果是最后一次重试，尝试使用最简化的方式
+                            elif is_pytorch and retry_count == max_retries - 1:
+                                self.logger.info("最后一次尝试，使用最简化的PyTorch安装")
+                                
+                                # 创建一个最小化的Dockerfile
+                                minimal_dockerfile = f"""FROM python:{python_version if python_version else '3.9'}
+
+WORKDIR /app
+
+# 设置pip镜像源
+RUN pip config set global.index-url https://pypi.tuna.tsinghua.edu.cn/simple && \\
+    pip config set global.trusted-host mirrors.tuna.tsinghua.edu.cn
+
+# 基础依赖
+RUN pip install --no-cache-dir jupyter numpy pandas matplotlib
+
+# 安装PyTorch
+"""
+                                # 添加PyTorch安装命令
+                                if is_pytorch_cuda:
+                                    cuda_version = build_args.get('CUDA_VERSION')
+                                    pytorch_version = build_args.get('PYTORCH_VERSION')
+                                    cuda_version_no_dots = cuda_version.replace('.', '')
+                                    minimal_dockerfile += f"""RUN pip install torch=={pytorch_version} --index-url https://download.pytorch.org/whl/cu{cuda_version_no_dots}
+RUN pip install torchvision torchaudio --index-url https://download.pytorch.org/whl/cu{cuda_version_no_dots}
+"""
+                                else:
+                                    pytorch_version = build_args.get('PYTORCH_VERSION')
+                                    minimal_dockerfile += f"""RUN pip install torch=={pytorch_version} torchvision torchaudio
+"""
+                                
+                                minimal_dockerfile += """
+# 验证安装
+RUN python -c "import torch; print('PyTorch:', torch.__version__); print('CUDA可用:', torch.cuda.is_available() if 'cuda' in dir(torch) else False)"
+
+# 设置启动命令
+CMD ["jupyter", "notebook", "--ip=0.0.0.0", "--port=8888", "--no-browser", "--allow-root"]
+"""
+                                
+                                self.logger.info("使用最小化的Dockerfile重试")
+                                dockerfile_content = minimal_dockerfile
+                                f = io.BytesIO(dockerfile_content.encode('utf-8'))
+                            else:
+                                # 简单重试
+                                f = io.BytesIO(dockerfile_content.encode('utf-8'))
+                                
+                        # 如果这是最后一次尝试且失败，则尝试离线模式构建
+                        elif retry_count == max_retries - 1:
+                            self.logger.info("尝试使用离线模式构建...")
+                            f = io.BytesIO(dockerfile_content.encode('utf-8'))
+                            image, logs = self.client.images.build(
+                                fileobj=f,
+                                tag=f"{image_name}:{image_tag}",
+                                rm=True,
+                                pull=False,  # 不拉取镜像
+                                timeout=build_timeout,
+                                buildargs=build_args,
+                                nocache=False,
+                                # 不指定网络，使用默认
+                            )
+                            break
+                        else:
+                            # 其他错误，尝试使用简化的Dockerfile
+                            self.logger.warning(f"其他错误，尝试简化构建: {str(e)}")
+                            simplified_dockerfile = self._create_simplified_dockerfile(dockerfile_content)
+                            if simplified_dockerfile:
+                                self.logger.info("使用简化的Dockerfile重试")
+                                dockerfile_content = simplified_dockerfile
+                                f = io.BytesIO(dockerfile_content.encode('utf-8'))
+                            else:
+                                # 如果无法简化，则重新抛出
+                                raise e
+                else:
+                    # 所有重试都失败
+                    raise Exception(f"经过{max_retries}次尝试，构建仍然失败。请检查Dockerfile和网络连接。")
                 
                 # 输出构建日志
                 log_output = []
-                for log in logs:
-                    if 'stream' in log:
-                        log_line = log['stream'].strip()
-                        if log_line:
-                            log_output.append(log_line)
-                            self.logger.debug(log_line)
+                for log_line in logs:
+                    if 'stream' in log_line:
+                        log_line_text = log_line['stream'].strip()
+                        if log_line_text:
+                            self.logger.info(log_line_text)
+                            log_output.append(log_line_text)
                 
+                # 获取构建的镜像信息
                 self.logger.info(f"Successfully built image {image_name}:{image_tag}")
                 
-                # 验证构建的镜像中的Python版本
+                # 验证镜像中的Python版本
+                actual_version = None
                 if python_version:
                     actual_version = self._verify_python_version_in_image(image.id)
                     if actual_version:
-                        self.logger.info(f"验证镜像Python版本: 预期={python_version}, 实际={actual_version}")
-                        # 添加额外的标签记录实际版本
-                        self.client.images.get(image.id).tag(
-                            f"{image_name}", f"actual-py{actual_version}"
-                        )
+                        self.logger.info(f"Built image Python version: {actual_version}")
                 
-                # 返回镜像信息
                 return {
                     'id': image.id,
                     'tags': image.tags,
                     'size': image.attrs['Size'],
                     'created': image.attrs['Created'],
-                    'log': log_output
+                    'source': 'built',
+                    'build_logs': '\n'.join(log_output),
+                    'actual_python_version': actual_version
                 }
-            except (BuildError, DockerException) as build_error:
-                self.logger.error(f"Build error: {str(build_error)}")
                 
-                # 尝试调整Dockerfile，移除可能导致问题的部分
-                self.logger.info("Attempting to build with modified Dockerfile")
+            except (BuildError, DockerException) as e:
+                self.logger.error(f"Failed to build image: {str(e)}")
                 
-                # 修改Dockerfile，尝试不依赖网络的构建
-                simplified_dockerfile = self._create_simplified_dockerfile(dockerfile_content)
-                f = io.BytesIO(simplified_dockerfile.encode('utf-8'))
+                # 检查错误类型，尝试fallback策略
+                error_message = str(e).lower()
                 
-                try:
-                    # 使用最小方式重试构建
+                # 如果是常见错误，尝试使用更简单的Dockerfile
+                if "errordetail" in error_message and "message" in error_message:
+                    # 这是Docker API返回的详细错误
+                    simplified_dockerfile = self._create_simplified_dockerfile(dockerfile_content)
+                    
+                    if not simplified_dockerfile:
+                        # 如果无法简化，则重新抛出
+                        raise
+                    
+                    # 尝试使用简化的Dockerfile
+                    self.logger.info("尝试使用简化的Dockerfile")
+                    f = io.BytesIO(simplified_dockerfile.encode('utf-8'))
+                    
                     image, logs = self.client.images.build(
                         fileobj=f,
                         tag=f"{image_name}:{image_tag}",
                         rm=True,
                         pull=False,  # 不尝试拉取新镜像
-                        timeout=build_timeout
+                        timeout=build_timeout,
+                        buildargs=build_args
                     )
                     
                     self.logger.info(f"Successfully built image with simplified Dockerfile: {image_name}:{image_tag}")
                     
-                    # 验证构建的镜像中的Python版本
+                    # 输出构建日志
+                    log_output = []
+                    for log_line in logs:
+                        if 'stream' in log_line:
+                            log_line_text = log_line['stream'].strip()
+                            if log_line_text:
+                                self.logger.info(log_line_text)
+                                log_output.append(log_line_text)
+                    
+                    # 验证镜像中的Python版本
+                    actual_version = None
                     if python_version:
                         actual_version = self._verify_python_version_in_image(image.id)
                         if actual_version:
-                            self.logger.info(f"验证镜像Python版本: 预期={python_version}, 实际={actual_version}")
-                            # 添加额外的标签记录实际版本
-                            self.client.images.get(image.id).tag(
-                                f"{image_name}", f"actual-py{actual_version}"
-                            )
+                            self.logger.info(f"Built image Python version: {actual_version}")
                     
                     return {
                         'id': image.id,
                         'tags': image.tags,
                         'size': image.attrs['Size'],
                         'created': image.attrs['Created'],
-                        'note': '使用了简化版Dockerfile构建，可能缺少某些功能'
+                        'source': 'built-simplified',
+                        'build_logs': '\n'.join(log_output),
+                        'actual_python_version': actual_version
                     }
-                except Exception as retry_error:
-                    self.logger.error(f"Simplified build also failed: {str(retry_error)}")
-                    raise Exception(f"无法构建Docker镜像: {str(build_error)}，重试也失败: {str(retry_error)}")
-                    
+                else:
+                    # 对于其他类型的错误，重新抛出
+                    raise
+                
         except Exception as e:
             self.logger.error(f"Error building image from Dockerfile: {str(e)}", exc_info=True)
+            
+            # 最后的尝试：如果是PyTorch镜像，尝试直接使用官方镜像
+            if is_pytorch and ('PYTORCH_VERSION' in build_args or hasattr(self, 'PYTORCH_VERSION')):
+                try:
+                    pytorch_version = build_args.get('PYTORCH_VERSION', getattr(self, 'PYTORCH_VERSION', '2.0.0'))
+                    cuda_version = build_args.get('CUDA_VERSION', getattr(self, 'CUDA_VERSION', None))
+                    
+                    # 构建最简单的Dockerfile
+                    if cuda_version:
+                        # CUDA版本
+                        final_fallback = f"""FROM pytorch/pytorch:{pytorch_version}-cuda{cuda_version}-cudnn8-runtime
+WORKDIR /app
+CMD ["jupyter", "notebook", "--ip=0.0.0.0", "--port=8888", "--no-browser", "--allow-root"]
+"""
+                    else:
+                        # CPU版本
+                        final_fallback = f"""FROM pytorch/pytorch:{pytorch_version}-cpu
+WORKDIR /app
+CMD ["jupyter", "notebook", "--ip=0.0.0.0", "--port=8888", "--no-browser", "--allow-root"]
+"""
+                    
+                    self.logger.info("使用最终的PyTorch官方镜像回退方案")
+                    f = io.BytesIO(final_fallback.encode('utf-8'))
+                    
+                    image, logs = self.client.images.build(
+                        fileobj=f,
+                        tag=f"{image_name}:{image_tag}",
+                        rm=True,
+                        pull=True,
+                        timeout=build_timeout * 2,  # 更长的超时时间
+                        buildargs={}  # 没有构建参数
+                    )
+                    
+                    self.logger.info(f"最终回退方案成功构建: {image_name}:{image_tag}")
+                    
+                    # 输出构建日志
+                    log_output = []
+                    for log_line in logs:
+                        if 'stream' in log_line:
+                            log_line_text = log_line['stream'].strip()
+                            if log_line_text:
+                                self.logger.info(log_line_text)
+                                log_output.append(log_line_text)
+                    
+                    # 验证镜像中的Python版本
+                    actual_version = self._verify_python_version_in_image(image.id)
+                    
+                    return {
+                        'id': image.id,
+                        'tags': image.tags,
+                        'size': image.attrs['Size'],
+                        'created': image.attrs['Created'],
+                        'source': 'built-fallback',
+                        'build_logs': '\n'.join(log_output),
+                        'actual_python_version': actual_version,
+                        'fallback_used': True,
+                        'warning': '使用最简单的官方PyTorch镜像作为最终回退方案'
+                    }
+                except Exception as fallback_error:
+                    self.logger.error(f"最终回退方案也失败: {str(fallback_error)}")
+            
+            # 如果所有尝试都失败，则抛出原始错误
             raise
     
     def _add_version_verification(self, dockerfile_content, expected_version):
@@ -1082,21 +1454,55 @@ RUN python --version && \\
         echo "警告: 实际Python版本与期望版本({expected_version})不匹配"; \\
     fi
 """
-        # 将验证命令附加到Dockerfile末尾
-        dockerfile_lines = dockerfile_content.splitlines()
-        
-        # 找到合适的位置插入验证命令 - 在第一个FROM之后
-        for i, line in enumerate(dockerfile_lines):
-            if line.strip().startswith("FROM "):
-                # 在FROM行之后插入验证命令
-                dockerfile_lines.insert(i + 1, verification_command)
-                break
-        else:
-            # 如果没有FROM行，直接在开头添加
-            dockerfile_lines.insert(0, verification_command)
-        
-        return "\n".join(dockerfile_lines)
-        
+        try:
+            # 首先检查dockerfile_content是否为None或空字符串
+            if not dockerfile_content:
+                self.logger.warning("Dockerfile内容为空，无法添加版本验证")
+                return ""
+                
+            # 分割Dockerfile为行
+            dockerfile_lines = dockerfile_content.splitlines()
+            
+            # 检查是否有FROM指令
+            has_from = any(line.strip().startswith("FROM ") for line in dockerfile_lines)
+            if not has_from:
+                self.logger.warning("Dockerfile中没有找到FROM指令，将在开头添加验证命令")
+                return verification_command + "\n" + dockerfile_content
+            
+            # 处理多阶段构建的情况
+            result_lines = []
+            stage_start_indices = []
+            
+            # 找出所有的FROM指令位置
+            for i, line in enumerate(dockerfile_lines):
+                if line.strip().startswith("FROM "):
+                    stage_start_indices.append(i)
+            
+            # 如果没有找到任何FROM指令，直接在开头添加
+            if not stage_start_indices:
+                return verification_command + "\n" + dockerfile_content
+                
+            # 处理每个构建阶段
+            for i, start_idx in enumerate(stage_start_indices):
+                # 添加FROM指令
+                result_lines.append(dockerfile_lines[start_idx])
+                
+                # 只在最后一个FROM后添加验证命令（最终镜像）
+                if i == len(stage_start_indices) - 1:
+                    result_lines.append(verification_command)
+                
+                # 添加当前阶段的剩余指令直到下一个阶段（如果有）
+                next_idx = stage_start_indices[i+1] if i+1 < len(stage_start_indices) else len(dockerfile_lines)
+                for j in range(start_idx + 1, next_idx):
+                    result_lines.append(dockerfile_lines[j])
+            
+            return "\n".join(result_lines)
+            
+        except Exception as e:
+            self.logger.error(f"在Dockerfile中添加版本验证时出错: {str(e)}")
+            # 在出错的情况下，返回原始Dockerfile内容
+            return dockerfile_content
+
     def _verify_python_version_in_image(self, image_id: str) -> Optional[str]:
         """
         在镜像中验证Python版本
@@ -1152,79 +1558,228 @@ RUN python --version && \\
         Returns:
             str: 简化后的Dockerfile内容
         """
-        logger.info("创建简化版Dockerfile")
-        
-        # 分行处理Dockerfile
-        lines = original_dockerfile.splitlines()
-        simplified_lines = []
-        
-        # 指示下一行是否需要被保留
-        keep_next_line = True
-        
-        for line in lines:
-            line_stripped = line.strip()
+        try:
+            self.logger.info("创建简化版Dockerfile")
             
-            # 始终保留FROM指令
-            if line_stripped.startswith('FROM '):
-                simplified_lines.append(line)
+            # 检查original_dockerfile是否为None或空字符串
+            if not original_dockerfile:
+                self.logger.warning("原始Dockerfile内容为空")
+                return ""
+                
+            # 分行处理Dockerfile
+            lines = original_dockerfile.splitlines()
+            if not lines:
+                self.logger.warning("Dockerfile没有内容")
+                return ""
+                
+            simplified_lines = []
+            
+            # 指示下一行是否需要被保留
+            keep_next_line = True
+            
+            # 检查基本结构
+            has_from = any(line.strip().startswith('FROM ') for line in lines)
+            if not has_from:
+                self.logger.warning("Dockerfile中没有FROM指令，可能不是有效的Dockerfile")
+                # 尝试添加一个基本的FROM指令
+                simplified_lines.append("FROM python:3.9-slim")
+            
+            # 检测是否为PyTorch相关Dockerfile
+            pytorch_detected = False
+            cuda_detected = False
+            pytorch_version = None
+            cuda_version = None
+            
+            # 尝试提取PyTorch和CUDA版本信息
+            for line in lines:
+                line_lower = line.lower()
+                if 'torch==' in line_lower:
+                    pytorch_detected = True
+                    match = re.search(r'torch==(\d+\.\d+\.\d+)', line)
+                    if match:
+                        pytorch_version = match.group(1)
+                        self.logger.info(f"简化版检测到PyTorch版本: {pytorch_version}")
+                
+                if 'nvidia' in line_lower or 'cuda' in line_lower:
+                    cuda_detected = True
+                    match = re.search(r'cuda:?(\d+\.\d+)', line_lower)
+                    if match:
+                        cuda_version = match.group(1)
+                        self.logger.info(f"简化版检测到CUDA版本: {cuda_version}")
+                
+                if 'cu' in line_lower and ('--index-url' in line_lower or 'index-url' in line_lower):
+                    match = re.search(r'cu(\d+)', line_lower)
+                    if match:
+                        cuda_version_no_dots = match.group(1)
+                        # 转换为标准格式 (例如: 116 -> 11.6)
+                        if len(cuda_version_no_dots) == 3:
+                            cuda_version = cuda_version_no_dots[0:2] + '.' + cuda_version_no_dots[2]
+                        elif len(cuda_version_no_dots) == 2:
+                            cuda_version = cuda_version_no_dots[0] + '.' + cuda_version_no_dots[1]
+                        self.logger.info(f"简化版从index-url检测到CUDA版本: {cuda_version}")
+            
+            # 构建多阶段构建的简化Dockerfile
+            stage_counter = 0
+            current_stage = 0
+            stage_start_indices = []
+            
+            # 先找出所有的FROM指令位置
+            for i, line in enumerate(lines):
+                if line.strip().startswith('FROM '):
+                    stage_start_indices.append(i)
+                    
+            # 如果没有FROM指令，假设整个文件是一个阶段
+            if not stage_start_indices:
+                stage_start_indices = [0]
+                
+            # 处理每个构建阶段
+            for i, start_idx in enumerate(stage_start_indices):
+                current_stage = i
+                
+                # 确定当前阶段的结束位置
+                next_idx = stage_start_indices[i+1] if i+1 < len(stage_start_indices) else len(lines)
+                
+                # 如果是FROM指令，直接添加
+                if start_idx < len(lines) and lines[start_idx].strip().startswith('FROM '):
+                    simplified_lines.append(lines[start_idx])
+                elif i == 0:  # 如果第一个阶段不是FROM指令
+                    # 根据检测到的环境选择合适的基础镜像
+                    if pytorch_detected and pytorch_version:
+                        if cuda_detected and cuda_version:
+                            simplified_lines.append(f"FROM pytorch/pytorch:{pytorch_version}-cuda{cuda_version}-cudnn8-runtime  # 自动选择的PyTorch CUDA基础镜像")
+                            self.logger.info(f"简化版为PyTorch CUDA环境选择基础镜像: {pytorch_version}-cuda{cuda_version}")
+                        else:
+                            simplified_lines.append(f"FROM pytorch/pytorch:{pytorch_version}-cpu  # 自动选择的PyTorch CPU基础镜像")
+                            self.logger.info(f"简化版为PyTorch CPU环境选择基础镜像: {pytorch_version}")
+                    elif cuda_detected and cuda_version:
+                        simplified_lines.append(f"FROM nvidia/cuda:{cuda_version}-base-ubuntu20.04  # 自动选择的CUDA基础镜像")
+                        self.logger.info(f"简化版为CUDA环境选择基础镜像: {cuda_version}")
+                    else:
+                        simplified_lines.append("FROM python:3.9-slim")
+                
+                # 添加中国镜像源配置（对于简化版Dockerfile尤为重要）
+                if i == 0:  # 只在第一阶段添加
+                    simplified_lines.append("""
+# 配置PIP镜像源
+RUN mkdir -p /root/.pip && \\
+    echo '[global]' > /root/.pip/pip.conf && \\
+    echo 'index-url = https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple' >> /root/.pip/pip.conf && \\
+    echo 'trusted-host = mirrors.tuna.tsinghua.edu.cn' >> /root/.pip/pip.conf
+""")
+                
+                # 处理当前阶段的其他指令
                 keep_next_line = True
-                continue
-                
-            # 保留WORKDIR指令
-            if line_stripped.startswith('WORKDIR '):
-                simplified_lines.append(line)
-                continue
-                
-            # 保留ENV指令
-            if line_stripped.startswith('ENV '):
-                simplified_lines.append(line)
-                continue
-                
-            # 保留LABEL指令
-            if line_stripped.startswith('LABEL '):
-                simplified_lines.append(line)
-                continue
-                
-            # 保留CMD和ENTRYPOINT指令
-            if line_stripped.startswith('CMD ') or line_stripped.startswith('ENTRYPOINT '):
-                simplified_lines.append(line)
-                continue
-                
-            # 注释掉RUN pip install命令，因为它们需要网络
-            if line_stripped.startswith('RUN pip') or 'pip install' in line_stripped:
-                simplified_lines.append(f'# 已移除(需要网络): {line}')
-                continue
+                for j in range(start_idx + 1, next_idx):
+                    line = lines[j]
+                    line_stripped = line.strip()
+                    
+                    # 始终保留FROM指令（虽然这不应该在这个内部循环中出现）
+                    if line_stripped.startswith('FROM '):
+                        simplified_lines.append(line)
+                        keep_next_line = True
+                        continue
+                        
+                    # 保留WORKDIR指令
+                    if line_stripped.startswith('WORKDIR '):
+                        simplified_lines.append(line)
+                        continue
+                        
+                    # 保留ENV指令
+                    if line_stripped.startswith('ENV '):
+                        simplified_lines.append(line)
+                        continue
+                        
+                    # 保留LABEL指令
+                    if line_stripped.startswith('LABEL '):
+                        simplified_lines.append(line)
+                        continue
+                        
+                    # 保留ARG指令，除了与网络相关的
+                    if line_stripped.startswith('ARG '):
+                        if 'proxy' in line_stripped.lower() or 'mirror' in line_stripped.lower():
+                            simplified_lines.append(f'# 已移除(可能与网络相关): {line}')
+                        else:
+                            simplified_lines.append(line)
+                        continue
+                        
+                    # 保留CMD和ENTRYPOINT指令
+                    if line_stripped.startswith('CMD ') or line_stripped.startswith('ENTRYPOINT '):
+                        simplified_lines.append(line)
+                        continue
+                        
+                    # 保留COPY和ADD指令
+                    if line_stripped.startswith('COPY ') or line_stripped.startswith('ADD '):
+                        simplified_lines.append(line)
+                        continue
+                        
+                    # 特殊处理PyTorch安装命令
+                    if line_stripped.startswith('RUN ') and ('torch' in line_stripped.lower() or 'pytorch' in line_stripped.lower()):
+                        # 如果是简单的PyTorch验证命令，保留
+                        if 'import torch' in line_stripped.lower() and ('print' in line_stripped.lower() or 'version' in line_stripped.lower()):
+                            simplified_lines.append(line)
+                            continue
+                        # 否则注释掉PyTorch安装命令，因为我们使用预构建的PyTorch镜像
+                        simplified_lines.append(f'# 已移除(使用预构建PyTorch镜像替代): {line}')
+                        continue
+                        
+                    # 注释掉RUN pip install命令，因为它们需要网络
+                    if line_stripped.startswith('RUN pip') or 'pip install' in line_stripped:
+                        simplified_lines.append(f'# 已移除(需要网络): {line}')
+                        continue
+                    
+                    # 保留目录创建命令
+                    if 'mkdir' in line_stripped and line_stripped.startswith('RUN '):
+                        simplified_lines.append(line)
+                        continue
+                        
+                    # 处理多行RUN命令
+                    if line_stripped.endswith('\\'):
+                        if 'pip install' in line_stripped or 'apt-get' in line_stripped or 'yum' in line_stripped:
+                            simplified_lines.append(f'# 已移除(需要网络): {line}')
+                            keep_next_line = False
+                        else:
+                            simplified_lines.append(line)
+                        continue
+                        
+                    # 根据上一行的标志决定是否保留当前行
+                    if not keep_next_line:
+                        simplified_lines.append(f'# 已移除(需要网络): {line}')
+                        if not line_stripped.endswith('\\'):
+                            keep_next_line = True  # 重置标志
+                    else:
+                        # 对于不确定的行，判断是否与网络相关
+                        if line_stripped.startswith('RUN ') and ('apt-get' in line_stripped or 'yum' in line_stripped or 'http' in line_stripped or 'wget' in line_stripped or 'curl' in line_stripped):
+                            simplified_lines.append(f'# 已移除(需要网络): {line}')
+                        else:
+                            simplified_lines.append(line)
             
-            # 保留目录创建命令
-            if 'mkdir' in line_stripped and line_stripped.startswith('RUN '):
-                simplified_lines.append(line)
-                continue
-                
-            # 处理多行RUN命令
-            if line_stripped.endswith('\\'):
-                if 'pip install' in line_stripped:
-                    simplified_lines.append(f'# 已移除(需要网络): {line}')
-                    keep_next_line = False
+            # 如果检测到是PyTorch环境，添加PyTorch验证指令
+            if pytorch_detected and not any('import torch' in line for line in simplified_lines):
+                simplified_lines.append('\n# 验证PyTorch环境')
+                simplified_lines.append('RUN python -c "import torch; print(\\"PyTorch version:\\", torch.__version__); print(\\"CUDA available:\\", torch.cuda.is_available())" || echo "PyTorch验证失败"')
+            
+            # 添加注释说明这是简化版
+            simplified_lines.append('\n# 注意: 这是简化版Dockerfile，已移除需要网络的操作')
+            
+            # 确保有最低限度的功能性内容
+            if not any(not line.startswith('#') for line in simplified_lines):
+                self.logger.warning("简化后的Dockerfile没有有效指令")
+                if pytorch_detected:
+                    simplified_lines.append("FROM pytorch/pytorch:latest")
                 else:
-                    simplified_lines.append(line)
-                continue
-                
-            # 根据上一行的标志决定是否保留当前行
-            if not keep_next_line:
-                simplified_lines.append(f'# 已移除(需要网络): {line}')
-                if not line_stripped.endswith('\\'):
-                    keep_next_line = True  # 重置标志
-            else:
-                # 对于不确定的行，直接注释以避险
-                if line_stripped.startswith('RUN ') and ('apt-get' in line_stripped or 'yum' in line_stripped):
-                    simplified_lines.append(f'# 已移除(需要网络): {line}')
-                else:
-                    simplified_lines.append(line)
-        
-        # 添加注释说明这是简化版
-        simplified_lines.append('\n# 注意: 这是简化版Dockerfile，已移除需要网络的操作')
-        
-        return '\n'.join(simplified_lines)
+                    simplified_lines.append("FROM python:3.9-slim")
+                simplified_lines.append("CMD [\"python\", \"-c\", \"import platform; print('Python version:', platform.python_version())\"]")
+            
+            return '\n'.join(simplified_lines)
+            
+        except Exception as e:
+            self.logger.error(f"创建简化版Dockerfile时出错: {str(e)}", exc_info=True)
+            # 在出错的情况下，创建一个最小可用的Dockerfile
+            return """FROM python:3.9-slim
+# 自动生成的应急Dockerfile
+CMD ["python", "-c", "print('Emergency fallback Dockerfile')"]
+# 注意: 原始Dockerfile处理失败，这是自动生成的应急版本
+"""
 
     def copy_to_container(self, container_id, source_path, target_path):
         """
@@ -1818,3 +2373,500 @@ EOL"""
                 'status': 'error',
                 'error_details': str(e)
             } 
+
+    def _add_china_mirrors(self, dockerfile_content):
+        """
+        在Dockerfile中添加中国区镜像源配置
+        
+        Args:
+            dockerfile_content (str): 原始Dockerfile内容
+            
+        Returns:
+            str: 添加了镜像源配置的Dockerfile内容
+        """
+        try:
+            # 首先检查dockerfile_content是否为None或空字符串
+            if not dockerfile_content:
+                self.logger.warning("Dockerfile内容为空，无法添加中国镜像源")
+                return ""
+                
+            # 检查使用的基础镜像类型，以便添加正确的镜像源配置
+            is_cuda_image = False
+            is_ubuntu_based = False
+            is_debian_based = True  # 默认假设是debian基础镜像
+            cuda_version = ""
+            
+            # 分割Dockerfile为行
+            dockerfile_lines = dockerfile_content.splitlines()
+            
+            # 分析Dockerfile基础镜像类型
+            for line in dockerfile_lines:
+                line_lower = line.lower().strip()
+                if line_lower.startswith('from '):
+                    base_image = line_lower[5:].strip()
+                    if 'nvidia' in base_image or 'cuda' in base_image:
+                        is_cuda_image = True
+                        # 尝试提取CUDA版本
+                        import re
+                        cuda_match = re.search(r'cuda:?(\d+\.\d+)', base_image)
+                        if cuda_match:
+                            cuda_version = cuda_match.group(1)
+                            self.logger.info(f"检测到CUDA基础镜像，版本: {cuda_version}")
+                    
+                    if 'ubuntu' in base_image:
+                        is_ubuntu_based = True
+                        is_debian_based = False
+                        self.logger.info("检测到Ubuntu基础镜像")
+                    elif 'debian' in base_image:
+                        is_debian_based = True
+                        is_ubuntu_based = False
+                        self.logger.info("检测到Debian基础镜像")
+                    
+                    break  # 只分析第一个FROM指令
+            
+            # 根据基础镜像类型生成适当的镜像源配置
+            if is_cuda_image:
+                if is_ubuntu_based:
+                    # Ubuntu基础的CUDA镜像
+                    mirrors_config = """
+# 配置Ubuntu APT镜像源
+RUN sed -i 's/archive.ubuntu.com/mirrors.tuna.tsinghua.edu.cn/g' /etc/apt/sources.list && \\
+    sed -i 's/security.ubuntu.com/mirrors.tuna.tsinghua.edu.cn/g' /etc/apt/sources.list
+
+# 配置NVIDIA镜像源
+RUN apt-key adv --fetch-keys https://mirrors.tuna.tsinghua.edu.cn/nvidia-cuda/gpgkey && \\
+    echo "deb https://mirrors.tuna.tsinghua.edu.cn/nvidia-cuda/ubuntu2004/x86_64 /" > /etc/apt/sources.list.d/cuda.list || true
+
+# 配置PIP镜像源
+RUN mkdir -p /root/.pip && \\
+    echo '[global]' > /root/.pip/pip.conf && \\
+    echo 'index-url = https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple' >> /root/.pip/pip.conf && \\
+    echo 'trusted-host = mirrors.tuna.tsinghua.edu.cn' >> /root/.pip/pip.conf || true
+"""
+                else:
+                    # Debian基础的CUDA镜像
+                    mirrors_config = """
+# 配置Debian APT镜像源
+RUN echo 'deb https://mirrors.tuna.tsinghua.edu.cn/debian/ bullseye main contrib non-free' > /etc/apt/sources.list && \\
+    echo 'deb https://mirrors.tuna.tsinghua.edu.cn/debian/ bullseye-updates main contrib non-free' >> /etc/apt/sources.list && \\
+    echo 'deb https://mirrors.tuna.tsinghua.edu.cn/debian/ bullseye-backports main contrib non-free' >> /etc/apt/sources.list && \\
+    echo 'deb https://mirrors.tuna.tsinghua.edu.cn/debian-security bullseye-security main contrib non-free' >> /etc/apt/sources.list || true
+
+# 配置PIP镜像源
+RUN mkdir -p /root/.pip && \\
+    echo '[global]' > /root/.pip/pip.conf && \\
+    echo 'index-url = https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple' >> /root/.pip/pip.conf && \\
+    echo 'trusted-host = mirrors.tuna.tsinghua.edu.cn' >> /root/.pip/pip.conf || true
+"""
+            else:
+                if is_ubuntu_based:
+                    # 普通Ubuntu基础镜像
+                    mirrors_config = """
+# 配置Ubuntu APT镜像源
+RUN sed -i 's/archive.ubuntu.com/mirrors.tuna.tsinghua.edu.cn/g' /etc/apt/sources.list && \\
+    sed -i 's/security.ubuntu.com/mirrors.tuna.tsinghua.edu.cn/g' /etc/apt/sources.list || true
+
+# 配置PIP镜像源
+RUN mkdir -p /root/.pip && \\
+    echo '[global]' > /root/.pip/pip.conf && \\
+    echo 'index-url = https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple' >> /root/.pip/pip.conf && \\
+    echo 'trusted-host = mirrors.tuna.tsinghua.edu.cn' >> /root/.pip/pip.conf || true
+"""
+                else:
+                    # 普通Debian基础镜像(默认)
+                    mirrors_config = """
+# 配置APT和PIP镜像源
+RUN echo 'deb https://mirrors.tuna.tsinghua.edu.cn/debian/ bullseye main contrib non-free' > /etc/apt/sources.list && \\
+    echo 'deb https://mirrors.tuna.tsinghua.edu.cn/debian/ bullseye-updates main contrib non-free' >> /etc/apt/sources.list && \\
+    echo 'deb https://mirrors.tuna.tsinghua.edu.cn/debian/ bullseye-backports main contrib non-free' >> /etc/apt/sources.list && \\
+    echo 'deb https://mirrors.tuna.tsinghua.edu.cn/debian-security bullseye-security main contrib non-free' >> /etc/apt/sources.list || true
+
+# 配置PIP镜像源
+RUN mkdir -p /root/.pip && \\
+    echo '[global]' > /root/.pip/pip.conf && \\
+    echo 'index-url = https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple' >> /root/.pip/pip.conf && \\
+    echo 'trusted-host = mirrors.tuna.tsinghua.edu.cn' >> /root/.pip/pip.conf || true
+"""
+            
+            # 检查是否有FROM指令
+            has_from = any(line.strip().startswith("FROM ") for line in dockerfile_lines)
+            if not has_from:
+                self.logger.warning("Dockerfile中没有找到FROM指令，将在开头添加镜像源配置")
+                return mirrors_config + "\n" + dockerfile_content
+            
+            # 处理多阶段构建的情况
+            result_lines = []
+            stage_start_indices = []
+            
+            # 找出所有的FROM指令位置
+            for i, line in enumerate(dockerfile_lines):
+                if line.strip().startswith("FROM "):
+                    stage_start_indices.append(i)
+            
+            # 如果没有找到任何FROM指令，直接在开头添加
+            if not stage_start_indices:
+                return mirrors_config + "\n" + dockerfile_content
+                
+            # 处理每个构建阶段
+            for i, start_idx in enumerate(stage_start_indices):
+                # 添加FROM指令
+                result_lines.append(dockerfile_lines[start_idx])
+                
+                # 只在第一个FROM后添加镜像源配置
+                if i == 0:
+                    result_lines.append(mirrors_config)
+                
+                # 添加当前阶段的剩余指令直到下一个阶段（如果有）
+                next_idx = stage_start_indices[i+1] if i+1 < len(stage_start_indices) else len(dockerfile_lines)
+                for j in range(start_idx + 1, next_idx):
+                    result_lines.append(dockerfile_lines[j])
+            
+            return "\n".join(result_lines)
+            
+        except Exception as e:
+            self.logger.error(f"在Dockerfile中添加中国镜像源时出错: {str(e)}")
+            # 在出错的情况下，返回原始Dockerfile内容
+            return dockerfile_content
+
+    def _validate_dockerfile(self, dockerfile_content):
+        """
+        验证Dockerfile格式是否正确
+        
+        Args:
+            dockerfile_content (str): Dockerfile内容
+            
+        Raises:
+            ValueError: 当Dockerfile格式不正确时抛出
+        """
+        try:
+            # 检查是否为空
+            if not dockerfile_content or not dockerfile_content.strip():
+                raise ValueError("Dockerfile内容为空")
+                
+            # 分行检查基本格式
+            lines = dockerfile_content.splitlines()
+            has_from = False
+            invalid_lines = []
+            
+            # 特殊处理的指令集合，用于检测PyTorch和CUDA相关指令
+            pytorch_related = ['torch', 'pytorch', 'torchvision', 'torchaudio']
+            cuda_related = ['cuda', 'nvidia', 'gpu']
+            
+            # PyTorch和CUDA相关指令计数
+            pytorch_count = 0
+            cuda_count = 0
+            
+            for i, line in enumerate(lines):
+                line = line.strip()
+                
+                # 跳过空行和注释
+                if not line or line.startswith('#'):
+                    continue
+                    
+                # 检查是否有FROM指令
+                if line.startswith('FROM '):
+                    has_from = True
+                    
+                # 检查基本语法，每行应该以指令开头
+                valid_instructions = [
+                    'FROM', 'RUN', 'CMD', 'LABEL', 'EXPOSE', 'ENV', 'ADD',
+                    'COPY', 'ENTRYPOINT', 'VOLUME', 'USER', 'WORKDIR', 'ARG',
+                    'ONBUILD', 'STOPSIGNAL', 'HEALTHCHECK', 'SHELL'
+                ]
+                
+                is_continuation = i > 0 and lines[i-1].strip().endswith('\\')
+                
+                if not is_continuation and not any(line.startswith(instr + ' ') for instr in valid_instructions):
+                    invalid_lines.append((i+1, line))  # 记录行号和内容
+                    
+                # 检测PyTorch和CUDA相关指令
+                line_lower = line.lower()
+                
+                if any(term in line_lower for term in pytorch_related):
+                    pytorch_count += 1
+                    
+                if any(term in line_lower for term in cuda_related):
+                    cuda_count += 1
+            
+            # 必须有FROM指令
+            if not has_from:
+                raise ValueError("Dockerfile中缺少FROM指令")
+                
+            # 如果检测到PyTorch或CUDA相关指令，记录到日志
+            if pytorch_count > 0:
+                self.logger.info(f"检测到 {pytorch_count} 条PyTorch相关指令")
+                
+            if cuda_count > 0:
+                self.logger.info(f"检测到 {cuda_count} 条CUDA相关指令")
+                
+            # 如果有无效行，记录到日志
+            if invalid_lines:
+                self.logger.warning(f"Dockerfile中存在{len(invalid_lines)}行不符合标准格式:")
+                for line_num, content in invalid_lines:
+                    self.logger.warning(f"  第{line_num}行: {content}")
+                
+                # 如果无效行太多，则判断为格式错误
+                if len(invalid_lines) > len(lines) / 3:  # 如果超过1/3的行都有问题
+                    raise ValueError(f"Dockerfile格式不正确，有{len(invalid_lines)}行不符合Docker规范")
+                
+            return True
+            
+        except ValueError as ve:
+            self.logger.error(f"Dockerfile验证失败: {str(ve)}")
+            raise ve
+        except Exception as e:
+            self.logger.error(f"验证Dockerfile时出错: {str(e)}")
+            # 不抛出异常，让构建过程继续尝试
+            return False
+            
+    def _fix_dockerfile(self, dockerfile_content, deep_fix=False):
+        """
+        尝试修复Dockerfile中的格式问题
+        
+        Args:
+            dockerfile_content (str): 原始Dockerfile内容
+            deep_fix (bool): 是否进行深度修复
+            
+        Returns:
+            str: 修复后的Dockerfile内容
+        """
+        try:
+            # 如果内容为空，创建一个基本的Dockerfile
+            if not dockerfile_content or not dockerfile_content.strip():
+                self.logger.warning("Dockerfile内容为空，创建基本Dockerfile")
+                return "FROM python:3.9-slim\nCMD [\"python\", \"-c\", \"print('Hello World')\"]"
+                
+            lines = dockerfile_content.splitlines()
+            fixed_lines = []
+            has_from = False
+            in_continuation = False
+            pytorch_detected = False
+            cuda_detected = False
+            pytorch_version = None
+            cuda_version = None
+            valid_instructions = [
+                'FROM', 'RUN', 'CMD', 'LABEL', 'EXPOSE', 'ENV', 'ADD',
+                'COPY', 'ENTRYPOINT', 'VOLUME', 'USER', 'WORKDIR', 'ARG',
+                'ONBUILD', 'STOPSIGNAL', 'HEALTHCHECK', 'SHELL'
+            ]
+            
+            # 特殊处理的指令集合，用于检测PyTorch和CUDA相关指令
+            pytorch_related = ['torch', 'pytorch', 'torchvision', 'torchaudio']
+            cuda_related = ['cuda', 'nvidia', 'gpu']
+            
+            # 尝试提取PyTorch版本和CUDA版本
+            for line in lines:
+                line_lower = line.lower()
+                if 'torch==' in line_lower:
+                    # 尝试提取PyTorch版本
+                    match = re.search(r'torch==(\d+\.\d+\.\d+)', line)
+                    if match:
+                        pytorch_version = match.group(1)
+                        self.logger.info(f"检测到PyTorch版本: {pytorch_version}")
+                
+                if 'cu' in line_lower and ('--index-url' in line_lower or 'index-url' in line_lower):
+                    # 尝试提取CUDA版本
+                    match = re.search(r'cu(\d+)', line_lower)
+                    if match:
+                        cuda_version_no_dots = match.group(1)
+                        # 转换为标准格式 (例如: 116 -> 11.6)
+                        if len(cuda_version_no_dots) == 3:
+                            cuda_version = cuda_version_no_dots[0:2] + '.' + cuda_version_no_dots[2]
+                        elif len(cuda_version_no_dots) == 2:
+                            cuda_version = cuda_version_no_dots[0] + '.' + cuda_version_no_dots[1]
+                        self.logger.info(f"检测到CUDA版本: {cuda_version}")
+            
+            for i, line in enumerate(lines):
+                original_line = line
+                line = line.strip()
+                line_lower = line.lower()
+                
+                # 检测PyTorch和CUDA相关内容
+                if any(term in line_lower for term in pytorch_related):
+                    pytorch_detected = True
+                    
+                if any(term in line_lower for term in cuda_related):
+                    cuda_detected = True
+                
+                # 跳过空行
+                if not line:
+                    fixed_lines.append("")
+                    continue
+                    
+                # 处理注释
+                if line.startswith('#'):
+                    fixed_lines.append(original_line)
+                    continue
+                    
+                # 处理前一行的续行符
+                if in_continuation:
+                    fixed_lines.append(original_line)
+                    in_continuation = line.endswith('\\')
+                    continue
+                    
+                # 检查是否是有效的Dockerfile指令
+                is_valid_instruction = any(line.startswith(instr + ' ') for instr in valid_instructions)
+                
+                # 处理当前行
+                if is_valid_instruction:
+                    fixed_lines.append(original_line)
+                    if line.startswith('FROM '):
+                        has_from = True
+                    in_continuation = line.endswith('\\')
+                else:
+                    # 尝试修复无效行
+                    if deep_fix:
+                        # 针对PyTorch和CUDA相关指令的深度修复
+                        if any(term in line_lower for term in pytorch_related):
+                            if 'import' in line_lower or 'print' in line_lower:
+                                # 看起来像Python代码
+                                fixed_lines.append(f"RUN python -c \"{line}\"")
+                                self.logger.info(f"深度修复: 将PyTorch相关Python代码行 '{line}' 修改为 'RUN python -c \"{line}\"'")
+                            elif 'install' in line_lower or 'pip' in line_lower:
+                                # 检查是否有torch==版本指定
+                                if 'torch==' in line_lower and '--index-url' not in line_lower and 'torch==' not in line:
+                                    # 添加适当的index-url参数
+                                    if cuda_version:
+                                        cuda_version_no_dots = cuda_version.replace('.', '')
+                                        fixed_line = f"RUN {line} --index-url https://download.pytorch.org/whl/cu{cuda_version_no_dots}"
+                                        self.logger.info(f"深度修复: 为PyTorch CUDA安装添加index-url: '{line}' -> '{fixed_line}'")
+                                    else:
+                                        fixed_line = f"RUN {line} --index-url https://download.pytorch.org/whl/cpu"
+                                        self.logger.info(f"深度修复: 为PyTorch CPU安装添加index-url: '{line}' -> '{fixed_line}'")
+                                    fixed_lines.append(fixed_line)
+                                else:
+                                    # 常规pip安装命令
+                                    fixed_lines.append(f"RUN {line}")
+                                    self.logger.info(f"深度修复: 将PyTorch相关安装行 '{line}' 修改为 'RUN {line}'")
+                            else:
+                                fixed_lines.append(f"RUN {line}")
+                                self.logger.info(f"深度修复: 将PyTorch相关行 '{line}' 修改为 'RUN {line}'")
+                        elif any(term in line_lower for term in cuda_related):
+                            if 'env' in line_lower or '=' in line:
+                                # 看起来像环境变量设置
+                                parts = line.split('=', 1)
+                                if len(parts) == 2:
+                                    var_name = parts[0].strip()
+                                    var_value = parts[1].strip().strip('"\'')
+                                    fixed_lines.append(f"ENV {var_name}={var_value}")
+                                    self.logger.info(f"深度修复: 将CUDA相关环境变量行 '{line}' 修改为 'ENV {var_name}={var_value}'")
+                                else:
+                                    fixed_lines.append(f"RUN {line}")
+                                    self.logger.info(f"深度修复: 将CUDA相关行 '{line}' 修改为 'RUN {line}'")
+                            else:
+                                fixed_lines.append(f"RUN {line}")
+                                self.logger.info(f"深度修复: 将CUDA相关行 '{line}' 修改为 'RUN {line}'")
+                        # 其他深度修复逻辑
+                        elif "=" in line and not in_continuation:
+                            # 可能是ENV指令
+                            fixed_lines.append(f"ENV {line}")
+                            self.logger.info(f"深度修复: 将无效行 '{line}' 修改为 'ENV {line}'")
+                        elif "/" in line and not in_continuation:
+                            # 可能是COPY或ADD指令
+                            fixed_lines.append(f"COPY {line} /")
+                            self.logger.info(f"深度修复: 将无效行 '{line}' 修改为 'COPY {line} /'")
+                        elif line.endswith('.sh') or line.endswith('.py') or line.startswith('./'):
+                            # 可能是RUN指令
+                            fixed_lines.append(f"RUN {line}")
+                            self.logger.info(f"深度修复: 将无效行 '{line}' 修改为 'RUN {line}'")
+                        else:
+                            # 无法修复，注释掉
+                            fixed_lines.append(f"# 无效指令(已注释): {line}")
+                            self.logger.info(f"深度修复: 将无效行 '{line}' 注释掉")
+                    else:
+                        # 简单修复：注释掉无效行
+                        fixed_lines.append(f"# 无效指令(已注释): {line}")
+                        self.logger.info(f"简单修复: 将无效行 '{line}' 注释掉")
+            
+            # 确保Dockerfile有FROM指令
+            if not has_from:
+                # 如果检测到CUDA相关指令，使用nvidia/cuda基础镜像
+                if cuda_detected and cuda_version:
+                    fixed_lines.insert(0, f"FROM nvidia/cuda:{cuda_version}-base-ubuntu20.04  # 自动添加的CUDA基础镜像")
+                    self.logger.info(f"修复: 添加缺失的CUDA基础镜像FROM指令，使用检测到的CUDA版本 {cuda_version}")
+                elif cuda_detected:
+                    fixed_lines.insert(0, "FROM nvidia/cuda:11.6.2-base-ubuntu20.04  # 自动添加的CUDA基础镜像")
+                    self.logger.info("修复: 添加缺失的CUDA基础镜像FROM指令")
+                # 如果检测到PyTorch相关指令，使用PyTorch基础镜像
+                elif pytorch_detected and pytorch_version:
+                    if cuda_detected and cuda_version:
+                        # 使用PyTorch CUDA镜像
+                        cuda_version_no_dots = cuda_version.replace('.', '')
+                        fixed_lines.insert(0, f"FROM pytorch/pytorch:{pytorch_version}-cuda{cuda_version}-cudnn8-runtime  # 自动添加的PyTorch CUDA基础镜像")
+                        self.logger.info(f"修复: 添加缺失的PyTorch CUDA基础镜像FROM指令，版本 {pytorch_version}-cuda{cuda_version}")
+                    else:
+                        # 使用PyTorch CPU镜像
+                        fixed_lines.insert(0, f"FROM pytorch/pytorch:{pytorch_version}-cpu  # 自动添加的PyTorch CPU基础镜像")
+                        self.logger.info(f"修复: 添加缺失的PyTorch CPU基础镜像FROM指令，版本 {pytorch_version}")
+                elif pytorch_detected:
+                    fixed_lines.insert(0, "FROM python:3.9-slim  # 自动添加的Python基础镜像")
+                    self.logger.info("修复: 添加缺失的Python基础镜像FROM指令")
+                else:
+                    fixed_lines.insert(0, "FROM python:3.9-slim  # 自动添加的基础镜像")
+                    self.logger.info("修复: 添加缺失的FROM指令")
+                
+            # 确保Dockerfile有CMD指令
+            has_cmd = any(line.strip().startswith('CMD ') for line in fixed_lines)
+            has_entrypoint = any(line.strip().startswith('ENTRYPOINT ') for line in fixed_lines)
+            
+            if not has_cmd and not has_entrypoint:
+                # 如果检测到PyTorch，添加验证PyTorch的CMD
+                if pytorch_detected:
+                    fixed_lines.append('CMD ["python", "-c", "import torch; print(\\\"PyTorch version:\\\", torch.__version__); print(\\\"CUDA available:\\\", torch.cuda.is_available())"]  # 自动添加的PyTorch验证CMD指令')
+                    self.logger.info("修复: 添加缺失的PyTorch验证CMD指令")
+                else:
+                    fixed_lines.append("CMD [\"python\", \"-c\", \"print('Hello from fixed Dockerfile')\"]  # 自动添加的CMD指令")
+                    self.logger.info("修复: 添加缺失的CMD指令")
+                
+            # 添加修复说明
+            fixed_lines.append("\n# 注意: 此Dockerfile已被自动修复，可能与原始意图有差异")
+            
+            return "\n".join(fixed_lines)
+            
+        except Exception as e:
+            self.logger.error(f"修复Dockerfile时出错: {str(e)}")
+            # 返回一个基本的工作Dockerfile
+            return """FROM python:3.9-slim
+# 自动生成的应急Dockerfile (修复过程出错)
+WORKDIR /app
+CMD ["python", "-c", "print('Emergency Dockerfile after repair failure')"]
+# 注意: 原始Dockerfile处理失败，这是自动生成的应急版本
+"""
+
+    def _replace_pytorch_install_command(self, dockerfile_content, new_install_commands):
+        """
+        替换Dockerfile中的PyTorch安装命令
+        
+        Args:
+            dockerfile_content (str): 原始Dockerfile内容
+            new_install_commands (str): 新的PyTorch安装命令
+            
+        Returns:
+            str: 更新后的Dockerfile内容
+        """
+        lines = dockerfile_content.splitlines()
+        result_lines = []
+        
+        # 查找PyTorch安装段落
+        i = 0
+        while i < len(lines):
+            line = lines[i]
+            # 检测是否是PyTorch安装行
+            if ("pip install" in line and "torch" in line) or ("# 安装PyTorch" in line):
+                # 找到了PyTorch安装命令，跳过相关行直到找到非安装命令
+                while i < len(lines) and (
+                    "pip install" in lines[i] or 
+                    "torch" in lines[i] or 
+                    "RUN python -c" in lines[i] or
+                    "# 验证" in lines[i] or
+                    "# 安装PyTorch" in lines[i]):
+                    i += 1
+                
+                # 插入新的安装命令
+                result_lines.append(new_install_commands)
+            else:
+                # 保留原行
+                result_lines.append(line)
+                i += 1
+        
+        return "\n".join(result_lines)

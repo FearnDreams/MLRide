@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Search, Plus, Upload, Rocket, Loader2, Trash2, MoreVertical, Code, Image, BookOpen, Layers } from 'lucide-react';
+import { Search, Plus, Upload, Rocket, Loader2, Trash2, MoreVertical, Code, Image, BookOpen, Layers, Edit2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { getProjects, deleteProject } from '@/services/projects';
+import { getProjects, deleteProject, updateProject } from '@/services/projects';
 import { ProjectResponse } from '@/services/projects';
 import { 
   AlertDialog,
@@ -21,6 +21,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useToast } from '@/components/ui/use-toast';
+import { Modal, Form, Input, message } from 'antd';
 
 const ProjectsPage: React.FC = () => {
   const navigate = useNavigate();
@@ -31,8 +32,11 @@ const ProjectsPage: React.FC = () => {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [projectToDelete, setProjectToDelete] = useState<ProjectResponse | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
-  const { toast } = useToast();
-
+  const [editModalVisible, setEditModalVisible] = useState(false);
+  const [editLoading, setEditLoading] = useState(false);
+  const [projectToEdit, setProjectToEdit] = useState<ProjectResponse | null>(null);
+  const [form] = Form.useForm();
+  
   useEffect(() => {
     const fetchProjects = async () => {
       setLoading(true);
@@ -70,17 +74,10 @@ const ProjectsPage: React.FC = () => {
       // 从列表中移除已删除的项目
       setProjects(prev => prev.filter(p => p.id !== projectToDelete.id));
       
-      toast({
-        title: "成功",
-        description: `项目 "${projectToDelete.name}" 已删除`,
-      });
+      message.success(`项目 "${projectToDelete.name}" 已删除`);
     } catch (error: any) {
       console.error('删除项目失败:', error);
-      toast({
-        title: "错误",
-        description: error.message || "删除项目失败",
-        variant: "destructive",
-      });
+      message.error(error.message || "删除项目失败");
     } finally {
       setIsDeleting(false);
       setDeleteDialogOpen(false);
@@ -92,6 +89,58 @@ const ProjectsPage: React.FC = () => {
     e.stopPropagation(); // 阻止事件冒泡，防止点击删除按钮时跳转到项目详情
     setProjectToDelete(project);
     setDeleteDialogOpen(true);
+  };
+
+  // 打开编辑项目模态框
+  const openEditModal = (project: ProjectResponse, e: React.MouseEvent) => {
+    e.stopPropagation(); // 阻止事件冒泡，防止点击编辑按钮时跳转到项目详情
+    setProjectToEdit(project);
+    form.setFieldsValue({
+      name: project.name,
+      description: project.description || '',
+    });
+    setEditModalVisible(true);
+  };
+
+  // 提交编辑项目
+  const handleEditSubmit = async () => {
+    if (!projectToEdit) return;
+    
+    try {
+      setEditLoading(true);
+      const values = await form.validateFields();
+      
+      console.log('提交编辑项目数据:', {
+        id: projectToEdit.id,
+        values: values
+      });
+      
+      const response = await updateProject(projectToEdit.id, {
+        name: values.name,
+        description: values.description
+      });
+      
+      console.log('更新项目响应:', response);
+      
+      // 更新本地项目列表
+      setProjects(prev => 
+        prev.map(p => 
+          p.id === projectToEdit.id 
+            ? { ...p, name: values.name, description: values.description } 
+            : p
+        )
+      );
+      
+      message.success("项目信息已成功更新");
+      
+      setEditModalVisible(false);
+      setProjectToEdit(null);
+    } catch (error: any) {
+      console.error('更新项目失败:', error);
+      message.error(error.message || "更新项目信息失败");
+    } finally {
+      setEditLoading(false);
+    }
   };
 
   // 根据项目类型返回对应的图标
@@ -132,6 +181,69 @@ const ProjectsPage: React.FC = () => {
       default:
         return projectType;
     }
+  };
+
+  // 编辑项目模态框
+  const renderEditModal = () => {
+    return (
+      <Modal
+        title={<span className="text-white font-medium">编辑项目</span>}
+        open={editModalVisible}
+        onCancel={() => setEditModalVisible(false)}
+        footer={[
+          <Button
+            key="cancel"
+            onClick={() => setEditModalVisible(false)}
+            className="bg-slate-700 hover:bg-slate-600 text-gray-300 hover:text-white border-slate-600 mr-4"
+          >
+            取消
+          </Button>,
+          <Button
+            key="submit"
+            onClick={handleEditSubmit}
+            className="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white border-0"
+            disabled={editLoading}
+          >
+            {editLoading ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                保存中...
+              </>
+            ) : (
+              '保存'
+            )}
+          </Button>
+        ]}
+        className="custom-dark-modal"
+      >
+        <Form
+          form={form}
+          layout="vertical"
+          className="mt-4"
+        >
+          <Form.Item
+            name="name"
+            label={<span className="text-gray-300">项目名称</span>}
+            rules={[{ required: true, message: '请输入项目名称' }]}
+          >
+            <Input 
+              placeholder="请输入项目名称" 
+              className="bg-slate-800/50 border-slate-700 text-white" 
+            />
+          </Form.Item>
+          <Form.Item
+            name="description"
+            label={<span className="text-gray-300">项目描述</span>}
+          >
+            <Input.TextArea 
+              placeholder="请输入项目描述（可选）" 
+              className="bg-slate-800/50 border-slate-700 text-white"
+              rows={4}
+            />
+          </Form.Item>
+        </Form>
+      </Modal>
+    );
   };
 
   const filteredProjects = projects.filter(project => 
@@ -246,7 +358,15 @@ const ProjectsPage: React.FC = () => {
                             {getProjectIcon(project.project_type)}
                           </div>
                           <div>
-                            <h3 className="font-semibold text-lg text-white">{project.name}</h3>
+                            <h3 className="font-semibold text-lg text-white">
+                              <span className="mr-2">{project.name}</span>
+                              <button 
+                                className="text-gray-400 hover:text-amber-400 transition-colors inline-flex items-center opacity-0 group-hover:opacity-100 focus:opacity-100"
+                                onClick={(e) => openEditModal(project, e)}
+                              >
+                                <Edit2 className="w-3.5 h-3.5" />
+                              </button>
+                            </h3>
                             <div className="flex items-center gap-2 mt-1">
                               <span className="px-2 py-0.5 text-xs rounded-full bg-slate-700/70 text-gray-300">
                                 {getProjectTypeName(project.project_type)}
@@ -277,6 +397,10 @@ const ProjectsPage: React.FC = () => {
                             </Button>
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end">
+                            <DropdownMenuItem onClick={(e) => openEditModal(project, e)}>
+                              <Edit2 className="mr-2 h-4 w-4" />
+                              编辑项目
+                            </DropdownMenuItem>
                             <DropdownMenuItem onClick={(e) => openDeleteDialog(project, e)} className="text-red-500 focus:text-red-500">
                               <Trash2 className="mr-2 h-4 w-4" />
                               删除项目
@@ -341,6 +465,83 @@ const ProjectsPage: React.FC = () => {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* 编辑项目模态框 */}
+      {renderEditModal()}
+      
+      {/* 添加Dark Modal样式 */}
+      <style>{`
+        .custom-dark-modal .ant-modal-content {
+          background-color: rgba(15, 23, 42, 0.75);
+          backdrop-filter: blur(12px);
+          border: 1px solid rgba(51, 65, 85, 0.5);
+          border-radius: 0.75rem;
+          box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.3);
+        }
+        .custom-dark-modal .ant-modal-header {
+          background-color: transparent;
+          border-bottom: 1px solid rgba(51, 65, 85, 0.5);
+        }
+        .custom-dark-modal .ant-modal-title {
+          color: white;
+        }
+        .custom-dark-modal .ant-modal-close {
+          color: rgba(148, 163, 184, 0.8);
+        }
+        .custom-dark-modal .ant-modal-close:hover {
+          color: white;
+        }
+        .custom-dark-modal .ant-btn-primary {
+          color: white !important;
+        }
+        .custom-dark-modal .ant-btn-default {
+          color: rgb(209, 213, 219) !important;
+          border-color: rgba(71, 85, 105, 0.5) !important;
+          background-color: rgba(51, 65, 85, 0.5) !important;
+        }
+        .custom-dark-modal .ant-btn-default:hover {
+          color: white !important;
+          border-color: rgba(59, 130, 246, 0.5) !important;
+          background-color: rgba(71, 85, 105, 0.5) !important;
+        }
+        .custom-dark-modal .ant-form-item-label > label {
+          color: rgb(209, 213, 219) !important;
+        }
+        .custom-dark-modal .ant-input,
+        .custom-dark-modal .ant-input-affix-wrapper,
+        .custom-dark-modal .ant-input-number,
+        .custom-dark-modal .ant-input-number-input,
+        .custom-dark-modal .ant-select-selector,
+        .custom-dark-modal .ant-select-selection-item,
+        .custom-dark-modal .ant-input-textarea {
+          background-color: rgba(30, 41, 59, 0.5) !important;
+          border-color: rgba(51, 65, 85, 0.8) !important;
+          color: rgb(237, 242, 247) !important;
+        }
+        .custom-dark-modal .ant-input::placeholder,
+        .custom-dark-modal .ant-input-number-input::placeholder,
+        .custom-dark-modal .ant-input-textarea textarea::placeholder {
+          color: rgba(148, 163, 184, 0.5) !important;
+        }
+        .custom-dark-modal .ant-input:hover,
+        .custom-dark-modal .ant-input-affix-wrapper:hover,
+        .custom-dark-modal .ant-input-number:hover,
+        .custom-dark-modal .ant-select-selector:hover,
+        .custom-dark-modal .ant-input-textarea:hover {
+          border-color: rgba(59, 130, 246, 0.5) !important;
+        }
+        .custom-dark-modal .ant-input:focus,
+        .custom-dark-modal .ant-input-affix-wrapper:focus,
+        .custom-dark-modal .ant-input-number:focus,
+        .custom-dark-modal .ant-select-selector:focus,
+        .custom-dark-modal .ant-input-textarea:focus {
+          border-color: rgba(59, 130, 246, 0.8) !important;
+          box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2) !important;
+        }
+        .custom-dark-modal .ant-form-item-explain-error {
+          color: #f56565 !important;
+        }
+      `}</style>
     </div>
   );
 };

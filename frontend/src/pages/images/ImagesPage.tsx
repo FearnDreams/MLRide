@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { Search, Info, AlertCircle, Trash2, Plus } from 'lucide-react';
+import { Search, Info, AlertCircle, Trash2, Plus, Edit2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useNavigate } from 'react-router-dom';
 import { imagesService, DockerImage } from '@/services/images';
-import { message, Spin, Empty, Modal, Tooltip } from 'antd';
+import { message, Spin, Empty, Modal, Tooltip, Badge, Form, Input } from 'antd';
 
 const ImagesPage: React.FC = () => {
   const navigate = useNavigate();
@@ -11,6 +11,11 @@ const ImagesPage: React.FC = () => {
   const [userImages, setUserImages] = useState<DockerImage[]>([]);
   const [loading, setLoading] = useState(false);
   const [deleteLoading, setDeleteLoading] = useState(false);
+  const [detailModalVisible, setDetailModalVisible] = useState(false);
+  const [editModalVisible, setEditModalVisible] = useState(false);
+  const [editLoading, setEditLoading] = useState(false);
+  const [selectedImage, setSelectedImage] = useState<DockerImage | null>(null);
+  const [form] = Form.useForm();
   
   // 获取用户镜像
   const fetchUserImages = async () => {
@@ -103,25 +108,125 @@ const ImagesPage: React.FC = () => {
       }
     });
   };
+
+  // 查看镜像详情
+  const handleViewImageDetail = (image: DockerImage) => {
+    setSelectedImage(image);
+    setDetailModalVisible(true);
+  };
   
+  // 打开编辑镜像模态框
+  const handleEditImage = (image: DockerImage, e?: React.MouseEvent) => {
+    if (e) {
+      e.stopPropagation(); // 阻止事件冒泡
+    }
+    setSelectedImage(image);
+    form.setFieldsValue({
+      name: image.name,
+      description: image.description || '',
+    });
+    setEditModalVisible(true);
+  };
+  
+  // 提交编辑镜像
+  const handleEditSubmit = async () => {
+    if (!selectedImage) return;
+    
+    try {
+      setEditLoading(true);
+      const values = await form.validateFields();
+      
+      console.log('提交编辑镜像数据:', {
+        id: selectedImage.id,
+        values: values,
+        python_version: selectedImage.python_version || selectedImage.pythonVersion
+      });
+      
+      // 恢复使用imagesService
+      const requestData = {
+        name: values.name,
+        description: values.description,
+        python_version: selectedImage.python_version || selectedImage.pythonVersion
+      };
+      
+      console.log('使用imagesService发送请求:', {
+        id: selectedImage.id,
+        data: requestData
+      });
+      
+      // 使用try-catch捕获updateImage可能抛出的错误
+      try {
+        const response = await imagesService.updateImage(selectedImage.id, requestData);
+        console.log('imagesService响应:', response);
+        
+        // 即使响应解析有问题,我们也认为操作成功了(因为手动刷新后镜像确实已更新)
+        message.success('镜像更新成功');
+        setEditModalVisible(false);
+        
+        // 等待Modal动画完成后再刷新数据
+        setTimeout(() => {
+          // 强制刷新,确保数据更新
+          fetchUserImages();
+        }, 300);
+      } catch (updateError: any) {
+        console.error('imagesService.updateImage错误:', updateError);
+        message.error(updateError.message || '更新镜像失败');
+      }
+    } catch (error: any) {
+      console.error('编辑镜像表单验证错误:', error);
+      message.error('表单验证失败,请检查输入');
+    } finally {
+      setEditLoading(false);
+    }
+  };
+  
+  // 修改官方镜像的数据结构，添加更多字段以匹配DockerImage接口
   const officialImages = [
     {
+      id: "official-1",
+      name: "气象分析镜像 Python 3.7",
       title: "气象分析镜像 Python 3.7",
       description: "气象专用，使用conda安装可能存在较多冲突, Python 3.7.8",
+      python_version: "3.7.8",
+      pythonVersion: "3.7.8",
       version: "Python 3.7.8",
-      type: ["官方", "CPU"]
+      created: new Date().toISOString(),
+      status: "ready",
+      creator: 0,
+      creator_name: "官方团队",
+      type: ["官方", "CPU"],
+      packages: "numpy,pandas,matplotlib,scipy,sklearn"
     },
     {
+      id: "official-2",
+      name: "TF2.4 Torch1.7 推断",
       title: "TF2.4 Torch1.7 推断",
       description: "tf2.4.2-torch1.7.1-py3.7.10",
+      python_version: "3.7.10",
+      pythonVersion: "3.7.10",
       version: "Python 3.7.10",
-      type: ["官方", "CPU"]
+      created: new Date().toISOString(),
+      status: "ready",
+      creator: 0,
+      creator_name: "官方团队",
+      type: ["官方", "CPU"],
+      packages: "tensorflow==2.4.2,torch==1.7.1,numpy,pandas",
+      pytorch_version: "1.7.1"
     },
     {
+      id: "official-3",
+      name: "Python 3.7 数据科学镜像",
       title: "Python 3.7 数据科学镜像",
       description: "兼容 ModelWhale IDE，Python 3.7.12",
+      python_version: "3.7.12",
+      pythonVersion: "3.7.12",
       version: "Python 3.7.12",
-      type: ["官方", "CPU"]
+      created: new Date().toISOString(),
+      status: "ready",
+      creator: 0,
+      creator_name: "官方团队",
+      type: ["官方", "CPU"],
+      packages: "numpy,pandas,matplotlib,scipy,sklearn,jupyterlab"
     }
   ];
 
@@ -189,12 +294,22 @@ const ImagesPage: React.FC = () => {
               <div className="flex-1">
                 <div className="flex items-center gap-2 mb-2">
                   <h3 className="font-medium text-white">{image.name}</h3>
-                  <Tooltip title="查看详情">
-                    <Info 
-                      className="w-4 h-4 text-gray-400 hover:text-blue-400 cursor-pointer transition-colors"
-                      aria-label="查看镜像详情"
-                    />
-                  </Tooltip>
+                  <div className="flex items-center gap-1">
+                    <Tooltip title="查看详情">
+                      <Info 
+                        className="w-4 h-4 text-gray-400 hover:text-blue-400 cursor-pointer transition-colors"
+                        aria-label="查看镜像详情"
+                        onClick={() => handleViewImageDetail(image)}
+                      />
+                    </Tooltip>
+                    <Tooltip title="编辑镜像">
+                      <Edit2
+                        className="w-4 h-4 text-gray-400 hover:text-amber-400 cursor-pointer transition-colors ml-1"
+                        aria-label="编辑镜像"
+                        onClick={(e) => handleEditImage(image, e)}
+                      />
+                    </Tooltip>
+                  </div>
                 </div>
                 <p className="text-gray-400 text-sm mb-3">{image.description || '暂无描述'}</p>
                 
@@ -206,13 +321,37 @@ const ImagesPage: React.FC = () => {
                         <span className="text-xs text-blue-400">Py</span>
                       </div>
                       <span className="text-sm text-gray-300 bg-blue-500/10 px-2 py-0.5 rounded-full border border-blue-500/30">
-                        Python {image.pythonVersion || '未指定'}
+                        Python {image.pythonVersion || image.python_version || '未指定'}
                       </span>
                     </div>
                     
+                    {/* 添加PyTorch版本信息 */}
+                    {image.pytorch_version && (
+                      <div className="flex items-center gap-2">
+                        <div className="w-5 h-5 rounded-full bg-orange-500/20 flex items-center justify-center">
+                          <span className="text-xs text-orange-400">Pt</span>
+                        </div>
+                        <span className="text-sm text-gray-300 bg-orange-500/10 px-2 py-0.5 rounded-full border border-orange-500/30">
+                          PyTorch {image.pytorch_version}
+                        </span>
+                      </div>
+                    )}
+                    
+                    {/* 添加CUDA版本信息 */}
+                    {image.cuda_version && (
+                      <div className="flex items-center gap-2">
+                        <div className="w-5 h-5 rounded-full bg-green-500/20 flex items-center justify-center">
+                          <span className="text-xs text-green-400">Cu</span>
+                        </div>
+                        <span className="text-sm text-gray-300 bg-green-500/10 px-2 py-0.5 rounded-full border border-green-500/30">
+                          CUDA {image.cuda_version}
+                        </span>
+                      </div>
+                    )}
+                    
                     <div className="flex items-center gap-2">
-                      <div className="w-5 h-5 rounded-full bg-green-500/20 flex items-center justify-center">
-                        <span className="text-xs text-green-400">创</span>
+                      <div className="w-5 h-5 rounded-full bg-purple-500/20 flex items-center justify-center">
+                        <span className="text-xs text-purple-400">创</span>
                       </div>
                       <span className="text-sm text-gray-300">创建于 {new Date(image.created).toLocaleDateString()}</span>
                     </div>
@@ -272,6 +411,7 @@ const ImagesPage: React.FC = () => {
                     <Info 
                       className="w-4 h-4 text-gray-400 hover:text-purple-400 cursor-pointer transition-colors"
                       aria-label="查看官方镜像详情"
+                      onClick={() => handleViewImageDetail(image as unknown as DockerImage)}
                     />
                   </Tooltip>
                 </div>
@@ -282,6 +422,16 @@ const ImagesPage: React.FC = () => {
                   </div>
                   <span className="text-sm text-gray-300">{image.version}</span>
                 </div>
+                
+                {/* 显示pytorch版本信息 (如果有) */}
+                {image.pytorch_version && (
+                  <div className="flex items-center gap-2 mt-2">
+                    <div className="w-5 h-5 rounded-full bg-orange-500/20 flex items-center justify-center">
+                      <span className="text-xs text-orange-400">Pt</span>
+                    </div>
+                    <span className="text-sm text-gray-300">PyTorch {image.pytorch_version}</span>
+                  </div>
+                )}
               </div>
               <div className="flex items-center gap-3">
                 {image.type.map((type, i) => (
@@ -298,6 +448,211 @@ const ImagesPage: React.FC = () => {
           </div>
         ))}
       </div>
+    );
+  };
+
+  // 渲染镜像详情模态框
+  const renderImageDetailModal = () => {
+    if (!selectedImage) return null;
+    
+    return (
+      <Modal
+        title={<span className="text-white font-medium">镜像详情</span>}
+        open={detailModalVisible}
+        onCancel={() => setDetailModalVisible(false)}
+        footer={[
+          <Button
+            key="close"
+            onClick={() => setDetailModalVisible(false)}
+            className="bg-slate-700 hover:bg-slate-600 text-gray-300 hover:text-white border-slate-600"
+          >
+            关闭
+          </Button>
+        ]}
+        className="custom-dark-modal image-detail-modal"
+        width={700}
+      >
+        <div className="py-4">
+          {/* 镜像基本信息 */}
+          <div className="mb-6">
+            <h3 className="text-xl font-medium text-white mb-4 border-b border-slate-700/50 pb-2 flex items-center">
+              <div className="w-7 h-7 rounded-full bg-blue-500/20 flex items-center justify-center mr-2">
+                <span className="text-sm text-blue-400">信息</span>
+              </div>
+              基本信息
+            </h3>
+            <div className="grid grid-cols-2 gap-4 bg-slate-800/30 p-4 rounded-lg border border-slate-700/50 backdrop-blur-md">
+              <div>
+                <p className="text-gray-400 mb-1">镜像名称</p>
+                <p className="text-white font-medium">{selectedImage.name}</p>
+              </div>
+              <div>
+                <p className="text-gray-400 mb-1">创建时间</p>
+                <p className="text-white">{new Date(selectedImage.created).toLocaleString()}</p>
+              </div>
+              <div>
+                <p className="text-gray-400 mb-1">镜像状态</p>
+                <Badge 
+                  status={
+                    selectedImage.status === 'ready' ? 'success' : 
+                    selectedImage.status === 'failed' ? 'error' : 
+                    selectedImage.status === 'building' ? 'processing' : 'warning'
+                  } 
+                  text={
+                    <span className={`${getStatusStyle(selectedImage.status).text} font-medium`}>
+                      {getStatusText(selectedImage.status)}
+                    </span>
+                  } 
+                />
+              </div>
+              <div>
+                <p className="text-gray-400 mb-1">创建者</p>
+                <p className="text-white">{selectedImage.creator_name || '未知'}</p>
+              </div>
+            </div>
+          </div>
+          
+          {/* 技术规格 */}
+          <div className="mb-6">
+            <h3 className="text-xl font-medium text-white mb-4 border-b border-slate-700/50 pb-2 flex items-center">
+              <div className="w-7 h-7 rounded-full bg-purple-500/20 flex items-center justify-center mr-2">
+                <span className="text-sm text-purple-400">规格</span>
+              </div>
+              技术规格
+            </h3>
+            <div className="grid grid-cols-2 gap-4 bg-slate-800/30 p-4 rounded-lg border border-slate-700/50 backdrop-blur-md">
+              <div>
+                <p className="text-gray-400 mb-1">Python版本</p>
+                <p className="text-white flex items-center">
+                  <span className="inline-block w-6 h-6 rounded-full bg-blue-500/20 flex items-center justify-center mr-2">
+                    <span className="text-xs text-blue-400">Py</span>
+                  </span>
+                  <span className="font-medium">{selectedImage.pythonVersion || selectedImage.python_version || '未指定'}</span>
+                </p>
+              </div>
+              
+              {selectedImage.pytorch_version && (
+                <div>
+                  <p className="text-gray-400 mb-1">PyTorch版本</p>
+                  <p className="text-white flex items-center">
+                    <span className="inline-block w-6 h-6 rounded-full bg-orange-500/20 flex items-center justify-center mr-2">
+                      <span className="text-xs text-orange-400">Pt</span>
+                    </span>
+                    <span className="font-medium">{selectedImage.pytorch_version}</span>
+                  </p>
+                </div>
+              )}
+              
+              {selectedImage.cuda_version && (
+                <div>
+                  <p className="text-gray-400 mb-1">CUDA版本</p>
+                  <p className="text-white flex items-center">
+                    <span className="inline-block w-6 h-6 rounded-full bg-green-500/20 flex items-center justify-center mr-2">
+                      <span className="text-xs text-green-400">Cu</span>
+                    </span>
+                    <span className="font-medium">{selectedImage.cuda_version}</span>
+                  </p>
+                </div>
+              )}
+              
+              <div>
+                <p className="text-gray-400 mb-1">Docker标签</p>
+                <p className="text-white">{selectedImage.image_tag || '未生成'}</p>
+              </div>
+            </div>
+          </div>
+          
+          {/* 描述信息 */}
+          <div className="mb-6">
+            <h3 className="text-xl font-medium text-white mb-4 border-b border-slate-700/50 pb-2 flex items-center">
+              <div className="w-7 h-7 rounded-full bg-indigo-500/20 flex items-center justify-center mr-2">
+                <span className="text-sm text-indigo-400">描述</span>
+              </div>
+              描述信息
+            </h3>
+            <div className="bg-slate-800/30 p-4 rounded-lg border border-slate-700/50 backdrop-blur-md">
+              <p className="text-white">{selectedImage.description || '暂无描述信息'}</p>
+            </div>
+          </div>
+          
+          {/* 包信息（如果有的话） */}
+          {selectedImage.packages && (
+            <div className="mb-0">
+              <h3 className="text-xl font-medium text-white mb-4 border-b border-slate-700/50 pb-2 flex items-center">
+                <div className="w-7 h-7 rounded-full bg-cyan-500/20 flex items-center justify-center mr-2">
+                  <span className="text-sm text-cyan-400">包</span>
+                </div>
+                包含的工具包
+              </h3>
+              <div className="bg-slate-800/30 p-4 rounded-lg border border-slate-700/50 backdrop-blur-md">
+                <div className="flex flex-wrap gap-2">
+                  {selectedImage.packages.split(',').map((pkg, index) => (
+                    <span key={index} className="text-sm px-2.5 py-1 bg-indigo-500/10 text-indigo-300 rounded-full border border-indigo-500/20">
+                      {pkg.trim()}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      </Modal>
+    );
+  };
+
+  // 渲染编辑镜像模态框
+  const renderEditModal = () => {
+    return (
+      <Modal
+        title={<span className="text-white font-medium">编辑镜像</span>}
+        open={editModalVisible}
+        onCancel={() => setEditModalVisible(false)}
+        footer={[
+          <Button
+            key="cancel"
+            onClick={() => setEditModalVisible(false)}
+            className="bg-slate-700 hover:bg-slate-600 text-gray-300 hover:text-white border-slate-600 mr-4"
+          >
+            取消
+          </Button>,
+          <Button
+            key="submit"
+            onClick={handleEditSubmit}
+            className="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white border-0"
+            disabled={editLoading}
+          >
+            {editLoading ? '保存中...' : '保存'}
+          </Button>
+        ]}
+        className="custom-dark-modal"
+      >
+        <Form
+          form={form}
+          layout="vertical"
+          className="mt-4"
+        >
+          <Form.Item
+            name="name"
+            label={<span className="text-gray-300">镜像名称</span>}
+            rules={[{ required: true, message: '请输入镜像名称' }]}
+          >
+            <Input 
+              placeholder="请输入镜像名称" 
+              className="bg-slate-800/50 border-slate-700 text-white" 
+            />
+          </Form.Item>
+          <Form.Item
+            name="description"
+            label={<span className="text-gray-300">镜像描述</span>}
+          >
+            <Input.TextArea 
+              placeholder="请输入镜像描述（可选）" 
+              className="bg-slate-800/50 border-slate-700 text-white"
+              rows={4}
+            />
+          </Form.Item>
+        </Form>
+      </Modal>
     );
   };
 
@@ -347,13 +702,20 @@ const ImagesPage: React.FC = () => {
         {selectedTab === "我的镜像" ? renderUserImages() : renderOfficialImages()}
       </div>
       
+      {/* 镜像详情模态框 */}
+      {renderImageDetailModal()}
+      
+      {/* 编辑镜像模态框 */}
+      {renderEditModal()}
+      
       {/* Add global styles for dark modal */}
       <style>{`
         .custom-dark-modal .ant-modal-content {
-          background-color: rgba(30, 41, 59, 0.95);
-          backdrop-filter: blur(8px);
+          background-color: rgba(15, 23, 42, 0.75);
+          backdrop-filter: blur(12px);
           border: 1px solid rgba(51, 65, 85, 0.5);
           border-radius: 0.75rem;
+          box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.3);
         }
         .custom-dark-modal .ant-modal-header {
           background-color: transparent;
@@ -368,6 +730,9 @@ const ImagesPage: React.FC = () => {
         .custom-dark-modal .ant-modal-close:hover {
           color: white;
         }
+        .image-detail-modal .ant-badge-status-text {
+          color: inherit;
+        }
         .custom-dark-modal .ant-btn-primary {
           color: white !important;
         }
@@ -381,29 +746,42 @@ const ImagesPage: React.FC = () => {
           border-color: rgba(59, 130, 246, 0.5) !important;
           background-color: rgba(71, 85, 105, 0.5) !important;
         }
-        /* 确保所有输入框文字颜色 */
-        .custom-dark-modal input, 
-        .custom-dark-modal textarea, 
-        .custom-dark-modal select {
+        .custom-dark-modal .ant-form-item-label > label {
           color: rgb(209, 213, 219) !important;
-          background-color: rgba(51, 65, 85, 0.5) !important;
         }
-        .custom-dark-modal input::placeholder, 
-        .custom-dark-modal textarea::placeholder {
-          color: rgba(148, 163, 184, 0.6) !important;
+        .custom-dark-modal .ant-input,
+        .custom-dark-modal .ant-input-affix-wrapper,
+        .custom-dark-modal .ant-input-number,
+        .custom-dark-modal .ant-input-number-input,
+        .custom-dark-modal .ant-select-selector,
+        .custom-dark-modal .ant-select-selection-item,
+        .custom-dark-modal .ant-input-textarea {
+          background-color: rgba(30, 41, 59, 0.5) !important;
+          border-color: rgba(51, 65, 85, 0.8) !important;
+          color: rgb(237, 242, 247) !important;
         }
-        .custom-dark-modal input:focus, 
-        .custom-dark-modal input:hover, 
-        .custom-dark-modal input:active,
-        .custom-dark-modal textarea:focus,
-        .custom-dark-modal textarea:hover,
-        .custom-dark-modal textarea:active,
-        .custom-dark-modal select:focus,
-        .custom-dark-modal select:hover,
-        .custom-dark-modal select:active {
-          background-color: rgba(51, 65, 85, 0.5) !important;
+        .custom-dark-modal .ant-input::placeholder,
+        .custom-dark-modal .ant-input-number-input::placeholder,
+        .custom-dark-modal .ant-input-textarea textarea::placeholder {
+          color: rgba(148, 163, 184, 0.5) !important;
+        }
+        .custom-dark-modal .ant-input:hover,
+        .custom-dark-modal .ant-input-affix-wrapper:hover,
+        .custom-dark-modal .ant-input-number:hover,
+        .custom-dark-modal .ant-select-selector:hover,
+        .custom-dark-modal .ant-input-textarea:hover {
           border-color: rgba(59, 130, 246, 0.5) !important;
-          box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.1) !important;
+        }
+        .custom-dark-modal .ant-input:focus,
+        .custom-dark-modal .ant-input-affix-wrapper:focus,
+        .custom-dark-modal .ant-input-number:focus,
+        .custom-dark-modal .ant-select-selector:focus,
+        .custom-dark-modal .ant-input-textarea:focus {
+          border-color: rgba(59, 130, 246, 0.8) !important;
+          box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2) !important;
+        }
+        .custom-dark-modal .ant-form-item-explain-error {
+          color: #f56565 !important;
         }
       `}</style>
     </div>

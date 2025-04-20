@@ -11,6 +11,36 @@ from .models import DockerImage, ContainerInstance, ResourceQuota
 # 设置日志记录器
 logger = logging.getLogger(__name__)
 
+# PyTorch和CUDA版本兼容性表
+# 格式: {pytorch_version: [compatible_cuda_versions]}
+PYTORCH_CUDA_COMPATIBILITY = {
+    "1.10.0": ["10.2", "11.1", "11.3"],
+    "1.10.1": ["10.2", "11.1", "11.3"],
+    "1.10.2": ["10.2", "11.1", "11.3"],
+    "1.11.0": ["10.2", "11.3", "11.5"],
+    "1.12.0": ["10.2", "11.3", "11.6"],
+    "1.12.1": ["10.2", "11.3", "11.6"],
+    "1.13.0": ["11.6", "11.7"],
+    "1.13.1": ["11.6", "11.7"],
+    "2.0.0": ["11.7", "11.8"],
+    "2.0.1": ["11.7", "11.8"],
+    "2.1.0": ["11.8", "12.1"],
+    "2.1.1": ["11.8", "12.1"],
+    "2.1.2": ["11.8", "12.1"],
+    "2.2.0": ["11.8", "12.1"],
+    "2.2.1": ["11.8", "12.1"],
+}
+
+# Python版本兼容性表
+# 格式: {python_version: [compatible_pytorch_versions]}
+PYTHON_PYTORCH_COMPATIBILITY = {
+    "3.7": ["1.10.0", "1.10.1", "1.10.2", "1.11.0", "1.12.0", "1.12.1", "1.13.0", "1.13.1"],
+    "3.8": ["1.10.0", "1.10.1", "1.10.2", "1.11.0", "1.12.0", "1.12.1", "1.13.0", "1.13.1", "2.0.0", "2.0.1", "2.1.0", "2.1.1", "2.1.2"],
+    "3.9": ["1.10.0", "1.10.1", "1.10.2", "1.11.0", "1.12.0", "1.12.1", "1.13.0", "1.13.1", "2.0.0", "2.0.1", "2.1.0", "2.1.1", "2.1.2", "2.2.0", "2.2.1"],
+    "3.10": ["1.11.0", "1.12.0", "1.12.1", "1.13.0", "1.13.1", "2.0.0", "2.0.1", "2.1.0", "2.1.1", "2.1.2", "2.2.0", "2.2.1"],
+    "3.11": ["2.0.0", "2.0.1", "2.1.0", "2.1.1", "2.1.2", "2.2.0", "2.2.1"],
+}
+
 class DockerImageSerializer(serializers.ModelSerializer):
     """Docker镜像序列化器
     
@@ -26,6 +56,10 @@ class DockerImageSerializer(serializers.ModelSerializer):
         status: 镜像状态
         image_tag: Docker镜像标签
         use_slim: 是否使用slim版本
+        is_pytorch: 是否使用PyTorch
+        pytorch_version: PyTorch版本
+        cuda_version: CUDA版本
+        cuda_available: CUDA是否可用
     """
     
     creator_name = serializers.CharField(source='creator.username', read_only=True)
@@ -36,7 +70,7 @@ class DockerImageSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'name', 'description', 'python_version', 'creator', 
             'created', 'status', 'image_tag', 'creator_name', 'error_message',
-            'use_slim'
+            'use_slim', 'is_pytorch', 'pytorch_version', 'cuda_version', 'cuda_available'
         ]
         read_only_fields = ['id', 'created', 'status', 'image_tag', 'creator_name', 'error_message', 'creator']
 
@@ -76,6 +110,43 @@ class DockerImageSerializer(serializers.ModelSerializer):
             logger.info(f"Setting creator from request user: {request.user.id}")
             data['creator'] = request.user
             
+        # 检查是否使用PyTorch
+        if 'is_pytorch' in data and data['is_pytorch']:
+            # 如果是PyTorch镜像，必须提供PyTorch版本
+            if 'pytorch_version' not in data or not data['pytorch_version']:
+                raise serializers.ValidationError({"pytorch_version": "PyTorch版本不能为空"})
+                
+            # 检查Python和PyTorch版本兼容性
+            python_version = data['python_version']
+            pytorch_version = data['pytorch_version']
+            
+            # 确保所选Python版本支持所选PyTorch版本
+            compatible_pytorch_versions = PYTHON_PYTORCH_COMPATIBILITY.get(python_version, [])
+            if pytorch_version not in compatible_pytorch_versions:
+                raise serializers.ValidationError({
+                    "pytorch_version": f"Python {python_version} 不兼容 PyTorch {pytorch_version}。"
+                    f"支持的PyTorch版本: {', '.join(compatible_pytorch_versions)}"
+                })
+                
+            # 检查是否使用CUDA
+            cuda_available = data.get('cuda_available', False)
+            if cuda_available:
+                # 如果使用CUDA，必须提供CUDA版本
+                if 'cuda_version' not in data or not data['cuda_version']:
+                    raise serializers.ValidationError({"cuda_version": "CUDA版本不能为空"})
+                    
+                # 检查PyTorch和CUDA版本兼容性
+                cuda_version = data['cuda_version']
+                compatible_cuda_versions = PYTORCH_CUDA_COMPATIBILITY.get(pytorch_version, [])
+                if cuda_version not in compatible_cuda_versions:
+                    raise serializers.ValidationError({
+                        "cuda_version": f"PyTorch {pytorch_version} 不兼容 CUDA {cuda_version}。"
+                        f"支持的CUDA版本: {', '.join(compatible_cuda_versions)}"
+                    })
+                    
+                # 如果使用CUDA，设置最小GPU需求
+                data['min_gpu'] = 1
+            
         return data
 
     def validate_name(self, value):
@@ -95,9 +166,41 @@ class DockerImageSerializer(serializers.ModelSerializer):
         验证Python版本
         """
         logger.info(f"Validating python_version: {value}")
-        valid_versions = ['3.8', '3.9', '3.10', '3.11']
+        valid_versions = list(PYTHON_PYTORCH_COMPATIBILITY.keys())
         if value not in valid_versions:
             raise serializers.ValidationError(f"Python版本必须是以下之一: {', '.join(valid_versions)}")
+        return value
+        
+    def validate_pytorch_version(self, value):
+        """
+        验证PyTorch版本
+        """
+        if not value:
+            return value
+            
+        valid_versions = []
+        for versions in PYTORCH_CUDA_COMPATIBILITY:
+            valid_versions.append(versions)
+            
+        if value not in valid_versions:
+            raise serializers.ValidationError(f"PyTorch版本必须是以下之一: {', '.join(valid_versions)}")
+            
+        return value
+        
+    def validate_cuda_version(self, value):
+        """
+        验证CUDA版本
+        """
+        if not value:
+            return value
+            
+        valid_versions = set()
+        for cuda_versions in PYTORCH_CUDA_COMPATIBILITY.values():
+            valid_versions.update(cuda_versions)
+            
+        if value not in valid_versions:
+            raise serializers.ValidationError(f"CUDA版本必须是以下之一: {', '.join(sorted(valid_versions))}")
+            
         return value
 
     def create(self, validated_data):
@@ -108,24 +211,56 @@ class DockerImageSerializer(serializers.ModelSerializer):
             validated_data: 验证后的数据
             
         Returns:
-            DockerImage: 创建的Docker镜像对象
+            DockerImage: 创建的Docker镜像实例
         """
-        logger.info(f"Creating Docker image with data: {validated_data}")
+        logger.info(f"Creating DockerImage with data: {validated_data}")
+        
+        # 获取请求的用户并设置creator
         request = self.context.get('request')
         if request:
             logger.info(f"Setting creator from request user: {request.user.id}")
             validated_data['creator'] = request.user
         else:
             logger.warning("No request in context, creator might be missing")
+            
+        # 处理Python版本
+        python_version = validated_data.get('python_version')
+        if not python_version:
+            raise serializers.ValidationError({"python_version": "Python版本不能为空"})
+            
+        # 设置镜像状态为pending
+        validated_data['status'] = 'pending'
         
-        # 设置use_slim为False，始终使用常规版本
+        # 检查是否启用PyTorch
+        pytorch_version = validated_data.get('pytorch_version')
+        cuda_version = validated_data.get('cuda_version')
+        
+        # 确保设置is_pytorch标记
+        if pytorch_version:
+            validated_data['is_pytorch'] = True
+        
+        # 确保设置cuda_available标记    
+        if cuda_version:
+            validated_data['cuda_available'] = True
+        
+        # 设置use_slim为False，始终使用常规版本以提高镜像稳定性
         validated_data['use_slim'] = False
         logger.info("Setting use_slim=False to always use regular Python versions")
             
-        image = DockerImage.objects.create(
-            **validated_data
-        )
+        # 创建Docker镜像
+        image = DockerImage.objects.create(**validated_data)
         logger.info(f"Created Docker image: {image.id}")
+        
+        # 确保镜像记录有正确的is_pytorch和cuda_available标记
+        if 'is_pytorch' in validated_data and validated_data['is_pytorch']:
+            image.is_pytorch = True
+        if 'cuda_available' in validated_data and validated_data['cuda_available']:
+            image.cuda_available = True
+        
+        # 保存更新
+        if image.is_pytorch or image.cuda_available:
+            image.save(update_fields=['is_pytorch', 'cuda_available'])
+        
         return image
 
 

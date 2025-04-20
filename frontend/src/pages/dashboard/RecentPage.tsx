@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { useNavigate, Link } from 'react-router-dom';
 import projectsService from '@/services/projects';
-import { Code, Rocket, Loader2, ExternalLink, Plus, Image, BookOpen, Layers } from 'lucide-react';
+import { Rocket, Loader2, ExternalLink, Plus, Image, BookOpen, Layers } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { zhCN } from 'date-fns/locale';
 
@@ -217,19 +217,8 @@ const RecentPage: React.FC = () => {
                       className="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 border-0 text-white"
                       onClick={(e) => {
                         e.stopPropagation(); // 阻止事件冒泡
-                        if (project.status === 'running') {
-                          window.open(`/api/jupyter/proxy/${project.id}/lab`);
-                        } else {
-                          projectsService.startProject(project.id)
-                            .then(() => {
-                              setTimeout(() => {
-                                window.open(`/api/jupyter/proxy/${project.id}/lab`);
-                              }, 3000);
-                            })
-                            .catch(error => {
-                              console.error('启动项目失败:', error);
-                            });
-                        }
+                        // 跳转到项目详情页面
+                        navigate(`/dashboard/projects/${project.id}`);
                       }}
                     >
                       运行
@@ -267,23 +256,90 @@ const RecentPage: React.FC = () => {
             ) : (
               <>
                 {images.map((image) => (
-                  <div key={image.id} className="bg-slate-800/30 backdrop-blur-sm p-6 rounded-xl border border-slate-700/50 hover:border-blue-500/30 transition-all duration-300 hover:shadow-md hover:shadow-blue-500/5">
-                    <div className="flex items-start gap-3">
-                      <div className="w-10 h-10 rounded-full bg-slate-700/50 flex items-center justify-center">
-                        <Image className="w-5 h-5 text-blue-400" />
-                      </div>
-                      <div>
-                        <h3 className="font-medium text-white">{image.name}</h3>
-                        <p className="text-gray-400 text-sm line-clamp-2">{image.description || '无描述'}</p>
-                        <div className="flex items-center gap-2 mt-1">
-                          <span className="px-2 py-0.5 text-xs rounded-full bg-blue-500/20 text-blue-300 border border-blue-500/30">
-                            Python {(image as any).pythonVersion || image.python_version || '未指定'}
-                          </span>
-                          <p className="text-gray-500 text-xs">
-                            创建于: {formatRelativeTime(image.created)}
-                          </p>
+                  <div key={image.id} className="bg-slate-800/30 backdrop-blur-sm p-5 rounded-xl border border-slate-700/50 hover:border-blue-500/30 transition-all duration-300 hover:shadow-md hover:shadow-blue-500/5">
+                    <div className="flex justify-between items-start">
+                      <div className="flex-1">
+                        <h3 className="font-medium text-white mb-2">{image.name}</h3>
+                        <p className="text-gray-400 text-sm mb-3">{image.description || '无描述'}</p>
+                        
+                        {/* 详细信息区域 */}
+                        <div className="bg-slate-900/50 rounded-lg p-3 border border-slate-700/50 mb-3">
+                          <div className="grid grid-cols-2 gap-2">
+                            <div className="flex items-center gap-2">
+                              <div className="w-5 h-5 rounded-full bg-blue-500/20 flex items-center justify-center">
+                                <span className="text-xs text-blue-400">Py</span>
+                              </div>
+                              <span className="text-sm text-gray-300 bg-blue-500/10 px-2 py-0.5 rounded-full border border-blue-500/30">
+                                Python {image.pythonVersion || image.python_version || '未指定'}
+                              </span>
+                            </div>
+                            
+                            {/* PyTorch版本信息 */}
+                            {image.pytorch_version && (
+                              <div className="flex items-center gap-2">
+                                <div className="w-5 h-5 rounded-full bg-orange-500/20 flex items-center justify-center">
+                                  <span className="text-xs text-orange-400">Pt</span>
+                                </div>
+                                <span className="text-sm text-gray-300 bg-orange-500/10 px-2 py-0.5 rounded-full border border-orange-500/30">
+                                  PyTorch {image.pytorch_version}
+                                </span>
+                              </div>
+                            )}
+                            
+                            {/* CUDA版本信息 */}
+                            {image.cuda_version && (
+                              <div className="flex items-center gap-2">
+                                <div className="w-5 h-5 rounded-full bg-green-500/20 flex items-center justify-center">
+                                  <span className="text-xs text-green-400">Cu</span>
+                                </div>
+                                <span className="text-sm text-gray-300 bg-green-500/10 px-2 py-0.5 rounded-full border border-green-500/30">
+                                  CUDA {image.cuda_version}
+                                </span>
+                              </div>
+                            )}
+                            
+                            <div className="flex items-center gap-2">
+                              <div className="w-5 h-5 rounded-full bg-purple-500/20 flex items-center justify-center">
+                                <span className="text-xs text-purple-400">创</span>
+                              </div>
+                              <span className="text-sm text-gray-300">
+                                创建于 {formatRelativeTime(image.created)}
+                              </span>
+                            </div>
+                          </div>
                         </div>
+
+                        {/* 显示包信息（如果有的话） */}
+                        {image.packages && (
+                          <div className="mt-2">
+                            <h4 className="text-sm text-gray-300 mb-1">包含的工具包:</h4>
+                            <div className="flex flex-wrap gap-1.5">
+                              {image.packages.split(',').map((pkg: string, index: number) => (
+                                <span key={index} className="text-xs px-2 py-0.5 bg-indigo-500/10 text-indigo-300 rounded border border-indigo-500/20">
+                                  {pkg.trim()}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        )}
                       </div>
+                      
+                      {/* 状态指示器 */}
+                      {image.status && (
+                        <div>
+                          <span className={`text-sm px-2 py-1 rounded-full 
+                            ${image.status === 'ready' ? 'bg-green-500/20 text-green-400 border border-green-500/30' : 
+                              image.status === 'building' ? 'bg-blue-500/20 text-blue-400 border border-blue-500/30' :
+                              image.status === 'pending' ? 'bg-yellow-500/20 text-yellow-400 border border-yellow-500/30' :
+                              image.status === 'failed' ? 'bg-red-500/20 text-red-400 border border-red-500/30' :
+                              'bg-gray-500/20 text-gray-400 border border-gray-500/30'}`}>
+                            {image.status === 'ready' ? '就绪' : 
+                             image.status === 'building' ? '构建中' : 
+                             image.status === 'pending' ? '等待中' : 
+                             image.status === 'failed' ? '失败' : image.status}
+                          </span>
+                        </div>
+                      )}
                     </div>
                   </div>
                 ))}

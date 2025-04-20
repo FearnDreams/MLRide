@@ -1,6 +1,6 @@
 // 导入必要的依赖
 import React from 'react';
-import { Form, Input, Button, message, Alert, Tooltip } from 'antd';
+import { Form, Input, Button, message, Tooltip } from 'antd';
 import { useDispatch } from 'react-redux';
 import { register } from '../../store/authSlice';
 import { AppDispatch } from '../../store';
@@ -18,8 +18,6 @@ const RegisterForm: React.FC = () => {
     const [isLoading, setIsLoading] = React.useState(false);
     // 使用Form.useForm hook创建表单实例，用于表单操作
     const [form] = Form.useForm();
-    // 定义表单错误状态，用于显示错误信息
-    const [formError, setFormError] = React.useState<string | null>(null);
 
     // 格式化错误信息函数
     const formatErrorMessage = (error: any): string => {
@@ -63,8 +61,6 @@ const RegisterForm: React.FC = () => {
                 });
                 // 重置表单
                 form.resetFields();
-                // 清空错误信息
-                setFormError(null);
                 // 延迟1秒后跳转到登录页
                 setTimeout(() => {
                     navigate('/login');
@@ -77,8 +73,6 @@ const RegisterForm: React.FC = () => {
             console.error('注册错误:', err);
             // 格式化错误信息
             const errorMessage = formatErrorMessage(err);
-            // 设置表单错误信息
-            setFormError(errorMessage);
             // 弹出错误提示信息
             message.error({
                 content: errorMessage,
@@ -135,21 +129,6 @@ const RegisterForm: React.FC = () => {
             // 表单样式类名
             className="auth-form mt-6"
         >
-            {/* 表单错误提示 */}
-            {formError && (
-                <Form.Item>
-                    <Alert
-                        message="注册错误" // 错误提示标题
-                        description={formError} // 错误详细描述
-                        type="error" // 提示类型为错误
-                        showIcon // 显示图标
-                        closable // 可关闭
-                        className="bg-red-500/10 border border-red-500/20 text-red-400 rounded-lg" // 样式类名
-                        onClose={() => setFormError(null)} // 关闭回调，清空错误信息
-                    />
-                </Form.Item>
-            )}
-
             {/* 用户名表单项 */}
             <Form.Item
                 label={<span className="text-gray-300">用户名</span>}
@@ -249,7 +228,7 @@ const RegisterForm: React.FC = () => {
                     type="primary" 
                     htmlType="submit" 
                     loading={isLoading} 
-                    block 
+                    block
                     className="h-10 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 border-0 rounded-lg font-medium text-white shadow-lg shadow-indigo-900/20"
                 >
                     注册

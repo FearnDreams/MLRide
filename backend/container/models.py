@@ -64,6 +64,12 @@ class DockerImage(models.Model):
     error_message = models.TextField('错误信息', blank=True, null=True)
     use_slim = models.BooleanField('使用slim版本', default=True)
     actual_version = models.CharField('实际Python版本', max_length=10, blank=True, null=True)
+    
+    # 新增PyTorch和CUDA支持字段
+    is_pytorch = models.BooleanField('是否使用PyTorch', default=False)
+    pytorch_version = models.CharField('PyTorch版本', max_length=10, blank=True, null=True)
+    cuda_version = models.CharField('CUDA版本', max_length=10, blank=True, null=True)
+    cuda_available = models.BooleanField('CUDA可用', default=False)
 
     class Meta:
         verbose_name = 'Docker镜像'
@@ -71,7 +77,11 @@ class DockerImage(models.Model):
         ordering = ['-created']
 
     def __str__(self):
-        return f"{self.name} (Python {self.python_version})"
+        base_name = f"{self.name} (Python {self.python_version})"
+        if self.is_pytorch and self.pytorch_version:
+            cuda_info = f", CUDA {self.cuda_version}" if self.cuda_available and self.cuda_version else ""
+            return f"{base_name}, PyTorch {self.pytorch_version}{cuda_info}"
+        return base_name
 
     def get_full_image_name(self):
         """

@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Play, Square, RefreshCw, Settings, Cpu, HardDrive, Zap, BookOpen, Trash2, Loader2, Image } from 'lucide-react';
+import { ArrowLeft, Play, Square, RefreshCw, Settings, Cpu, HardDrive, Zap, BookOpen, Trash2, Loader2, Image, Edit2, Save } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { getProject, startProject, stopProject, getProjectStats, deleteProject } from '@/services/projects';
-import { ProjectResponse } from '@/services/projects';
+import { getProject, startProject, stopProject, getProjectStats, deleteProject, updateProject } from '@/services/projects';
+import { ProjectResponse, CreateProjectRequest } from '@/services/projects';
 import { getJupyterSession, startJupyterSession, stopJupyterSession } from '@/services/jupyter';
 import type { JupyterSession } from '@/types/jupyter';
 import JupyterNotebook from '@/components/jupyter/JupyterNotebook';
@@ -18,6 +18,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { Modal, Form, Input, message } from 'antd';
 
 const ProjectDetailPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -31,8 +32,9 @@ const ProjectDetailPage: React.FC = () => {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [forceShowJupyter, setForceShowJupyter] = useState(false);
-
-  const { toast } = useToast();
+  const [editModalVisible, setEditModalVisible] = useState(false);
+  const [editLoading, setEditLoading] = useState(false);
+  const [form] = Form.useForm();
 
   useEffect(() => {
     const fetchProject = async () => {
@@ -169,17 +171,10 @@ const ProjectDetailPage: React.FC = () => {
       
       await stopProjectWithRetry();
       
-      toast({
-        title: "成功",
-        description: "项目已成功停止",
-      });
+      message.success('项目已成功停止');
     } catch (error) {
       console.error('停止项目失败:', error);
-      toast({
-        title: "错误",
-        description: "停止项目失败，请稍后重试",
-        variant: "destructive",
-      });
+      message.error('停止项目失败，请稍后重试');
     } finally {
       setStatusLoading(false);
     }
@@ -191,19 +186,11 @@ const ProjectDetailPage: React.FC = () => {
     setIsDeleting(true);
     try {
       await deleteProject(project.id);
-      toast({
-        title: "项目已删除",
-        description: `项目 "${project.name}" 已成功删除`,
-        variant: "default",
-      });
+      message.success(`项目 "${project.name}" 已成功删除`);
       navigate('/dashboard/projects');
-    } catch (error) {
+    } catch (error: any) {
       console.error('删除项目失败:', error);
-      toast({
-        title: "删除失败",
-        description: "删除项目时出现错误",
-        variant: "destructive",
-      });
+      message.error(error.message || '删除项目时出现错误');
     } finally {
       setIsDeleting(false);
       setDeleteDialogOpen(false);
@@ -212,12 +199,56 @@ const ProjectDetailPage: React.FC = () => {
 
   // 处理Jupyter会话错误
   const handleJupyterSessionError = () => {
-    toast({
-      title: "Jupyter错误",
-      description: "Jupyter会话发生错误，请尝试刷新页面或重启Jupyter",
-      variant: "destructive",
-    });
+    message.error('Jupyter会话发生错误，请尝试刷新页面或重启Jupyter');
     fetchJupyterSession(); // 重新获取会话状态
+  };
+
+  // 打开编辑项目模态框
+  const handleOpenEditModal = () => {
+    if (!project) return;
+    
+    form.setFieldsValue({
+      name: project.name,
+      description: project.description || '',
+    });
+    setEditModalVisible(true);
+  };
+  
+  // 提交编辑项目
+  const handleEditSubmit = async () => {
+    if (!project || !id) return;
+    
+    try {
+      setEditLoading(true);
+      const values = await form.validateFields();
+      
+      console.log('提交编辑项目数据:', {
+        id: project.id,
+        values: values
+      });
+      
+      const response = await updateProject(parseInt(id), {
+        name: values.name,
+        description: values.description
+      });
+      
+      console.log('更新项目响应:', response);
+      
+      message.success('项目信息已成功更新');
+      
+      setEditModalVisible(false);
+      
+      // 刷新项目数据
+      const updatedProject = await getProject(parseInt(id));
+      if (updatedProject && updatedProject.data) {
+        setProject(updatedProject.data as unknown as ProjectResponse);
+      }
+    } catch (error: any) {
+      console.error('更新项目失败:', error);
+      message.error(error.message || '更新项目信息失败');
+    } finally {
+      setEditLoading(false);
+    }
   };
 
   // 渲染基于项目类型的界面
@@ -379,6 +410,72 @@ const ProjectDetailPage: React.FC = () => {
     );
   };
 
+  // 编辑项目模态框
+  const renderEditModal = () => {
+    return (
+      <Modal
+        title={<span className="text-white font-medium">编辑项目</span>}
+        open={editModalVisible}
+        onCancel={() => setEditModalVisible(false)}
+        footer={[
+          <Button
+            key="cancel"
+            onClick={() => setEditModalVisible(false)}
+            className="bg-slate-700 hover:bg-slate-600 text-gray-300 hover:text-white border-slate-600 mr-4"
+          >
+            取消
+          </Button>,
+          <Button
+            key="submit"
+            onClick={handleEditSubmit}
+            className="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white border-0"
+            disabled={editLoading}
+          >
+            {editLoading ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                保存中...
+              </>
+            ) : (
+              <>
+                <Save className="mr-2 h-4 w-4" />
+                保存
+              </>
+            )}
+          </Button>
+        ]}
+        className="custom-dark-modal"
+      >
+        <Form
+          form={form}
+          layout="vertical"
+          className="mt-4"
+        >
+          <Form.Item
+            name="name"
+            label={<span className="text-gray-300">项目名称</span>}
+            rules={[{ required: true, message: '请输入项目名称' }]}
+          >
+            <Input 
+              placeholder="请输入项目名称" 
+              className="bg-slate-800/50 border-slate-700 text-white" 
+            />
+          </Form.Item>
+          <Form.Item
+            name="description"
+            label={<span className="text-gray-300">项目描述</span>}
+          >
+            <Input.TextArea 
+              placeholder="请输入项目描述（可选）" 
+              className="bg-slate-800/50 border-slate-700 text-white"
+              rows={4}
+            />
+          </Form.Item>
+        </Form>
+      </Modal>
+    );
+  };
+
   return (
     <div className="flex-1 flex flex-col">
       {/* 顶部导航栏 */}
@@ -392,9 +489,19 @@ const ProjectDetailPage: React.FC = () => {
             <ArrowLeft className="w-5 h-5 mr-2" />
             返回项目列表
           </Button>
-          <div>
-            <h1 className="text-2xl font-bold text-white">{project?.name}</h1>
-            <p className="text-gray-300">{project?.description || '无项目描述'}</p>
+          <div className="flex items-center">
+            <div>
+              <h1 className="text-2xl font-bold text-white">{project?.name}</h1>
+              <p className="text-gray-300">{project?.description || '无项目描述'}</p>
+            </div>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="ml-2 text-gray-400 hover:text-white hover:bg-slate-700"
+              onClick={handleOpenEditModal}
+            >
+              <Edit2 className="w-4 h-4" />
+            </Button>
           </div>
         </div>
         
@@ -450,6 +557,7 @@ const ProjectDetailPage: React.FC = () => {
           <Button 
             variant="outline"
             className="text-white border-slate-500 hover:bg-slate-700"
+            onClick={handleOpenEditModal}
           >
             <Settings className="w-4 h-4 mr-2" />
             项目设置
@@ -561,6 +669,83 @@ const ProjectDetailPage: React.FC = () => {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+      
+      {/* 编辑项目模态框 */}
+      {renderEditModal()}
+      
+      {/* 添加Dark Modal样式 */}
+      <style>{`
+        .custom-dark-modal .ant-modal-content {
+          background-color: rgba(15, 23, 42, 0.75);
+          backdrop-filter: blur(12px);
+          border: 1px solid rgba(51, 65, 85, 0.5);
+          border-radius: 0.75rem;
+          box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.3);
+        }
+        .custom-dark-modal .ant-modal-header {
+          background-color: transparent;
+          border-bottom: 1px solid rgba(51, 65, 85, 0.5);
+        }
+        .custom-dark-modal .ant-modal-title {
+          color: white;
+        }
+        .custom-dark-modal .ant-modal-close {
+          color: rgba(148, 163, 184, 0.8);
+        }
+        .custom-dark-modal .ant-modal-close:hover {
+          color: white;
+        }
+        .custom-dark-modal .ant-btn-primary {
+          color: white !important;
+        }
+        .custom-dark-modal .ant-btn-default {
+          color: rgb(209, 213, 219) !important;
+          border-color: rgba(71, 85, 105, 0.5) !important;
+          background-color: rgba(51, 65, 85, 0.5) !important;
+        }
+        .custom-dark-modal .ant-btn-default:hover {
+          color: white !important;
+          border-color: rgba(59, 130, 246, 0.5) !important;
+          background-color: rgba(71, 85, 105, 0.5) !important;
+        }
+        .custom-dark-modal .ant-form-item-label > label {
+          color: rgb(209, 213, 219) !important;
+        }
+        .custom-dark-modal .ant-input,
+        .custom-dark-modal .ant-input-affix-wrapper,
+        .custom-dark-modal .ant-input-number,
+        .custom-dark-modal .ant-input-number-input,
+        .custom-dark-modal .ant-select-selector,
+        .custom-dark-modal .ant-select-selection-item,
+        .custom-dark-modal .ant-input-textarea {
+          background-color: rgba(30, 41, 59, 0.5) !important;
+          border-color: rgba(51, 65, 85, 0.8) !important;
+          color: rgb(237, 242, 247) !important;
+        }
+        .custom-dark-modal .ant-input::placeholder,
+        .custom-dark-modal .ant-input-number-input::placeholder,
+        .custom-dark-modal .ant-input-textarea textarea::placeholder {
+          color: rgba(148, 163, 184, 0.5) !important;
+        }
+        .custom-dark-modal .ant-input:hover,
+        .custom-dark-modal .ant-input-affix-wrapper:hover,
+        .custom-dark-modal .ant-input-number:hover,
+        .custom-dark-modal .ant-select-selector:hover,
+        .custom-dark-modal .ant-input-textarea:hover {
+          border-color: rgba(59, 130, 246, 0.5) !important;
+        }
+        .custom-dark-modal .ant-input:focus,
+        .custom-dark-modal .ant-input-affix-wrapper:focus,
+        .custom-dark-modal .ant-input-number:focus,
+        .custom-dark-modal .ant-select-selector:focus,
+        .custom-dark-modal .ant-input-textarea:focus {
+          border-color: rgba(59, 130, 246, 0.8) !important;
+          box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2) !important;
+        }
+        .custom-dark-modal .ant-form-item-explain-error {
+          color: #f56565 !important;
+        }
+      `}</style>
     </div>
   );
 };

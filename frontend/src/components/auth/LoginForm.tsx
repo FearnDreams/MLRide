@@ -1,6 +1,6 @@
 // 导入必要的依赖
 import React from 'react';
-import { Form, Input, Button, message, Alert } from 'antd';
+import { Form, Input, Button, message } from 'antd';
 import { useDispatch } from 'react-redux';
 import { login } from '../../store/authSlice';
 import { AppDispatch } from '../../store';
@@ -13,8 +13,7 @@ const LoginForm: React.FC = () => {
     const dispatch = useDispatch<AppDispatch>();
     // isLoading 状态用于控制登录按钮的加载状态，默认为 false
     const [isLoading, setIsLoading] = React.useState(false);
-    // formError 状态用于存储表单错误信息，初始值为 null，表示没有错误
-    const [formError, setFormError] = React.useState<string | null>(null);
+    // 移除 formError 状态
     const navigate = useNavigate();
 
     // 格式化错误信息函数
@@ -56,8 +55,6 @@ const LoginForm: React.FC = () => {
                         marginTop: '20vh',
                     },
                 });
-                // 清空错误信息
-                setFormError(null);
                 // 延迟1秒后跳转到主页
                 setTimeout(() => {
                     navigate('/dashboard');
@@ -71,8 +68,7 @@ const LoginForm: React.FC = () => {
             console.error('登录错误:', err);
             // 格式化错误信息
             const errorMessage = formatErrorMessage(err);
-            // 设置表单错误信息状态
-            setFormError(errorMessage);
+            // 移除设置表单错误信息状态的代码
             // 弹出登录失败的消息提示
             message.error({
                 content: errorMessage,
@@ -106,21 +102,7 @@ const LoginForm: React.FC = () => {
             layout="vertical" // 表单布局方式为垂直布局
             className="auth-form mt-6" // 表单的 CSS 类名
         >
-            {/* 如果 formError 状态有值，则显示错误提示 */}
-            {formError && (
-                <Form.Item>
-                    {/* Alert 组件，用于显示错误提示信息 */}
-                    <Alert
-                        message="登录错误" // 提示框标题
-                        description={formError} // 错误详细描述，从 formError 状态获取
-                        type="error" // 提示类型为错误
-                        showIcon // 显示图标
-                        closable // 显示关闭按钮
-                        className="bg-red-500/10 border border-red-500/20 text-red-400 rounded-lg" // 提示框的 CSS 类名
-                        onClose={() => setFormError(null)} // 关闭按钮的回调函数，清空 formError 状态
-                    />
-                </Form.Item>
-            )}
+            {/* 移除错误提示 Alert */}
 
             {/* 用户名输入框 */}
             <Form.Item
