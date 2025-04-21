@@ -29,9 +29,7 @@ const LoginPage: React.FC = () => {
         <div className="w-full max-w-md space-y-8 bg-slate-800/30 backdrop-blur-sm p-8 rounded-xl border border-slate-700/50 shadow-xl">
           <div className="text-center">
             <div className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-blue-500/10 mb-4">
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-blue-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 16l-4-4m0 0l4-4m-4 4h14m-5 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h7a3 3 0 013 3v1" />
-              </svg>
+              <img src="/mlride-icon.svg" alt="MLRide Logo" className="h-9 w-9" />
             </div>
             <h2 className="text-3xl font-bold text-white">登录到 MLRide</h2>
             <p className="mt-2 text-gray-400">欢迎回来！请登录您的账户</p>

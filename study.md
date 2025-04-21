@@ -917,3 +917,63 @@ stats = container.stats(stream=False)
 *   **开发环境/需要完整工具链:** 选择常规版本可能更方便，因为它提供了更丰富的工具和库，减少了配置麻烦。
 
 在我们的机器学习平台项目中，优先尝试 `slim` 版本是为了优化最终用户镜像的大小和部署效率，同时在 `slim` 版本不可用时回退到常规版本以保证兼容性。
+
+## 2025-04-21: 项目详情页显示"项目不存在"问题排查
+
+**问题现象:**
+
+点击项目列表进入项目详情页时，页面显示"项目不存在或已被删除"，但浏览器控制台显示后端 API 成功返回了项目数据。
+
+**排查过程:**
+
+1.  **检查 API 调用:** 控制台日志确认 `/api/project/projects/{id}/` 接口返回了 200 OK 和正确的项目 JSON 数据，例如 `{id: 7, name: 'test_torch_2', ..., status: 'stopped', ...}`。
+2.  **检查前端服务 (`projects.ts`):** `getProject` 函数调用 `api.get<ApiResponse>(...)`，期望 Axios 返回的数据是 `ApiResponse` 格式 (`{status, message, data}`)，并直接返回 `response.data`。
+3.  **检查 API 拦截器 (`api.ts`):** 发现响应拦截器通过 `'status' in responseData` 来判断响应是否已经是 `ApiResponse` 格式。当后端返回的项目对象恰好也包含 `status` 字段（如项目运行状态）时，拦截器会误判，认为不需要包装，直接返回了原始的 AxiosResponse，其 `data` 属性就是原始项目对象 `{id: 7, ...}`。
+4.  **检查前端页面 (`ProjectDetailPage.tsx`):** 页面组件调用 `getProject`，接收到的是未包装的原始项目对象。然后代码尝试访问 `response.data` (这里的 `response` 是原始项目对象)，得到 `undefined`。最终调用 `setProject(undefined)`，导致渲染时判断 `!project` 为真，显示错误信息。
+
+**根本原因:**
+
+API 响应拦截器中用于判断响应是否需要包装的逻辑不够健壮，仅检查 `status` 字段存在与否会导致误判。
+
+**解决方案:**
+
+修改 `frontend/src/services/api.ts` 中的响应拦截器，使其检查响应是否同时包含 `status`、`message` 和 `data` 三个字段，以此作为判断是否为标准 `ApiResponse` 格式的依据。只有非此格式的成功响应才会被包装。
+
+```typescript
+// frontend/src/services/api.ts (部分代码)
+api.interceptors.response.use(
+    (response: AxiosResponse) => {
+        // ...
+        const responseData = response.data;
+        const isStandardFormat = responseData &&
+                                 typeof responseData === 'object' &&
+                                 'status' in responseData &&
+                                 'message' in responseData &&
+                                 'data' in responseData;
+
+        if (isStandardFormat) {
+            // 已经是标准格式，直接返回
+            return response;
+        }
+
+        // 需要包装
+        if (response.status >= 200 && response.status < 300) {
+            response.data = {
+                status: 'success',
+                message: '操作成功',
+                data: responseData
+            };
+        } else {
+          // ... 处理错误包装 ...
+        }
+        return response;
+    },
+    (error) => {
+      // ... 错误处理 ...
+    }
+);
+```
+
+**启示:**
+
+在设计 API 响应格式和前端拦截器逻辑时，要仔细考虑各种可能的返回数据结构，确保判断逻辑的鲁棒性，避免因字段名冲突等问题导致意外行为。统一和明确的 API 响应结构有助于减少此类问题。

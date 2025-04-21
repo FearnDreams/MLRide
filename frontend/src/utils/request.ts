@@ -4,10 +4,14 @@ import { message } from 'antd';
 // 创建axios实例
 const instance = axios.create({
   baseURL: '/api',
-  timeout: 30000,
+  timeout: 60000, // 增加超时时间到60秒
   headers: {
     'Content-Type': 'application/json',
   },
+  // 减少重定向，提高稳定性
+  maxRedirects: 3,
+  // 减少最大内容长度
+  maxContentLength: 10 * 1024 * 1024, // 10MB
 });
 
 // 请求拦截器
@@ -18,6 +22,26 @@ instance.interceptors.request.use(
     if (token && config.headers) {
       config.headers['Authorization'] = `Bearer ${token}`;
     }
+    
+    // 移除不必要的请求头，减少请求头大小
+    if (config.headers) {
+      // 删除大多数可能会导致头过大的字段，只保留少数必要的
+      const headers = { ...config.headers };
+      
+      // 保留这些头，删除其他所有头
+      const keysToKeep = ['content-type', 'accept', 'authorization'];
+      
+      // 删除不在保留列表中的头
+      Object.keys(headers).forEach(key => {
+        if (!keysToKeep.includes(key.toLowerCase())) {
+          delete config.headers[key];
+        }
+      });
+    }
+    
+    // 确保请求有超时设置
+    config.timeout = 60000;
+    
     return config;
   },
   (error) => {

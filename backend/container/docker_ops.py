@@ -586,45 +586,206 @@ class DockerClient:
         ports: Optional[Dict[str, str]] = None,
         volumes: Optional[Dict[str, Dict[str, str]]] = None,
         cpu_count: Optional[float] = None,
-        memory_limit: Optional[str] = None
+        memory_limit: Optional[str] = None,
+        host_config: Optional[Dict[str, Any]] = None  # Add host_config parameter
     ) -> Dict:
         """
         创建Docker容器
         
         Args:
             image_name: 镜像名称
-            container_name: 容器名称
-            command: 容器启动命令
-            environment: 环境变量
-            ports: 端口映射
-            volumes: 数据卷映射
-            cpu_count: CPU核心数限制
-            memory_limit: 内存限制
+            container_name: 容器名称（可选）
+            command: 启动命令（可选）
+            environment: 环境变量（可选）
+            ports: 端口映射（可选），格式为{'容器端口/协议': 主机端口}
+            volumes: 挂载卷（可选），格式为{'宿主机路径': {'bind': '容器路径', 'mode': 'rw'}}
+            cpu_count: CPU核心数限制（可选）
+            memory_limit: 内存限制（可选），如"512m"
+            host_config: 主机配置参数（可选）
             
         Returns:
             Dict: 创建的容器信息
         """
         try:
-            container = self.client.containers.create(
+            # 检查镜像是否存在，不存在则拉取
+            self._ensure_image_exists(image_name)
+            
+            # 准备容器配置
+            container_config = {}
+            
+            # 低级API容器配置参数
+            exposed_ports = None
+            if ports:
+                # 转换为低级API需要的格式: {'8888/tcp': {}} 
+                exposed_ports = {}
+                for port_spec in ports:
+                    exposed_ports[port_spec] = {}
+                container_config['ports'] = exposed_ports
+                
+            # 添加环境变量
+            if environment:
+                # 转换为低级API需要的格式: ["KEY=VALUE", ...]
+                env_list = [f"{key}={value}" for key, value in environment.items()]
+                container_config['environment'] = env_list
+                
+            # 添加启动命令
+            if command:
+                if isinstance(command, list):
+                    container_config['cmd'] = command
+                else:
+                    container_config['cmd'] = command.split()
+            
+            # 处理挂载卷
+            if volumes:
+                # 验证并规范化挂载卷配置
+                normalized_volumes = {}
+                for host_path, mount_info in volumes.items():
+                    # 确保宿主机路径是绝对路径
+                    abs_host_path = os.path.abspath(host_path)
+                    # 确保宿主机目录存在
+                    if not os.path.exists(abs_host_path):
+                        os.makedirs(abs_host_path, exist_ok=True)
+                        self.logger.info(f"创建宿主机挂载目录: {abs_host_path}")
+                    
+                    # 如果在Windows系统上，需要处理路径格式
+                    if os.name == 'nt':
+                        # 转换Windows路径为Docker可接受的格式
+                        abs_host_path = abs_host_path.replace('\\', '/')
+                        # 确保路径格式正确，例如 C:/Users/... 而不是 C:\Users\...
+                        if ':' in abs_host_path:
+                            drive, path = abs_host_path.split(':', 1)
+                            abs_host_path = f"{drive.lower()}:{path}"
+                    
+                    normalized_volumes[abs_host_path] = mount_info
+                    self.logger.info(f"添加挂载: {abs_host_path} -> {mount_info['bind']}")
+                
+                # 配置主机配置中的绑定
+                if not host_config:
+                    host_config = {}
+                
+                # 设置挂载点 - 使用Docker支持的格式
+                # 直接创建binds字典，而不使用字符串格式化
+                binds = {}
+                for host_path, mount_info in normalized_volumes.items():
+                    # 将宿主机路径作为键，容器路径作为值
+                    # Docker API会自动处理权限
+                    binds[host_path] = {'bind': mount_info['bind'], 'mode': mount_info['mode']}
+                
+                host_config['binds'] = binds
+            
+            # 将资源限制参数添加到host_config
+            if not host_config:
+                host_config = {}
+                
+            if cpu_count:
+                # Docker API中使用cpu_quota和cpu_period来限制CPU
+                # 例如，如果cpu_count=2，表示可以使用2个CPU核心，
+                # 我们可以设置cpu_period=100000（默认值），cpu_quota=200000
+                host_config['cpu_period'] = 100000  # 默认值
+                host_config['cpu_quota'] = int(cpu_count * 100000)
+                
+            if memory_limit:
+                # 移除单位后缀 (例如 '2048m' -> 2048)
+                if memory_limit.endswith('m'):
+                    mem_value = int(memory_limit[:-1]) * 1024 * 1024  # 转换为字节
+                elif memory_limit.endswith('g'):
+                    mem_value = int(memory_limit[:-1]) * 1024 * 1024 * 1024
+                else:
+                    # 假设已经是字节数
+                    mem_value = int(memory_limit)
+                    
+                host_config['mem_limit'] = mem_value
+            
+            # 创建主机配置
+            host_config_obj = None
+            if host_config:
+                host_config_obj = self.client.api.create_host_config(**host_config)
+            
+            # 配置端口绑定
+            port_bindings = None
+            if ports:
+                if not host_config_obj:
+                    # 如果没有其他host_config，创建一个只包含port_bindings的配置
+                    port_bindings = {}
+                    for port_spec, host_port in ports.items():
+                        if host_port:
+                            port_bindings[port_spec] = host_port
+                        else:
+                            # 如果没有指定主机端口，让Docker自动分配
+                            port_bindings[port_spec] = None
+                    host_config_obj = self.client.api.create_host_config(port_bindings=port_bindings)
+                elif 'port_bindings' not in host_config:
+                    # 如果有host_config但没有port_bindings，添加port_bindings
+                    port_bindings = {}
+                    for port_spec, host_port in ports.items():
+                        if host_port:
+                            port_bindings[port_spec] = host_port
+                        else:
+                            port_bindings[port_spec] = None
+                    # 重新创建host_config以包含port_bindings
+                    host_config['port_bindings'] = port_bindings
+                    host_config_obj = self.client.api.create_host_config(**host_config)
+            
+            # 创建容器，使用低级API并传递正确格式的参数
+            container_id = self.client.api.create_container(
                 image=image_name,
                 name=container_name,
-                command=command,
-                environment=environment,
-                ports=ports,
-                volumes=volumes,
-                cpu_count=cpu_count,
-                mem_limit=memory_limit
+                host_config=host_config_obj,
+                environment=container_config.get('environment'),
+                command=container_config.get('cmd'),
+                ports=exposed_ports
             )
+            
+            # 获取创建的容器对象
+            container = self.client.containers.get(container_id['Id'])
+            
+            # 返回容器信息
             return {
                 'id': container.id,
                 'name': container.name,
                 'status': container.status,
                 'image': container.image.tags[0] if container.image.tags else container.image.id
             }
-        except DockerException as e:
-            self.logger.error(f"Failed to create container from {image_name}: {str(e)}")
-            raise
             
+        except docker.errors.ImageNotFound:
+            self.logger.error(f"镜像 {image_name} 不存在")
+            raise
+        except docker.errors.APIError as e:
+            self.logger.error(f"创建容器时出错: {str(e)}")
+            raise
+        except Exception as e:
+            self.logger.error(f"创建容器失败: {str(e)}")
+            raise
+    
+    def _ensure_image_exists(self, image_name: str) -> bool:
+        """
+        确保指定的镜像存在，不存在则拉取
+        
+        Args:
+            image_name: 镜像名称
+            
+        Returns:
+            bool: 是否成功确保镜像存在
+        """
+        try:
+            tag = 'latest'
+            if ':' in image_name:
+                image_name, tag = image_name.split(':', 1)
+            
+            # 检查镜像是否存在
+            try:
+                self.client.images.get(f"{image_name}:{tag}")
+                self.logger.info(f"镜像 {image_name}:{tag} 已存在")
+                return True
+            except docker.errors.ImageNotFound:
+                # 镜像不存在，拉取镜像
+                self.logger.info(f"镜像 {image_name}:{tag} 不存在，开始拉取")
+                self.pull_image(image_name, tag)
+                return True
+        except Exception as e:
+            self.logger.error(f"确保镜像存在时出错: {str(e)}")
+            return False
+    
     def start_container(self, container_id: str) -> Dict:
         """
         启动Docker容器
@@ -1783,55 +1944,195 @@ CMD ["python", "-c", "print('Emergency fallback Dockerfile')"]
 
     def copy_to_container(self, container_id, source_path, target_path):
         """
-        复制本地文件到容器中
+        将文件从宿主机复制到容器中
         
         Args:
-            container_id: 容器ID
-            source_path: 源文件路径
-            target_path: 容器内的目标文件路径 (不是目录)
+            container_id (str): 容器ID
+            source_path (str): 源文件路径（宿主机上）
+            target_path (str): 目标文件路径（容器内）
             
         Returns:
-            bool: 是否成功
+            bool: 是否复制成功
         """
         try:
             container = self.client.containers.get(container_id)
             
-            # 创建一个内存中的tar归档
-            pw_tarstream = io.BytesIO()
-            pw_tar = tarfile.TarFile(fileobj=pw_tarstream, mode='w')
-            
-            # 获取源文件信息
-            file_info = tarfile.TarInfo(name=os.path.basename(target_path))
-            file_info.size = os.path.getsize(source_path)
-            file_info.mtime = time.time()
-            # 保持默认权限
-            # file_info.mode = 0o644 
-            
-            # 将文件内容添加到tar归档中
-            with open(source_path, 'rb') as source_file:
-                pw_tar.addfile(file_info, source_file)
-            
-            pw_tar.close()
-            pw_tarstream.seek(0)
-            
-            # 将tar流放入容器的目标目录
-            # put_archive需要目标路径是一个目录
-            target_dir = os.path.dirname(target_path)
-            result = container.put_archive(target_dir, pw_tarstream)
-            
-            if result:
-                self.logger.info(f"成功复制 {source_path} 到容器 {container_id}:{target_path}")
-                return True
-            else:
-                self.logger.error(f"复制文件到容器失败 (put_archive 返回 False): {container_id}:{target_path}")
+            # 检查源文件是否存在
+            if not os.path.exists(source_path):
+                self.logger.error(f"源文件不存在: {source_path}")
                 return False
                 
+            # 读取源文件内容
+            with open(source_path, 'rb') as f:
+                data = f.read()
+                
+            # 确保目标目录存在
+            target_dir = os.path.dirname(target_path)
+            if target_dir:
+                container.exec_run(f"mkdir -p {target_dir}")
+                
+            # 使用put_archive方法复制文件
+            # 创建临时tar文件
+            import tarfile
+            import tempfile
+            
+            # 获取文件名
+            filename = os.path.basename(source_path)
+            
+            # 创建临时目录
+            with tempfile.TemporaryDirectory() as tmp_dir:
+                temp_tar_path = os.path.join(tmp_dir, 'temp.tar')
+                
+                # 创建tar文件
+                with tarfile.open(temp_tar_path, 'w') as tar:
+                    tar.add(source_path, arcname=filename)
+                    
+                # 读取tar文件内容
+                with open(temp_tar_path, 'rb') as f:
+                    tar_data = f.read()
+                    
+                # 获取目标目录
+                target_dir = os.path.dirname(target_path)
+                if not target_dir:
+                    target_dir = '/'
+                    
+                # 将tar文件复制到容器中
+                success = container.put_archive(target_dir, tar_data)
+                if not success:
+                    self.logger.error(f"复制文件到容器失败: {source_path} -> {target_path}")
+                    return False
+                    
+                self.logger.info(f"成功复制文件到容器: {source_path} -> {target_path}")
+                return True
+                
         except Exception as e:
-            self.logger.error(f"复制文件到容器时发生异常: {str(e)}")
-            import traceback
-            self.logger.error(traceback.format_exc())
+            self.logger.error(f"复制文件到容器时出错: {str(e)}")
             return False
             
+    def copy_from_container(self, container_id, source_path, target_path):
+        """
+        将文件从容器复制到宿主机
+        
+        Args:
+            container_id (str): 容器ID
+            source_path (str): 源文件路径（容器内）
+            target_path (str): 目标文件路径（宿主机上）
+            
+        Returns:
+            bool: 是否复制成功
+        """
+        try:
+            container = self.client.containers.get(container_id)
+            
+            # 确保目标目录存在
+            target_dir = os.path.dirname(target_path)
+            if target_dir and not os.path.exists(target_dir):
+                os.makedirs(target_dir, exist_ok=True)
+                
+            # 从容器复制文件
+            bits, stat = container.get_archive(source_path)
+            
+            # 保存到临时tar文件
+            import tempfile
+            with tempfile.NamedTemporaryFile() as tmp:
+                for chunk in bits:
+                    tmp.write(chunk)
+                tmp.flush()
+                
+                # 解压tar文件到目标路径
+                import tarfile
+                with tarfile.open(tmp.name) as tar:
+                    # 获取第一个文件（通常只有一个）
+                    first_member = tar.getmembers()[0]
+                    
+                    # 提取文件，重命名为目标文件名
+                    first_member.name = os.path.basename(target_path)
+                    tar.extract(first_member, os.path.dirname(target_path))
+                    
+            self.logger.info(f"成功从容器复制文件: {source_path} -> {target_path}")
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"从容器复制文件时出错: {str(e)}")
+            return False
+            
+    def sync_container_directory(self, container_id, container_dir, host_dir, direction='both'):
+        """
+        同步容器和宿主机之间的目录
+        
+        Args:
+            container_id (str): 容器ID
+            container_dir (str): 容器内的目录
+            host_dir (str): 宿主机上的目录
+            direction (str): 同步方向，'to_container', 'from_container' 或 'both'
+            
+        Returns:
+            bool: 是否同步成功
+        """
+        try:
+            container = self.client.containers.get(container_id)
+            
+            # 确保宿主机目录存在
+            if not os.path.exists(host_dir):
+                os.makedirs(host_dir, exist_ok=True)
+                
+            # 确保容器目录存在
+            container.exec_run(f"mkdir -p {container_dir}")
+            
+            # 获取容器中的文件列表
+            result = container.exec_run(f"find {container_dir} -type f | sort")
+            container_files = result.output.decode().strip().split('\n')
+            container_files = [f for f in container_files if f]  # 过滤空行
+            
+            # 获取宿主机上的文件列表
+            import glob
+            host_files = []
+            for root, _, files in os.walk(host_dir):
+                for file in files:
+                    full_path = os.path.join(root, file)
+                    rel_path = os.path.relpath(full_path, host_dir)
+                    host_files.append(rel_path)
+            
+            # 根据同步方向执行同步
+            if direction in ['to_container', 'both']:
+                # 将宿主机文件同步到容器
+                for rel_path in host_files:
+                    host_file = os.path.join(host_dir, rel_path)
+                    container_file = os.path.join(container_dir, rel_path).replace('\\', '/')
+                    
+                    # 确保容器中目标文件的目录存在
+                    container_file_dir = os.path.dirname(container_file)
+                    if container_file_dir and container_file_dir != container_dir:
+                        container.exec_run(f"mkdir -p {container_file_dir}")
+                        
+                    # 复制文件到容器
+                    self.copy_to_container(container_id, host_file, container_file)
+            
+            if direction in ['from_container', 'both']:
+                # 将容器文件同步到宿主机
+                for container_file in container_files:
+                    # 计算相对路径
+                    if container_file.startswith(container_dir):
+                        rel_path = container_file[len(container_dir):].lstrip('/')
+                    else:
+                        continue  # 跳过不在指定目录下的文件
+                        
+                    host_file = os.path.join(host_dir, rel_path)
+                    
+                    # 确保宿主机中目标文件的目录存在
+                    host_file_dir = os.path.dirname(host_file)
+                    if host_file_dir and not os.path.exists(host_file_dir):
+                        os.makedirs(host_file_dir, exist_ok=True)
+                        
+                    # 复制文件到宿主机
+                    self.copy_from_container(container_id, container_file, host_file)
+                    
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"同步目录时出错: {str(e)}")
+            return False
+    
     def check_jupyter_in_container(self, container_id):
         """检查容器中是否已安装Jupyter
         
@@ -2191,6 +2492,9 @@ c.ServerApp.port = {port}
 c.ServerApp.token = '{token if token else ""}'
 c.ServerApp.notebook_dir = '/workspace'
 c.ServerApp.allow_root = True
+c.ServerApp.disable_check_xsrf = True
+c.ServerApp.allow_origin = '*'
+c.ServerApp.tornado_settings = {{'headers': {{'Content-Security-Policy': "frame-ancestors * 'self';"}}}}
 
 # 兼容旧版本配置
 c.NotebookApp.ip = '0.0.0.0'
@@ -2198,6 +2502,9 @@ c.NotebookApp.port = {port}
 c.NotebookApp.token = '{token if token else ""}'
 c.NotebookApp.notebook_dir = '/workspace'
 c.NotebookApp.allow_root = True
+c.NotebookApp.disable_check_xsrf = True
+c.NotebookApp.allow_origin = '*'
+c.NotebookApp.tornado_settings = {{'headers': {{'Content-Security-Policy': "frame-ancestors * 'self';"}}}}
 """
             # 写入配置文件
             config_cmd = f"""cat > /root/.jupyter/jupyter_notebook_config.py << 'EOL'

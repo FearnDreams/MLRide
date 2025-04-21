@@ -15,12 +15,21 @@ import {
   Box,
   Server,
   Users,
-  FolderOpen
+  FolderOpen,
+  LogOut,
+  Settings
 } from 'lucide-react';
 import { RootState } from '@/store';
 import { authService } from '@/services/auth';
 import { UserProfile } from '@/types/auth';
-import { Dropdown, Menu as AntMenu, message } from 'antd';
+import { message } from 'antd';
+import { Button } from '@/components/ui/button';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 const Home: React.FC = () => {
   const [selectedTab, setSelectedTab] = useState("我的项目");
@@ -105,19 +114,6 @@ const Home: React.FC = () => {
     }
   };
 
-  // 用户下拉菜单
-  const userMenu = (
-    <AntMenu className="bg-slate-800/90 backdrop-blur-md border border-slate-700/50 rounded-lg shadow-lg text-white">
-      <AntMenu.Item key="profile" className="hover:bg-slate-700/50">
-        <Link to="/dashboard/profile" className="text-gray-300 hover:text-white">个人信息</Link>
-      </AntMenu.Item>
-      <AntMenu.Divider className="border-slate-700/50" />
-      <AntMenu.Item key="logout" onClick={handleLogout} className="hover:bg-slate-700/50">
-        <span className="text-gray-300 hover:text-white">退出登录</span>
-      </AntMenu.Item>
-    </AntMenu>
-  );
-
   // 获取显示名称
   const getDisplayName = () => {
     if (userProfile?.nickname) {
@@ -150,6 +146,7 @@ const Home: React.FC = () => {
       {/* Sidebar */}
       <div className="w-56 bg-slate-800/30 backdrop-blur-md border-r border-slate-700/50 z-10">
         <div className="p-6 flex items-center gap-2">
+          <img src="/mlride-icon.svg" alt="MLRide Logo" className="w-8 h-8" />
           <span className="font-bold text-xl bg-gradient-to-r from-blue-400 to-indigo-500 bg-clip-text text-transparent">MLRide</span>
         </div>
         
@@ -195,17 +192,29 @@ const Home: React.FC = () => {
                 className="pl-10 pr-4 py-2 bg-slate-800/50 border border-slate-700/50 rounded-lg text-sm text-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500/50"
               />
             </div>
-            <Dropdown overlay={userMenu} trigger={['click']}>
-              <div className="flex items-center cursor-pointer bg-slate-800/50 hover:bg-slate-700/50 px-3 py-2 rounded-lg border border-slate-700/50 transition-all duration-200">
-                <img 
-                  src={getAvatarUrl()} 
-                  alt="User avatar" 
-                  className="w-6 h-6 rounded-full object-cover"
-                />
-                <span className="ml-2 text-gray-300">{getDisplayName()}</span>
-                <ChevronDown className="w-4 h-4 ml-1 text-gray-400" />
-              </div>
-            </Dropdown>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <div className="flex items-center cursor-pointer bg-slate-800/50 hover:bg-slate-700/50 px-3 py-2 rounded-lg border border-slate-700/50 transition-all duration-200">
+                  <img 
+                    src={getAvatarUrl()} 
+                    alt="User avatar" 
+                    className="w-6 h-6 rounded-full object-cover"
+                  />
+                  <span className="ml-2 text-gray-300">{getDisplayName()}</span>
+                  <ChevronDown className="w-4 h-4 ml-1 text-gray-400" />
+                </div>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem onClick={() => navigate('/dashboard/profile')}>
+                  <Settings className="mr-2 h-4 w-4" />
+                  个人信息
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={handleLogout} className="text-red-500 focus:text-red-500">
+                  <LogOut className="mr-2 h-4 w-4" />
+                  退出登录
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
             <div className="flex items-center gap-1 text-gray-300 hover:text-white cursor-pointer">
               <Bell className="w-5 h-5" />
             </div>

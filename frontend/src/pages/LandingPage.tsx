@@ -15,6 +15,7 @@ const LandingPage: React.FC = () => {
       {/* Navigation */}
       <header className="w-full px-6 lg:px-8 h-16 flex items-center fixed top-0 bg-slate-950/80 backdrop-blur-md z-50 border-b border-slate-800/50">
         <Link className="flex items-center justify-center" to="/">
+          <img src="/mlride-icon.svg" alt="MLRide Logo" className="w-8 h-8 mr-2" />
           <span className="text-xl font-bold text-white">MLRide</span>
         </Link>
         <nav className="ml-auto flex gap-4 sm:gap-6">

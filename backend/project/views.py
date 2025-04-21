@@ -102,11 +102,24 @@ class ProjectViewSet(viewsets.ModelViewSet):
                         'JUPYTER_RUNTIME_DIR': '/root/.local/share/jupyter/runtime',
                         'PATH': '/usr/local/bin:/usr/bin:/bin:/usr/local/sbin:/usr/sbin:/sbin:/root/.local/bin'  # 添加PATH环境变量
                     }
-                    # 添加工作目录挂载
-                    project_workspace = f'/workspace/project-{project.id}'
+                    
+                    # 添加工作目录挂载 - 修改为使用正确的宿主机目录
+                    import os
+                    # 获取项目工作目录的绝对路径
+                    workspace_dir = os.path.join(
+                        os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 
+                        'workspaces', 
+                        f'project_{project.id}'
+                    )
+                    # 确保工作目录存在
+                    os.makedirs(workspace_dir, exist_ok=True)
+                    logger.info(f"为项目 {project.id} 创建工作目录: {workspace_dir}")
+                    
+                    # 设置挂载点，将宿主机工作目录挂载到容器的/workspace目录
                     container_config['volumes'] = {
-                        project_workspace: {'bind': '/workspace', 'mode': 'rw'}
+                        os.path.abspath(workspace_dir): {'bind': '/workspace', 'mode': 'rw'}
                     }
+                    logger.info(f"设置容器挂载: {os.path.abspath(workspace_dir)} -> /workspace")
                     
                     # 不使用直接的jupyter命令作为启动命令，而是使用bash脚本在容器启动后安装和运行jupyter
                     container_config['command'] = [

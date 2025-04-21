@@ -439,19 +439,20 @@ const ProjectsPage: React.FC = () => {
       
       {/* 删除确认对话框 */}
       <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
-        <AlertDialogContent>
+        <AlertDialogContent className="bg-slate-800/75 backdrop-blur-sm border border-slate-700/50 shadow-lg">
           <AlertDialogHeader>
             <AlertDialogTitle>确认删除项目</AlertDialogTitle>
-            <AlertDialogDescription>
+            <AlertDialogDescription className="text-gray-400">
               此操作将永久删除项目 "{projectToDelete?.name}" 及其相关数据和容器。此操作不可撤销。
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel disabled={isDeleting}>取消</AlertDialogCancel>
+            <AlertDialogCancel disabled={isDeleting} className="bg-slate-700 hover:bg-slate-600 text-gray-300 hover:text-white border-slate-600" autoFocus={false}>取消</AlertDialogCancel>
             <AlertDialogAction 
               onClick={handleDeleteProject}
               disabled={isDeleting}
-              className="bg-red-500 hover:bg-red-600 text-white"
+              className="bg-gradient-to-r from-red-600 to-red-700 hover:from-red-500 hover:to-red-600 text-white border-0"
+              autoFocus={true}
             >
               {isDeleting ? (
                 <>
@@ -459,7 +460,10 @@ const ProjectsPage: React.FC = () => {
                   删除中...
                 </>
               ) : (
-                '确认删除'
+                <>
+                  <Trash2 className="mr-2 h-4 w-4" />
+                  确认删除
+                </>
               )}
             </AlertDialogAction>
           </AlertDialogFooter>
@@ -540,6 +544,80 @@ const ProjectsPage: React.FC = () => {
         }
         .custom-dark-modal .ant-form-item-explain-error {
           color: #f56565 !important;
+        }
+
+        /* AlertDialog 样式 */
+        [role="dialog"][data-state="open"] {
+          animation: fadeIn 150ms ease-out;
+        }
+        @keyframes fadeIn {
+          from { opacity: 0; }
+          to { opacity: 1; }
+        }
+        
+        [data-state="open"] > [data-state="open"] {
+          animation: zoomIn 150ms ease-out;
+        }
+        @keyframes zoomIn {
+          from { 
+            opacity: 0; 
+            transform: scale(0.95);
+          }
+          to { 
+            opacity: 1; 
+            transform: scale(1);
+          }
+        }
+        
+        div[role="alertdialog"] {
+          background-color: rgba(15, 23, 42, 0.75) !important;
+          backdrop-filter: blur(12px) !important;
+          border: 1px solid rgba(51, 65, 85, 0.5) !important;
+          border-radius: 0.75rem !important;
+          box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.3) !important;
+          padding: 1.5rem !important;
+        }
+        
+        div[role="alertdialog"] h2 {
+          color: white !important;
+          font-size: 1.25rem !important;
+          margin-bottom: 0.5rem !important;
+        }
+        
+        div[role="alertdialog"] button:first-of-type {
+          background-color: rgba(51, 65, 85, 0.5) !important;
+          border-color: rgba(71, 85, 105, 0.5) !important;
+          color: rgb(209, 213, 219) !important;
+          outline: none !important;
+        }
+        
+        div[role="alertdialog"] button:first-of-type:hover {
+          background-color: rgba(71, 85, 105, 0.5) !important;
+          border-color: rgba(59, 130, 246, 0.5) !important;
+          color: white !important;
+        }
+        
+        div[role="alertdialog"] button:first-of-type:focus,
+        div[role="alertdialog"] button:first-of-type:focus-visible {
+          background-color: rgba(51, 65, 85, 0.5) !important;
+          border-color: rgba(71, 85, 105, 0.5) !important;
+          outline: none !important;
+          box-shadow: none !important;
+          color: rgb(209, 213, 219) !important;
+        }
+
+        div[role="alertdialog"] button:focus,
+        div[role="alertdialog"] button:focus-visible {
+          outline: none !important;
+          box-shadow: none !important;
+        }
+        
+        div[role="alertdialog"] button:last-of-type {
+          background: linear-gradient(to right, #dc2626, #b91c1c) !important;
+        }
+        
+        div[role="alertdialog"] button:last-of-type:hover {
+          background: linear-gradient(to right, #ef4444, #dc2626) !important;
         }
       `}</style>
     </div>

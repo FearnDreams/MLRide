@@ -65,8 +65,16 @@ MIDDLEWARE = [
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
-    "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
+
+# 禁用Django默认的X-Frame-Options中间件，确保我们自定义的设置生效
+MIDDLEWARE = [
+    middleware for middleware in MIDDLEWARE 
+    if middleware != 'django.middleware.clickjacking.XFrameOptionsMiddleware'
+]
+
+# 添加自定义安全中间件替代Django默认中间件
+MIDDLEWARE.append('jupyterapp.middleware.CustomSecurityMiddleware')
 
 ROOT_URLCONF = "mlride.urls"
 
@@ -286,3 +294,25 @@ LOGGING = {
 # 确保logs目录存在
 LOGS_DIR = os.path.join(BASE_DIR, 'logs')
 os.makedirs(LOGS_DIR, exist_ok=True)
+
+# 增加请求头和请求体大小限制设置
+DATA_UPLOAD_MAX_MEMORY_SIZE = 10 * 1024 * 1024  # 10MB
+DATA_UPLOAD_MAX_NUMBER_FIELDS = 10000
+DATA_UPLOAD_MAX_NUMBER_FILES = 100
+
+# 请求头大小限制 (覆盖默认值)
+# 解决"431 Request Header Fields Too Large"错误
+FILE_UPLOAD_MAX_MEMORY_SIZE = 10 * 1024 * 1024  # 10MB
+
+# 增加超时设置
+# 超时时间，单位秒
+TIMEOUT = 120 
+
+# 增加会话cookie设置，减少cookie大小
+SESSION_COOKIE_SAMESITE = 'Lax'
+SESSION_COOKIE_SECURE = False  # 开发环境设为False，生产环境设为True
+SESSION_COOKIE_HTTPONLY = True
+
+# X-Frame-Options设置，允许在iframe中嵌入
+X_FRAME_OPTIONS = 'ALLOWALL'
+SECURE_CONTENT_TYPE_NOSNIFF = False

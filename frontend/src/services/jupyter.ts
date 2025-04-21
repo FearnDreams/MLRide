@@ -4,10 +4,26 @@ import type { JupyterResponse, JupyterSession } from '../types/jupyter';
 /**
  * 获取指定项目的Jupyter会话
  * @param projectId 项目ID
+ * @param options 可选的请求选项
  * @returns API响应
  */
-export async function getJupyterSession(projectId: string | number): Promise<JupyterSession> {
-  return request(`/jupyter/sessions/by_project/?project_id=${projectId}`);
+export async function getJupyterSession(
+  projectId: string | number, 
+  options?: Record<string, any>
+): Promise<JupyterSession> {
+  // 设置最小必要的请求头和超时设置
+  const requestOptions = {
+    timeout: 30000, // 30秒超时
+    headers: {
+      // 只保留必要的头部
+      'Content-Type': 'application/json',
+      'Accept': 'application/json',
+      // 移除其他可能导致头部过大的字段
+    },
+    ...options
+  };
+  
+  return request(`/jupyter/sessions/by_project/?project_id=${projectId}`, requestOptions);
 }
 
 /**

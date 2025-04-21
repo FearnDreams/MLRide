@@ -274,25 +274,68 @@ const ProjectDetailPage: React.FC = () => {
     // 检查项目容器状态，如果不是运行中，显示启动按钮
     if (project.status !== 'running' && project.container_details) {
       return (
-        <div className="text-center py-10">
-          <p className="text-gray-300 mb-4">项目当前未运行</p>
-          <Button 
-            className="bg-green-600 hover:bg-green-700"
-            onClick={handleStartProject}
-            disabled={statusLoading}
-          >
-            {statusLoading ? (
-              <>
-                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                正在启动...
-              </>
-            ) : (
-              <>
-                <Play className="w-4 h-4 mr-2" />
-                启动项目
-              </>
-            )}
-          </Button>
+        <div className="flex-grow flex items-center justify-center">
+          <div className="text-center max-w-xl w-full">
+            <div className="flex justify-center mb-8 mt-8">
+              <img 
+                src="/jupyter-logo.svg" 
+                alt="Jupyter" 
+                className="w-20 h-20" 
+                onError={(e) => {
+                  (e.target as HTMLImageElement).src = "https://jupyter.org/favicon.ico";
+                }} 
+              />
+            </div>
+            
+            <h2 className="text-2xl font-bold text-white mb-6">项目当前未运行</h2>
+            <p className="text-slate-400 mb-10 px-4">您的项目环境已准备就绪但尚未启动，点击下方按钮启动项目</p>
+            
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-10 px-6">
+              <div className="bg-slate-700/50 rounded-lg p-5 text-left">
+                <h3 className="text-sm font-medium text-slate-300 mb-3">项目信息</h3>
+                <p className="text-xs text-slate-400 mb-2">状态: <span className="text-yellow-400">已停止</span></p>
+                <p className="text-xs text-slate-400">类型: <span className="text-blue-400">
+                  {project.project_type === 'notebook' ? 'Jupyter Notebook' :
+                   project.project_type === 'canvas' ? '可视化拖拽编程' : 
+                   project.project_type}
+                </span></p>
+              </div>
+              
+              <div className="bg-slate-700/50 rounded-lg p-5 text-left">
+                <h3 className="text-sm font-medium text-slate-300 mb-3">环境信息</h3>
+                {project.image_details ? (
+                  <>
+                    <p className="text-xs text-slate-400 mb-2">Docker镜像: <span className="text-blue-400">{project.image_details.name}</span></p>
+                    {project.image_details.pythonVersion && (
+                      <p className="text-xs text-slate-400">Python版本: <span className="text-blue-400">{project.image_details.pythonVersion}</span></p>
+                    )}
+                  </>
+                ) : (
+                  <p className="text-xs text-slate-400">环境: <span className="text-blue-400">未指定镜像</span></p>
+                )}
+              </div>
+            </div>
+            
+            <div className="max-w-md mx-auto mb-8">
+              <Button 
+                className="w-full py-3 bg-green-600 hover:bg-green-700"
+                onClick={handleStartProject}
+                disabled={statusLoading}
+              >
+                {statusLoading ? (
+                  <>
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    正在启动...
+                  </>
+                ) : (
+                  <>
+                    <Play className="w-4 h-4 mr-2" />
+                    启动项目
+                  </>
+                )}
+              </Button>
+            </div>
+          </div>
         </div>
       );
     }
@@ -302,44 +345,82 @@ const ProjectDetailPage: React.FC = () => {
       // 检查是否有Jupyter会话
       if (!jupyterSession && !jupyterLoading && !forceShowJupyter) {
         return (
-          <div className="text-center py-10">
-            <p className="text-gray-300 mb-4">Jupyter服务未启动</p>
-            <Button 
-              className="bg-green-600 hover:bg-green-700 mr-2"
-              onClick={handleStartJupyter}
-              disabled={jupyterLoading}
-            >
-              {jupyterLoading ? (
-                <>
-                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                  正在启动...
-                </>
-              ) : (
-                <>
-                  <Play className="w-4 h-4 mr-2" />
-                  启动Jupyter
-                </>
-              )}
-            </Button>
-            <Button
-              variant="outline"
-              onClick={() => setForceShowJupyter(true)}
-            >
-              强制显示Notebook
-            </Button>
+          <div className="flex-grow flex items-center justify-center">
+            <div className="text-center max-w-xl w-full">
+              <div className="flex justify-center mb-8 mt-8">
+                <img 
+                  src="/jupyter-logo.svg" 
+                  alt="Jupyter" 
+                  className="w-20 h-20" 
+                  onError={(e) => {
+                    (e.target as HTMLImageElement).src = "https://jupyter.org/favicon.ico";
+                  }} 
+                />
+              </div>
+              
+              <h2 className="text-2xl font-bold text-white mb-6">Jupyter服务未启动</h2>
+              <p className="text-slate-400 mb-10 px-4">项目已运行，但Jupyter服务尚未启动，点击下方按钮启动Jupyter服务</p>
+              
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-10 px-6">
+                <div className="bg-slate-700/50 rounded-lg p-5 text-left">
+                  <h3 className="text-sm font-medium text-slate-300 mb-3">项目信息</h3>
+                  <p className="text-xs text-slate-400 mb-2">状态: <span className="text-green-400">运行中</span></p>
+                  <p className="text-xs text-slate-400">类型: <span className="text-blue-400">Jupyter Notebook</span></p>
+                </div>
+                
+                <div className="bg-slate-700/50 rounded-lg p-5 text-left">
+                  <h3 className="text-sm font-medium text-slate-300 mb-3">环境信息</h3>
+                  {project.image_details ? (
+                    <>
+                      <p className="text-xs text-slate-400 mb-2">Docker镜像: <span className="text-blue-400">{project.image_details.name}</span></p>
+                      {project.image_details.pythonVersion && (
+                        <p className="text-xs text-slate-400">Python版本: <span className="text-blue-400">{project.image_details.pythonVersion}</span></p>
+                      )}
+                    </>
+                  ) : (
+                    <p className="text-xs text-slate-400">环境: <span className="text-blue-400">未指定镜像</span></p>
+                  )}
+                </div>
+              </div>
+              
+              <div className="flex flex-col sm:flex-row space-y-4 sm:space-y-0 sm:space-x-4 max-w-md mx-auto mb-8">
+                <Button 
+                  className="flex-1 py-3 bg-green-600 hover:bg-green-700"
+                  onClick={handleStartJupyter}
+                  disabled={jupyterLoading}
+                >
+                  {jupyterLoading ? (
+                    <>
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      正在启动...
+                    </>
+                  ) : (
+                    <>
+                      <Play className="w-4 h-4 mr-2" />
+                      启动Jupyter
+                    </>
+                  )}
+                </Button>
+                <Button
+                  variant="outline"
+                  className="flex-1 py-3 border-slate-600 hover:bg-slate-700"
+                  onClick={() => setForceShowJupyter(true)}
+                >
+                  强制显示Notebook
+                </Button>
+              </div>
+            </div>
           </div>
         );
       }
 
       // 显示Jupyter界面
       return (
-        <div className="h-full">
-          <JupyterNotebook 
-            projectId={parseInt(project.id.toString())}
-            sessionId={jupyterSession?.id} 
-            onSessionError={handleJupyterSessionError}
-          />
-        </div>
+        <JupyterNotebook 
+          projectId={parseInt(project.id.toString())}
+          sessionId={jupyterSession?.id} 
+          onSessionError={handleJupyterSessionError}
+        />
       );
     } else if (project_type === 'canvas') {
       return (
@@ -618,17 +699,18 @@ const ProjectDetailPage: React.FC = () => {
         <div className="bg-slate-800 rounded-xl border border-slate-600 p-4">
           <div className="flex items-center">
             <div className="w-10 h-10 rounded-full bg-purple-500/20 flex items-center justify-center mr-3">
-              <Zap className="w-5 h-5 text-purple-300" />
+              <Image className="w-5 h-5 text-purple-300" />
             </div>
             <div>
-              <h3 className="text-sm font-medium text-gray-300">资源使用</h3>
+              <h3 className="text-sm font-medium text-gray-300">Docker镜像</h3>
               <p className="text-lg font-semibold text-white">
-                {statusLoading ? (
-                  <span className="text-sm text-gray-400">加载中...</span>
-                ) : stats ? (
-                  <span>{stats.cpu_usage?.toFixed(1)}% CPU | {stats.memory_usage?.toFixed(1)}MB 内存</span>
+                {project?.image_details ? (
+                  <span>
+                    {project.image_details.name}
+                    {project.image_details.pythonVersion && ` (Python ${project.image_details.pythonVersion})`}
+                  </span>
                 ) : (
-                  <span className="text-sm text-gray-400">项目未运行</span>
+                  <span className="text-sm text-gray-400">未指定镜像</span>
                 )}
               </p>
             </div>
@@ -643,19 +725,20 @@ const ProjectDetailPage: React.FC = () => {
       
       {/* 删除确认对话框 */}
       <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
-        <AlertDialogContent>
+        <AlertDialogContent className="bg-slate-800/75 backdrop-blur-sm border border-slate-700/50 shadow-lg">
           <AlertDialogHeader>
             <AlertDialogTitle>确认删除项目</AlertDialogTitle>
-            <AlertDialogDescription>
+            <AlertDialogDescription className="text-gray-400">
               此操作将永久删除项目 "{project?.name}" 及其相关数据和容器。此操作不可撤销。
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel disabled={isDeleting}>取消</AlertDialogCancel>
+            <AlertDialogCancel disabled={isDeleting} className="bg-slate-700 hover:bg-slate-600 text-gray-300 hover:text-white border-slate-600" autoFocus={false}>取消</AlertDialogCancel>
             <AlertDialogAction 
               onClick={handleDelete}
               disabled={isDeleting}
-              className="bg-red-500 hover:bg-red-600 text-white"
+              className="bg-gradient-to-r from-red-600 to-red-700 hover:from-red-500 hover:to-red-600 text-white border-0"
+              autoFocus={true}
             >
               {isDeleting ? (
                 <>
@@ -663,7 +746,10 @@ const ProjectDetailPage: React.FC = () => {
                   删除中...
                 </>
               ) : (
-                '确认删除'
+                <>
+                  <Trash2 className="mr-2 h-4 w-4" />
+                  确认删除
+                </>
               )}
             </AlertDialogAction>
           </AlertDialogFooter>
@@ -744,6 +830,80 @@ const ProjectDetailPage: React.FC = () => {
         }
         .custom-dark-modal .ant-form-item-explain-error {
           color: #f56565 !important;
+        }
+
+        /* AlertDialog 样式 */
+        [role="dialog"][data-state="open"] {
+          animation: fadeIn 150ms ease-out;
+        }
+        @keyframes fadeIn {
+          from { opacity: 0; }
+          to { opacity: 1; }
+        }
+        
+        [data-state="open"] > [data-state="open"] {
+          animation: zoomIn 150ms ease-out;
+        }
+        @keyframes zoomIn {
+          from { 
+            opacity: 0; 
+            transform: scale(0.95);
+          }
+          to { 
+            opacity: 1; 
+            transform: scale(1);
+          }
+        }
+        
+        div[role="alertdialog"] {
+          background-color: rgba(15, 23, 42, 0.75) !important;
+          backdrop-filter: blur(12px) !important;
+          border: 1px solid rgba(51, 65, 85, 0.5) !important;
+          border-radius: 0.75rem !important;
+          box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.3) !important;
+          padding: 1.5rem !important;
+        }
+        
+        div[role="alertdialog"] h2 {
+          color: white !important;
+          font-size: 1.25rem !important;
+          margin-bottom: 0.5rem !important;
+        }
+        
+        div[role="alertdialog"] button:first-of-type {
+          background-color: rgba(51, 65, 85, 0.5) !important;
+          border-color: rgba(71, 85, 105, 0.5) !important;
+          color: rgb(209, 213, 219) !important;
+          outline: none !important;
+        }
+        
+        div[role="alertdialog"] button:first-of-type:hover {
+          background-color: rgba(71, 85, 105, 0.5) !important;
+          border-color: rgba(59, 130, 246, 0.5) !important;
+          color: white !important;
+        }
+        
+        div[role="alertdialog"] button:first-of-type:focus,
+        div[role="alertdialog"] button:first-of-type:focus-visible {
+          background-color: rgba(51, 65, 85, 0.5) !important;
+          border-color: rgba(71, 85, 105, 0.5) !important;
+          outline: none !important;
+          box-shadow: none !important;
+          color: rgb(209, 213, 219) !important;
+        }
+
+        div[role="alertdialog"] button:focus,
+        div[role="alertdialog"] button:focus-visible {
+          outline: none !important;
+          box-shadow: none !important;
+        }
+        
+        div[role="alertdialog"] button:last-of-type {
+          background: linear-gradient(to right, #dc2626, #b91c1c) !important;
+        }
+        
+        div[role="alertdialog"] button:last-of-type:hover {
+          background: linear-gradient(to right, #ef4444, #dc2626) !important;
         }
       `}</style>
     </div>

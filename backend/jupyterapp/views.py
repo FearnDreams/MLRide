@@ -12,6 +12,7 @@ import time
 import random
 from django.conf import settings
 from django.urls import reverse
+from django.http import HttpResponse
 
 from .models import JupyterSession
 from .serializers import JupyterSessionSerializer
@@ -168,7 +169,25 @@ c.ServerApp.disable_check_xsrf = True
 c.ServerApp.open_browser = False
 c.ServerApp.ip = '0.0.0.0'  # 监听所有网络接口
 c.ServerApp.port = {session.port}  # 使用项目特定端口
-c.ServerApp.tornado_settings = {{"headers": {{"Content-Security-Policy": "", "X-Frame-Options": ""}}}}
+c.ServerApp.tornado_settings = {{
+    "headers": {{
+        # 禁用所有内容安全策略限制
+        "Content-Security-Policy": "default-src * 'unsafe-inline' 'unsafe-eval' data: blob:; frame-ancestors * 'self' http://localhost:*; script-src * 'unsafe-inline' 'unsafe-eval'",
+        # 允许在任何页面中嵌入iframe
+        "X-Frame-Options": "ALLOWALL",
+        # 允许任何域的跨域请求
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Credentials": "true",
+        "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
+        "Access-Control-Allow-Headers": "Authorization, Content-Type, X-Requested-With",
+        # 缓存控制
+        "Cache-Control": "no-cache, no-store, must-revalidate",
+        "Pragma": "no-cache",
+        "Expires": "0",
+        # P3P策略
+        "P3P": "CP=\"ALL DSP COR PSAa PSDa OUR NOR ONL UNI COM NAV\""
+    }}
+}}
 c.ServerApp.trust_xheaders = True
 c.ServerApp.allow_root = True
 c.ServerApp.root_dir = "{abs_workspace_dir}"  # 使用绝对路径确保正确加载工作目录
@@ -181,6 +200,15 @@ c.NotebookApp.allow_remote_access = True
 c.NotebookApp.disable_check_xsrf = True
 c.NotebookApp.open_browser = False
 c.NotebookApp.port = {session.port}  # 使用项目特定端口
+
+# 添加兼容的旧版iframe设置
+c.NotebookApp.tornado_settings = {{
+    "headers": {{
+        "Content-Security-Policy": "frame-ancestors 'self' *",
+        "X-Frame-Options": "ALLOWALL",
+        "Access-Control-Allow-Origin": "*"
+    }}
+}}
                 """)
             
             # 如果会话不是运行状态，启动Jupyter
@@ -260,6 +288,88 @@ c.NotebookApp.port = {session.port}  # 使用项目特定端口
                     try:
                         logger.info("使用Docker容器启动Jupyter")
                         
+                        # 确保宿主机工作目录存在
+                        if not os.path.exists(workspace_dir):
+                            os.makedirs(workspace_dir, exist_ok=True)
+                            logger.info(f"创建宿主机工作目录: {workspace_dir}")
+                        
+                        # 检查容器中的工作目录是否存在，如果不存在则创建
+                        mkdir_cmd = "mkdir -p /workspace"
+                        docker_client.client.containers.get(project.container.container_id).exec_run(
+                            mkdir_cmd,
+                            privileged=True
+                        )
+                        
+                        # 设置挂载点，将宿主机的项目目录挂载到容器的/workspace目录
+                        # 首先检查容器是否已经在运行，如果是则需要重新创建挂载
+                        logger.info(f"准备挂载宿主机目录 {workspace_dir} 到容器的 /workspace 目录")
+                        
+                        # 停止并重新挂载容器
+                        try:
+                            # 停止容器
+                            docker_client.stop_container(project.container.container_id)
+                            time.sleep(2)  # 等待容器停止
+                            logger.info(f"已停止容器以准备重新挂载目录")
+                            
+                            # 首先确保宿主机工作目录存在
+                            if not os.path.exists(workspace_dir):
+                                os.makedirs(workspace_dir, exist_ok=True)
+                                logger.info(f"创建宿主机工作目录: {workspace_dir}")
+                            
+                            # 先启动容器，然后再执行命令
+                            docker_client.start_container(project.container.container_id)
+                            logger.info("已重新启动容器，等待容器准备就绪")
+                            time.sleep(3)  # 等待容器完全启动
+                            
+                            # 现在容器已启动，可以安全执行命令
+                            # 创建工作目录并设置权限
+                            mount_cmd = f"mkdir -p /workspace && chmod 777 /workspace"
+                            docker_client.client.containers.get(project.container.container_id).exec_run(
+                                ["bash", "-c", mount_cmd],
+                                privileged=True
+                            )
+                            logger.info("成功创建/workspace目录并设置权限")
+                            
+                            # 使用docker cp命令同步目录内容
+                            try:
+                                logger.info(f"同步目录 {workspace_dir} 到容器的 /workspace 目录")
+                                # 复制文件到容器
+                                for root, _, files in os.walk(workspace_dir):
+                                    for file in files:
+                                        source_path = os.path.join(root, file)
+                                        # 获取相对路径
+                                        rel_path = os.path.relpath(source_path, workspace_dir)
+                                        target_path = os.path.join('/workspace', rel_path)
+                                        
+                                        # 确保目标目录存在
+                                        target_dir = os.path.dirname(target_path)
+                                        docker_client.client.containers.get(project.container.container_id).exec_run(
+                                            ["bash", "-c", f"mkdir -p '{target_dir}'"],
+                                            privileged=True
+                                        )
+                                        
+                                        # 复制文件到容器
+                                        docker_client.copy_to_container(
+                                            project.container.container_id,
+                                            source_path,
+                                            target_path
+                                        )
+                                logger.info(f"成功同步文件到容器")
+                            except Exception as copy_e:
+                                logger.error(f"同步文件时出错: {str(copy_e)}")
+                                # 继续执行，不要因为同步失败而停止整个流程
+                            
+                            logger.info(f"已重新启动容器并同步工作目录")
+                            
+                        except Exception as mount_e:
+                            logger.error(f"挂载目录到容器时出错: {str(mount_e)}")
+                            # 尝试再次启动容器，即使挂载失败
+                            try:
+                                docker_client.start_container(project.container.container_id)
+                                logger.info("尽管挂载失败，但成功重新启动了容器")
+                            except Exception as restart_e:
+                                logger.error(f"重新启动容器失败: {str(restart_e)}")
+                        
                         # 检查容器是否安装了jupyter
                         jupyter_check = docker_client.check_jupyter_in_container(project.container.container_id)
                         if not jupyter_check.get('installed', False):
@@ -323,11 +433,11 @@ c.NotebookApp.port = {session.port}  # 使用项目特定端口
                         
                         # 生成适用于容器内的配置
                         kernel_name = f"python-docker-{project.id}"
-                        # 定义需要 Jupyter 扫描的内核目录 (移除，因为配置项不被识别)
-                        # kernel_dirs = ... # 不再需要此行
                         container_config = f"""
 # Jupyter notebook配置文件
 c = get_config()
+
+# 基础设置
 c.ServerApp.token = ''
 c.ServerApp.password = ''
 c.ServerApp.allow_origin = '*'
@@ -336,17 +446,40 @@ c.ServerApp.disable_check_xsrf = True
 c.ServerApp.open_browser = False
 c.ServerApp.ip = '0.0.0.0'
 c.ServerApp.port = 8888
-c.ServerApp.tornado_settings = {{"headers": {{"Content-Security-Policy": "", "X-Frame-Options": ""}}}}
+
+# 完全禁用内容安全策略和X-Frame-Options
+c.ServerApp.tornado_settings = {{
+    "headers": {{
+        # 禁用所有内容安全策略限制
+        "Content-Security-Policy": "default-src * 'unsafe-inline' 'unsafe-eval' data: blob:; frame-ancestors * 'self' http://localhost:*; script-src * 'unsafe-inline' 'unsafe-eval'",
+        # 允许在任何页面中嵌入iframe
+        "X-Frame-Options": "ALLOWALL",
+        # 允许任何域的跨域请求
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Credentials": "true",
+        "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
+        "Access-Control-Allow-Headers": "Authorization, Content-Type, X-Requested-With",
+        # 缓存控制
+        "Cache-Control": "no-cache, no-store, must-revalidate",
+        "Pragma": "no-cache",
+        "Expires": "0",
+        # P3P策略
+        "P3P": "CP=\"ALL DSP COR PSAa PSDa OUR NOR ONL UNI COM NAV\""
+    }}
+}}
+
+# CORS设置
+c.ServerApp.allow_credentials = True
+c.ServerApp.allow_headers = ['*']
+c.ServerApp.allow_methods = ['*']
+
+# 信任HTTPS反向代理
 c.ServerApp.trust_xheaders = True
 c.ServerApp.allow_root = True
 c.ServerApp.root_dir = "/workspace"
 
 # 确保使用容器内的Python环境作为默认内核
 c.MultiKernelManager.default_kernel_name = "{kernel_name}"
-# c.MultiKernelManager.ensure_native_kernel = False # 移除，因为配置项不被识别
-
-# 显式指定内核查找目录 (移除)
-# c.KernelSpecManager.kernel_dirs = ... # 移除插值
 
 # 旧版本兼容配置 (保持这些，因为日志中有相关警告)
 c.NotebookApp.token = ''
@@ -356,6 +489,24 @@ c.NotebookApp.allow_remote_access = True
 c.NotebookApp.disable_check_xsrf = True
 c.NotebookApp.open_browser = False
 c.NotebookApp.port = 8888
+
+# 禁用旧版Notebook的安全限制
+c.NotebookApp.tornado_settings = {{
+    "headers": {{
+        "Content-Security-Policy": "default-src * 'unsafe-inline' 'unsafe-eval' data: blob:; frame-ancestors * 'self' http://localhost:*; script-src * 'unsafe-inline' 'unsafe-eval'",
+        "X-Frame-Options": "ALLOWALL",
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Credentials": "true",
+        "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
+        "Access-Control-Allow-Headers": "Authorization, Content-Type, X-Requested-With",
+        # 缓存控制
+        "Cache-Control": "no-cache, no-store, must-revalidate",
+        "Pragma": "no-cache",
+        "Expires": "0",
+        # P3P策略
+        "P3P": "CP=\"ALL DSP COR PSAa PSDa OUR NOR ONL UNI COM NAV\""
+    }}
+}}
 """
                         
                         # 将配置写入临时文件，然后复制到容器
@@ -455,6 +606,64 @@ c.NotebookApp.port = 8888
                         
                         # 等待Jupyter启动 (给后台进程一点时间)
                         time.sleep(8)
+                        
+                        # --- 确保Jupyter能正确处理文件删除 ---
+                        try:
+                            # 在容器内创建.jupyter_data目录用于存储临时文件
+                            data_dir_cmd = "mkdir -p /workspace/.jupyter_data"
+                            docker_client.client.containers.get(project.container.container_id).exec_run(
+                                ["bash", "-c", data_dir_cmd],
+                                privileged=True
+                            )
+                            
+                            # 设置环境变量，确保Jupyter使用正确的目录进行删除操作
+                            env_cmd = "echo 'export JUPYTER_DATA_DIR=/workspace/.jupyter_data' >> /root/.bashrc"
+                            docker_client.client.containers.get(project.container.container_id).exec_run(
+                                ["bash", "-c", env_cmd],
+                                privileged=True
+                            )
+                            
+                            # 修改当前进程的环境变量
+                            update_env_cmd = "export JUPYTER_DATA_DIR=/workspace/.jupyter_data"
+                            docker_client.client.containers.get(project.container.container_id).exec_run(
+                                ["bash", "-c", update_env_cmd],
+                                privileged=True
+                            )
+                            
+                            logger.info("已配置Jupyter数据目录以支持文件删除操作")
+                        except Exception as e:
+                            logger.warning(f"配置Jupyter数据目录时出错: {str(e)}")
+                        
+                        # --- 检查容器挂载点是否正确设置 ---
+                        try:
+                            # 获取容器的挂载信息
+                            container_info = docker_client.get_container(project.container.container_id)
+                            container_mounts = container_info.attrs.get('Mounts', [])
+                            
+                            # 检查是否有挂载到/workspace的配置
+                            workspace_mount_exists = False
+                            for mount in container_mounts:
+                                if mount.get('Destination') == '/workspace':
+                                    workspace_mount_exists = True
+                                    source_path = mount.get('Source')
+                                    logger.info(f"找到工作目录挂载点: {source_path} -> /workspace")
+                                    break
+                            
+                            if not workspace_mount_exists:
+                                logger.warning(f"容器没有正确挂载工作目录到/workspace，这将导致文件同步问题")
+                                
+                                # 在这种情况下执行一次性同步，确保文件一致
+                                logger.info(f"执行一次性工作目录同步: {workspace_dir} -> /workspace")
+                                docker_client.sync_container_directory(
+                                    container_id=project.container.container_id,
+                                    container_dir='/workspace',
+                                    host_dir=workspace_dir,
+                                    direction='both'
+                                )
+                            else:
+                                logger.info("容器已正确挂载工作目录，无需额外的文件同步")
+                        except Exception as mount_e:
+                            logger.error(f"检查容器挂载信息时出错: {str(mount_e)}")
                         
                         # --- 直接获取容器日志 ---
                         try:

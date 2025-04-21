@@ -29,9 +29,7 @@ const RegisterPage: React.FC = () => {
         <div className="w-full max-w-md space-y-8 bg-slate-800/30 backdrop-blur-sm p-8 rounded-xl border border-slate-700/50 shadow-xl">
           <div className="text-center">
             <div className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-indigo-500/10 mb-4">
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-indigo-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" />
-              </svg>
+              <img src="/mlride-icon.svg" alt="MLRide Logo" className="h-9 w-9" />
             </div>
             <h2 className="text-3xl font-bold text-white">注册 MLRide</h2>
             <p className="mt-2 text-gray-400">创建您的账户，开始使用 MLRide</p>
