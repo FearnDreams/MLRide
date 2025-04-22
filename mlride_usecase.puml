@@ -1,0 +1,77 @@
+@startuml MLRide系统用例图
+
+' 设置布局方向为垂直
+left to right direction
+
+' 设置样式
+skinparam usecase {
+  BackgroundColor LightBlue
+  BorderColor DarkBlue
+  ArrowColor Navy
+  ActorBorderColor Black
+  ActorBackgroundColor White
+}
+
+' 定义角色
+actor "数据科学家" as DataScientist
+actor "系统管理员" as Admin
+
+' 定义系统边界
+rectangle "MLRide平台" {
+  ' 用户管理相关用例
+  usecase "注册账户" as Register
+  usecase "登录系统" as Login
+  usecase "管理个人资料" as ManageProfile
+  
+  ' 项目管理相关用例
+  usecase "创建项目" as CreateProject
+  usecase "管理项目" as ManageProject
+  usecase "启动项目容器" as StartContainer
+  usecase "停止项目容器" as StopContainer
+  usecase "管理项目文件" as ManageFiles
+  
+  ' Jupyter会话相关用例
+  usecase "启动Jupyter会话" as StartJupyter
+  usecase "使用Jupyter Notebook" as UseJupyter
+  usecase "管理Jupyter会话" as ManageJupyter
+  
+  ' 容器管理相关用例
+  usecase "管理Docker镜像" as ManageImages
+  usecase "监控系统资源" as MonitorResources
+  usecase "配置系统参数" as ConfigSystem
+}
+
+' 定义关系
+' 数据科学家的用例关系
+DataScientist --> Register
+DataScientist --> Login
+DataScientist --> ManageProfile
+DataScientist --> CreateProject
+DataScientist --> ManageProject
+DataScientist --> StartContainer
+DataScientist --> StopContainer
+DataScientist --> ManageFiles
+DataScientist --> StartJupyter
+DataScientist --> UseJupyter
+
+' 系统管理员的用例关系
+Admin --> Login
+Admin --> ManageImages
+Admin --> MonitorResources
+Admin --> ConfigSystem
+Admin --> ManageJupyter
+
+' 包含关系
+ManageProject .> CreateProject : <<include>>
+ManageProject .> StartContainer : <<include>>
+ManageProject .> StopContainer : <<include>>
+ManageProject .> ManageFiles : <<include>>
+
+ManageJupyter .> StartJupyter : <<include>>
+ManageJupyter .> UseJupyter : <<include>>
+
+' 扩展关系
+StartJupyter ..> StartContainer : <<extend>>
+UseJupyter ..> ManageFiles : <<extend>>
+
+@enduml

@@ -294,6 +294,183 @@ export const deleteProjectFile = (id: number) => {
   return apiInstance.delete(`/files/${id}/`);
 };
 
+// 创建项目快照
+export const createProjectSnapshot = async (id: number, data: { version: string; description?: string }) => {
+  try {
+    const response = await api.post<ApiResponse>(`project/projects/${id}/create_snapshot/`, data);
+    return response.data;
+  } catch (error: any) {
+    console.error('创建项目快照失败:', error);
+    
+    if (error.response?.data) {
+      throw {
+        status: 'error',
+        message: error.response.data.detail || '创建项目快照失败'
+      };
+    }
+    throw {
+      status: 'error',
+      message: error.message || '创建项目快照失败'
+    };
+  }
+};
+
+// 获取项目快照列表
+export const getProjectSnapshots = async (id: number) => {
+  try {
+    const response = await api.get<ApiResponse>(`project/projects/${id}/list_snapshots/`);
+    return response.data;
+  } catch (error: any) {
+    console.error('获取项目快照列表失败:', error);
+    
+    if (error.response?.data) {
+      throw {
+        status: 'error',
+        message: error.response.data.detail || '获取项目快照列表失败'
+      };
+    }
+    throw {
+      status: 'error',
+      message: error.message || '获取项目快照列表失败'
+    };
+  }
+};
+
+// 获取快照详情
+export const getProjectSnapshot = async (id: number, snapshotId: string) => {
+  try {
+    const response = await api.get<ApiResponse>(`project/projects/${id}/get_snapshot/?snapshot_id=${snapshotId}`);
+    return response.data;
+  } catch (error: any) {
+    console.error('获取项目快照详情失败:', error);
+    
+    if (error.response?.data) {
+      throw {
+        status: 'error',
+        message: error.response.data.detail || '获取项目快照详情失败'
+      };
+    }
+    throw {
+      status: 'error',
+      message: error.message || '获取项目快照详情失败'
+    };
+  }
+};
+
+// 获取快照中文件的内容
+export const getSnapshotFileContent = async (id: number, snapshotId: string, filePath: string) => {
+  try {
+    // 移除文件路径末尾可能的斜杠
+    const cleanFilePath = filePath.replace(/[/\\]+$/, '');
+    console.log(`开始获取文件内容: 项目=${id}, 快照=${snapshotId}, 文件=${cleanFilePath}`);
+    const response = await api.get<ApiResponse>(
+      `project/projects/${id}/get_snapshot_file/?snapshot_id=${snapshotId}&file_path=${encodeURIComponent(cleanFilePath)}`
+    );
+    console.log(`获取文件内容成功: ${cleanFilePath}`);
+    return response.data;
+  } catch (error: any) {
+    console.error('获取快照文件内容失败:', error);
+    console.error('请求参数:', { id, snapshotId, filePath: filePath.replace(/[/\\]+$/, '') });
+    
+    let errorDetail = '获取快照文件内容失败';
+    
+    if (error.response?.data) {
+      if (error.response.data.detail) {
+        errorDetail = error.response.data.detail;
+        console.error('错误详情:', errorDetail);
+      }
+      throw {
+        status: 'error',
+        message: errorDetail
+      };
+    }
+    
+    if (error.message) {
+      errorDetail = error.message;
+      console.error('错误信息:', errorDetail);
+    }
+    
+    throw {
+      status: 'error',
+      message: errorDetail
+    };
+  }
+};
+
+// 恢复到指定快照
+export const restoreProjectSnapshot = async (id: number, snapshotId: string) => {
+  try {
+    const response = await api.post<ApiResponse>(`project/projects/${id}/restore_snapshot/`, { snapshot_id: snapshotId });
+    return response.data;
+  } catch (error: any) {
+    console.error('恢复项目快照失败:', error);
+    
+    if (error.response?.data) {
+      throw {
+        status: 'error',
+        message: error.response.data.detail || '恢复项目快照失败'
+      };
+    }
+    throw {
+      status: 'error',
+      message: error.message || '恢复项目快照失败'
+    };
+  }
+};
+
+// 删除项目快照
+export const deleteProjectSnapshot = async (id: number, snapshotId: string) => {
+  try {
+    console.log(`删除项目快照 [项目ID: ${id}, 快照ID: ${snapshotId}]`);
+    const response = await api.post<ApiResponse>(`project/projects/${id}/delete_snapshot/`, { snapshot_id: snapshotId });
+    return response.data;
+  } catch (error: any) {
+    console.error('删除项目快照失败:', error);
+    
+    if (error.response?.data) {
+      throw {
+        status: 'error',
+        message: error.response.data.detail || '删除项目快照失败'
+      };
+    }
+    throw {
+      status: 'error',
+      message: error.message || '删除项目快照失败'
+    };
+  }
+};
+
+/**
+ * 获取当前项目工作区的文件列表
+ * @param projectId 项目ID
+ */
+export const getCurrentProjectFiles = async (projectId: number) => {
+  console.log(`获取当前项目工作区文件列表 [项目ID: ${projectId}]`);
+  try {
+    const response = await api.get<ApiResponse>(`/project/projects/${projectId}/current_files/`);
+    return response.data;
+  } catch (error) {
+    console.error('获取当前项目工作区文件列表失败:', error);
+    throw error;
+  }
+};
+
+/**
+ * 获取当前项目工作区中特定文件的内容
+ * @param projectId 项目ID
+ * @param filePath 文件路径
+ */
+export const getCurrentFileContent = async (projectId: number, filePath: string) => {
+  console.log(`获取当前项目工作区文件内容 [项目ID: ${projectId}, 文件路径: ${filePath}]`);
+  try {
+    const response = await api.get<ApiResponse>(`/project/projects/${projectId}/current_file_content/?file_path=${encodeURIComponent(filePath)}`);
+    return response.data;
+  } catch (error) {
+    console.error(`获取当前项目工作区文件内容失败 [文件路径: ${filePath}]:`, error);
+    throw error;
+  }
+};
+
 export default {
   getProjects,
   getProject,
@@ -306,4 +483,12 @@ export default {
   getProjectFiles,
   createProjectFile,
   deleteProjectFile,
+  createProjectSnapshot,
+  getProjectSnapshots,
+  getProjectSnapshot,
+  getSnapshotFileContent,
+  restoreProjectSnapshot,
+  deleteProjectSnapshot,
+  getCurrentProjectFiles,
+  getCurrentFileContent,
 }; 

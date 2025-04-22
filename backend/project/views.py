@@ -20,6 +20,9 @@ from container.docker_ops import DockerClient
 import logging
 import json
 import os
+import shutil
+import datetime
+import uuid
 from typing import Dict, Any, List
 
 # 设置日志记录器
@@ -316,6 +319,762 @@ class ProjectViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
             
+    @action(detail=True, methods=['post'])
+    def create_snapshot(self, request, pk=None):
+        """
+        创建项目文件快照
+        """
+        project = self.get_object()
+        
+        # 获取请求数据
+        version = request.data.get('version', '')
+        description = request.data.get('description', '')
+        
+        # 验证输入
+        if not version:
+            return Response(
+                {"detail": "请提供版本号"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+            
+        try:
+            # 获取项目工作目录
+            workspace_dir = os.path.join(
+                os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 
+                'workspaces', 
+                f'project_{project.id}'
+            )
+            
+            # 检查工作目录是否存在
+            if not os.path.exists(workspace_dir):
+                return Response(
+                    {"detail": "项目工作目录不存在"},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+                
+            # 创建快照目录
+            snapshots_dir = os.path.join(workspace_dir, 'snapshots')
+            os.makedirs(snapshots_dir, exist_ok=True)
+            
+            # 生成唯一的快照ID
+            snapshot_id = str(uuid.uuid4())
+            snapshot_dir = os.path.join(snapshots_dir, snapshot_id)
+            
+            # 创建快照目录
+            os.makedirs(snapshot_dir)
+            
+            # 复制工作目录中的文件到快照目录
+            files_copied = []
+            for root, dirs, files in os.walk(workspace_dir):
+                # 跳过snapshots目录
+                if 'snapshots' in root.split(os.path.sep):
+                    continue
+                    
+                for file in files:
+                    src_path = os.path.join(root, file)
+                    # 计算相对路径
+                    rel_path = os.path.relpath(src_path, workspace_dir)
+                    dst_path = os.path.join(snapshot_dir, rel_path)
+                    
+                    # 确保目标目录存在
+                    os.makedirs(os.path.dirname(dst_path), exist_ok=True)
+                    
+                    # 复制文件
+                    shutil.copy2(src_path, dst_path)
+                    files_copied.append(rel_path)
+            
+            # 创建快照元数据
+            snapshot_metadata = {
+                'id': snapshot_id,
+                'version': version,
+                'description': description,
+                'files': files_copied,
+                'created_at': datetime.datetime.now().isoformat(),
+                'created_by': request.user.username
+            }
+            
+            # 保存快照元数据
+            metadata_path = os.path.join(snapshot_dir, 'metadata.json')
+            with open(metadata_path, 'w') as f:
+                json.dump(snapshot_metadata, f)
+                
+            # 更新snapshots索引文件
+            index_path = os.path.join(snapshots_dir, 'index.json')
+            snapshots_index = []
+            
+            if os.path.exists(index_path):
+                try:
+                    with open(index_path, 'r') as f:
+                        snapshots_index = json.load(f)
+                except:
+                    snapshots_index = []
+            
+            # 添加新快照到索引
+            snapshots_index.append({
+                'id': snapshot_id,
+                'version': version,
+                'description': description,
+                'created_at': snapshot_metadata['created_at'],
+                'created_by': snapshot_metadata['created_by']
+            })
+            
+            # 按创建时间排序
+            snapshots_index.sort(key=lambda x: x['created_at'], reverse=True)
+            
+            # 保存更新后的索引
+            with open(index_path, 'w') as f:
+                json.dump(snapshots_index, f)
+                
+            return Response({
+                'id': snapshot_id,
+                'version': version,
+                'description': description,
+                'file_count': len(files_copied),
+                'created_at': snapshot_metadata['created_at']
+            })
+            
+        except Exception as e:
+            logger.error(f"创建项目快照失败: {str(e)}")
+            return Response(
+                {"detail": f"创建项目快照失败: {str(e)}"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+    
+    @action(detail=True, methods=['get'])
+    def list_snapshots(self, request, pk=None):
+        """
+        获取项目的快照列表
+        """
+        project = self.get_object()
+        
+        try:
+            # 获取项目工作目录
+            workspace_dir = os.path.join(
+                os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 
+                'workspaces', 
+                f'project_{project.id}'
+            )
+            
+            # 检查工作目录是否存在
+            if not os.path.exists(workspace_dir):
+                return Response([])
+                
+            # 检查快照目录是否存在
+            snapshots_dir = os.path.join(workspace_dir, 'snapshots')
+            if not os.path.exists(snapshots_dir):
+                return Response([])
+                
+            # 读取快照索引
+            index_path = os.path.join(snapshots_dir, 'index.json')
+            if not os.path.exists(index_path):
+                return Response([])
+                
+            with open(index_path, 'r') as f:
+                snapshots_index = json.load(f)
+                
+            return Response(snapshots_index)
+            
+        except Exception as e:
+            logger.error(f"获取项目快照列表失败: {str(e)}")
+            return Response(
+                {"detail": f"获取项目快照列表失败: {str(e)}"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+    
+    @action(detail=True, methods=['get'])
+    def get_snapshot(self, request, pk=None):
+        """
+        获取项目快照详情
+        """
+        project = self.get_object()
+        snapshot_id = request.query_params.get('snapshot_id')
+        
+        if not snapshot_id:
+            return Response(
+                {"detail": "请提供快照ID"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+            
+        try:
+            # 获取项目工作目录
+            workspace_dir = os.path.join(
+                os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 
+                'workspaces', 
+                f'project_{project.id}'
+            )
+            
+            # 检查快照目录是否存在
+            snapshot_dir = os.path.join(workspace_dir, 'snapshots', snapshot_id)
+            if not os.path.exists(snapshot_dir):
+                return Response(
+                    {"detail": "快照不存在"},
+                    status=status.HTTP_404_NOT_FOUND
+                )
+                
+            # 读取快照元数据
+            metadata_path = os.path.join(snapshot_dir, 'metadata.json')
+            with open(metadata_path, 'r') as f:
+                snapshot_metadata = json.load(f)
+                
+            return Response(snapshot_metadata)
+            
+        except Exception as e:
+            logger.error(f"获取项目快照详情失败: {str(e)}")
+            return Response(
+                {"detail": f"获取项目快照详情失败: {str(e)}"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+    
+    @action(detail=True, methods=['get'])
+    def get_snapshot_file(self, request, pk=None):
+        """
+        获取项目快照中特定文件的内容
+        """
+        project = self.get_object()
+        snapshot_id = request.query_params.get('snapshot_id')
+        file_path = request.query_params.get('file_path')
+        
+        if not snapshot_id:
+            return Response(
+                {"detail": "请提供快照ID"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+            
+        if not file_path:
+            return Response(
+                {"detail": "请提供文件路径"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+            
+        # 清理文件路径，移除末尾的斜杠或反斜杠
+        file_path = file_path.rstrip('/\\')
+        
+        try:
+            # 获取项目工作目录
+            workspace_dir = os.path.join(
+                os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 
+                'workspaces', 
+                f'project_{project.id}'
+            )
+            
+            # 记录详细日志
+            logger.info(f"尝试获取快照文件: 项目ID={project.id}, 快照ID={snapshot_id}, 文件路径={file_path}")
+            
+            # 检查快照目录是否存在
+            snapshot_dir = os.path.join(workspace_dir, 'snapshots', snapshot_id)
+            if not os.path.exists(snapshot_dir):
+                logger.error(f"快照目录不存在: {snapshot_dir}")
+                return Response(
+                    {"detail": "快照不存在"},
+                    status=status.HTTP_404_NOT_FOUND
+                )
+            
+            # 获取文件路径
+            file_full_path = os.path.join(snapshot_dir, file_path)
+            logger.info(f"文件完整路径: {file_full_path}")
+            
+            # 检查文件是否存在于快照中
+            if not os.path.exists(file_full_path) or not os.path.isfile(file_full_path):
+                logger.error(f"文件不存在: {file_full_path}")
+                return Response(
+                    {"detail": "文件不存在于此快照中"},
+                    status=status.HTTP_404_NOT_FOUND
+                )
+            
+            # 获取文件类型
+            _, ext = os.path.splitext(file_path)
+            file_type = ext.lstrip('.')
+            
+            # 二进制文件类型列表 - 移除ipynb，允许它作为文本文件处理
+            binary_extensions = [
+                'pyc', 'pyd', 'pyo', 'so', 'dll', 'exe', 'bin', 'jpg', 'jpeg', 
+                'png', 'gif', 'bmp', 'ico', 'pdf', 'doc', 'docx', 'xls', 'xlsx',
+                'zip', 'tar', 'gz', 'rar', '7z', 'mp3', 'mp4', 'avi', 'mov'
+            ]
+            
+            # 检查是否是二进制文件
+            if file_type.lower() in binary_extensions:
+                logger.info(f"检测到二进制文件类型: {file_type}")
+                return Response({
+                    'file_path': file_path,
+                    'content': f"[二进制文件: {file_path}]",
+                    'file_type': file_type,
+                    'is_binary': True
+                })
+            
+            # 尝试读取文件前先检查文件大小
+            file_size = os.path.getsize(file_full_path)
+            logger.info(f"文件大小: {file_size} 字节")
+            
+            # 放宽文件大小限制，提高到5MB
+            if file_size > 5 * 1024 * 1024:  # 5MB
+                logger.warning(f"文件过大: {file_size} 字节")
+                return Response({
+                    'file_path': file_path,
+                    'content': f"[文件过大: {file_size} 字节]",
+                    'file_type': file_type,
+                    'is_large_file': True
+                })
+            
+            # 对于 ipynb 文件特殊处理
+            if file_type.lower() == 'ipynb':
+                try:
+                    # 尝试读取并简化内容
+                    with open(file_full_path, 'r', encoding='utf-8', errors='replace') as f:
+                        content = f.read()
+                    return Response({
+                        'file_path': file_path,
+                        'content': content,
+                        'file_type': file_type
+                    })
+                except Exception as e:
+                    logger.error(f"处理ipynb文件时出错: {str(e)}")
+                    return Response({
+                        'file_path': file_path,
+                        'content': f"[Jupyter Notebook文件: {file_path}]",
+                        'file_type': file_type,
+                        'is_notebook': True
+                    })
+            
+            # 依次尝试多种编码方式读取文件
+            encoding_attempts = ['utf-8', 'gbk', 'latin-1', 'cp1252', 'iso-8859-1']
+            content = None
+            
+            for encoding in encoding_attempts:
+                try:
+                    with open(file_full_path, 'r', encoding=encoding, errors='replace') as f:
+                        content = f.read()
+                    logger.info(f"成功使用 {encoding} 编码读取文件")
+                    break
+                except Exception as e:
+                    logger.warning(f"使用 {encoding} 编码读取文件失败: {str(e)}")
+                    continue
+            
+            if content is None:
+                # 作为最后的尝试，使用二进制模式读取并转换为字符串
+                try:
+                    with open(file_full_path, 'rb') as f:
+                        binary_data = f.read()
+                    # 尝试将二进制数据转换为字符串
+                    try:
+                        content = binary_data.decode('utf-8', errors='replace')
+                    except:
+                        content = str(binary_data)
+                    logger.info("使用二进制模式读取文件并转换为字符串")
+                except Exception as e:
+                    logger.error(f"所有读取尝试均失败: {str(e)}")
+                    return Response(
+                        {"detail": f"无法读取文件内容: {str(e)}"},
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+            
+            return Response({
+                'file_path': file_path,
+                'content': content,
+                'file_type': file_type
+            })
+            
+        except Exception as e:
+            logger.error(f"获取项目快照中文件内容失败: {str(e)}")
+            return Response(
+                {"detail": f"获取项目快照中文件内容失败: {str(e)}"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+    
+    @action(detail=True, methods=['post'])
+    def restore_snapshot(self, request, pk=None):
+        """
+        恢复项目到指定快照
+        """
+        project = self.get_object()
+        snapshot_id = request.data.get('snapshot_id')
+        
+        if not snapshot_id:
+            return Response(
+                {"detail": "请提供快照ID"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+            
+        try:
+            # 获取项目工作目录
+            workspace_dir = os.path.join(
+                os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 
+                'workspaces', 
+                f'project_{project.id}'
+            )
+            
+            # 检查快照目录是否存在
+            snapshot_dir = os.path.join(workspace_dir, 'snapshots', snapshot_id)
+            if not os.path.exists(snapshot_dir):
+                return Response(
+                    {"detail": "快照不存在"},
+                    status=status.HTTP_404_NOT_FOUND
+                )
+                
+            # 读取快照元数据
+            metadata_path = os.path.join(snapshot_dir, 'metadata.json')
+            with open(metadata_path, 'r') as f:
+                snapshot_metadata = json.load(f)
+            
+            # 在恢复前创建当前状态的临时快照
+            backup_id = f"backup_{uuid.uuid4()}"
+            backup_dir = os.path.join(workspace_dir, 'snapshots', backup_id)
+            os.makedirs(backup_dir)
+            
+            # 复制当前工作目录到备份
+            for root, dirs, files in os.walk(workspace_dir):
+                # 跳过snapshots目录
+                if 'snapshots' in root.split(os.path.sep):
+                    continue
+                    
+                for file in files:
+                    src_path = os.path.join(root, file)
+                    rel_path = os.path.relpath(src_path, workspace_dir)
+                    dst_path = os.path.join(backup_dir, rel_path)
+                    
+                    # 确保目标目录存在
+                    os.makedirs(os.path.dirname(dst_path), exist_ok=True)
+                    
+                    # 复制文件
+                    shutil.copy2(src_path, dst_path)
+            
+            # 清空工作目录（除了snapshots目录）
+            for item in os.listdir(workspace_dir):
+                if item == 'snapshots':
+                    continue
+                    
+                item_path = os.path.join(workspace_dir, item)
+                if os.path.isfile(item_path):
+                    os.remove(item_path)
+                elif os.path.isdir(item_path):
+                    shutil.rmtree(item_path)
+            
+            # 从快照恢复文件
+            for root, dirs, files in os.walk(snapshot_dir):
+                # 跳过metadata.json文件
+                if root == snapshot_dir:
+                    files = [f for f in files if f != 'metadata.json']
+                    
+                for file in files:
+                    src_path = os.path.join(root, file)
+                    rel_path = os.path.relpath(src_path, snapshot_dir)
+                    dst_path = os.path.join(workspace_dir, rel_path)
+                    
+                    # 确保目标目录存在
+                    os.makedirs(os.path.dirname(dst_path), exist_ok=True)
+                    
+                    # 复制文件
+                    shutil.copy2(src_path, dst_path)
+            
+            return Response({
+                "detail": f"已成功恢复到版本 {snapshot_metadata['version']}",
+                "backup_id": backup_id
+            })
+            
+        except Exception as e:
+            logger.error(f"恢复项目快照失败: {str(e)}")
+            return Response(
+                {"detail": f"恢复项目快照失败: {str(e)}"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+    
+    @action(detail=True, methods=['post'])
+    def delete_snapshot(self, request, pk=None):
+        """
+        删除项目快照
+        """
+        project = self.get_object()
+        snapshot_id = request.data.get('snapshot_id')
+        
+        if not snapshot_id:
+            return Response(
+                {"detail": "请提供快照ID"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+            
+        try:
+            # 获取项目工作目录
+            workspace_dir = os.path.join(
+                os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 
+                'workspaces', 
+                f'project_{project.id}'
+            )
+            
+            # 检查快照目录是否存在
+            snapshots_dir = os.path.join(workspace_dir, 'snapshots')
+            snapshot_dir = os.path.join(snapshots_dir, snapshot_id)
+            
+            if not os.path.exists(snapshot_dir):
+                return Response(
+                    {"detail": "快照不存在"},
+                    status=status.HTTP_404_NOT_FOUND
+                )
+                
+            # 读取快照索引
+            index_path = os.path.join(snapshots_dir, 'index.json')
+            snapshots_index = []
+            
+            if os.path.exists(index_path):
+                try:
+                    with open(index_path, 'r') as f:
+                        snapshots_index = json.load(f)
+                except Exception as e:
+                    logger.error(f"读取快照索引失败: {str(e)}")
+                    return Response(
+                        {"detail": f"读取快照索引失败: {str(e)}"},
+                        status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                    )
+            
+            # 从索引中移除要删除的快照
+            snapshots_index = [s for s in snapshots_index if s['id'] != snapshot_id]
+            
+            # 保存更新后的索引
+            with open(index_path, 'w') as f:
+                json.dump(snapshots_index, f)
+                
+            # 删除快照目录
+            shutil.rmtree(snapshot_dir)
+            
+            return Response({
+                "status": "success",
+                "message": "快照删除成功"
+            })
+                
+        except Exception as e:
+            logger.error(f"删除项目快照失败: {str(e)}")
+            return Response(
+                {"detail": f"删除项目快照失败: {str(e)}"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+    
+    @action(detail=True, methods=['get'])
+    def current_files(self, request, pk=None):
+        """
+        获取当前项目工作区中的所有文件列表
+        """
+        project = self.get_object()
+        
+        try:
+            # 获取项目工作目录
+            workspace_dir = os.path.join(
+                os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 
+                'workspaces', 
+                f'project_{project.id}'
+            )
+            
+            logger.info(f"获取当前项目文件列表，项目ID={project.id}，工作目录={workspace_dir}")
+            
+            # 检查工作目录是否存在
+            if not os.path.exists(workspace_dir):
+                logger.warning(f"项目工作目录不存在: {workspace_dir}")
+                return Response(
+                    {"detail": "项目工作目录不存在"},
+                    status=status.HTTP_404_NOT_FOUND
+                )
+                
+            # 递归获取所有文件
+            all_files = []
+            
+            def list_files_recursively(directory, base_path=''):
+                for item in os.listdir(directory):
+                    full_path = os.path.join(directory, item)
+                    relative_path = os.path.join(base_path, item)
+                    
+                    # 检查是否要忽略的特殊文件/目录
+                    if item.startswith(".git") or \
+                       ".ipynb_checkpoints" in relative_path or \
+                       ".Trash" in relative_path or \
+                       item.endswith(".pyc") or \
+                       "__pycache__" in relative_path:
+                        continue
+                    
+                    if os.path.isdir(full_path):
+                        # 递归处理子目录
+                        list_files_recursively(full_path, relative_path)
+                    else:
+                        # 添加文件到列表
+                        all_files.append(relative_path.replace("\\", "/"))
+            
+            # 开始递归扫描文件
+            list_files_recursively(workspace_dir)
+            
+            logger.info(f"找到 {len(all_files)} 个文件")
+            
+            return Response({
+                "status": "success",
+                "message": "获取当前项目文件列表成功",
+                "data": {
+                    "files": all_files
+                }
+            })
+                
+        except Exception as e:
+            logger.error(f"获取当前项目文件列表失败: {str(e)}")
+            return Response(
+                {"status": "error", "message": f"获取当前项目文件列表失败: {str(e)}"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+    
+    @action(detail=True, methods=['get'])
+    def current_file_content(self, request, pk=None):
+        """
+        获取当前项目工作区中特定文件的内容
+        """
+        project = self.get_object()
+        file_path = request.query_params.get('file_path')
+        
+        if not file_path:
+            return Response(
+                {"status": "error", "message": "请提供文件路径"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+            
+        # 清理文件路径，移除末尾的斜杠或反斜杠
+        file_path = file_path.rstrip('/\\')
+        
+        try:
+            # 获取项目工作目录
+            workspace_dir = os.path.join(
+                os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 
+                'workspaces', 
+                f'project_{project.id}'
+            )
+            
+            # 记录详细日志
+            logger.info(f"尝试获取当前工作区文件: 项目ID={project.id}, 文件路径={file_path}")
+            
+            # 获取文件完整路径
+            file_full_path = os.path.join(workspace_dir, file_path)
+            logger.info(f"文件完整路径: {file_full_path}")
+            
+            # 检查文件是否存在
+            if not os.path.exists(file_full_path) or not os.path.isfile(file_full_path):
+                logger.error(f"文件不存在: {file_full_path}")
+                return Response(
+                    {"status": "error", "message": "文件不存在"},
+                    status=status.HTTP_404_NOT_FOUND
+                )
+            
+            # 获取文件类型
+            _, ext = os.path.splitext(file_path)
+            file_type = ext.lstrip('.')
+            
+            # 二进制文件类型列表 - 移除ipynb，允许它作为文本文件处理
+            binary_extensions = [
+                'pyc', 'pyd', 'pyo', 'so', 'dll', 'exe', 'bin', 'jpg', 'jpeg', 
+                'png', 'gif', 'bmp', 'ico', 'pdf', 'doc', 'docx', 'xls', 'xlsx',
+                'zip', 'tar', 'gz', 'rar', '7z', 'mp3', 'mp4', 'avi', 'mov'
+            ]
+            
+            # 检查是否是二进制文件
+            if file_type.lower() in binary_extensions:
+                logger.info(f"检测到二进制文件类型: {file_type}")
+                return Response({
+                    "status": "success",
+                    "message": "获取文件内容成功",
+                    "data": {
+                        'file_path': file_path,
+                        'content': f"[二进制文件: {file_path}]",
+                        'file_type': file_type,
+                        'is_binary': True
+                    }
+                })
+            
+            # 尝试读取文件前先检查文件大小
+            file_size = os.path.getsize(file_full_path)
+            logger.info(f"文件大小: {file_size} 字节")
+            
+            # 放宽文件大小限制，提高到5MB
+            if file_size > 5 * 1024 * 1024:  # 5MB
+                logger.warning(f"文件过大: {file_size} 字节")
+                return Response({
+                    "status": "success",
+                    "message": "获取文件内容成功",
+                    "data": {
+                        'file_path': file_path,
+                        'content': f"[文件过大: {file_size} 字节]",
+                        'file_type': file_type,
+                        'is_large_file': True
+                    }
+                })
+            
+            # 对于 ipynb 文件特殊处理
+            if file_type.lower() == 'ipynb':
+                try:
+                    # 尝试读取并简化内容
+                    with open(file_full_path, 'r', encoding='utf-8', errors='replace') as f:
+                        content = f.read()
+                    return Response({
+                        "status": "success",
+                        "message": "获取文件内容成功",
+                        "data": {
+                            'file_path': file_path,
+                            'content': content,
+                            'file_type': file_type
+                        }
+                    })
+                except Exception as e:
+                    logger.error(f"处理ipynb文件时出错: {str(e)}")
+                    return Response({
+                        "status": "success",
+                        "message": "获取文件内容成功",
+                        "data": {
+                            'file_path': file_path,
+                            'content': f"[Jupyter Notebook文件: {file_path}]",
+                            'file_type': file_type,
+                            'is_notebook': True
+                        }
+                    })
+            
+            # 依次尝试多种编码方式读取文件
+            encoding_attempts = ['utf-8', 'gbk', 'latin-1', 'cp1252', 'iso-8859-1']
+            content = None
+            
+            for encoding in encoding_attempts:
+                try:
+                    with open(file_full_path, 'r', encoding=encoding, errors='replace') as f:
+                        content = f.read()
+                    logger.info(f"成功使用 {encoding} 编码读取文件")
+                    break
+                except Exception as e:
+                    logger.warning(f"使用 {encoding} 编码读取文件失败: {str(e)}")
+                    continue
+            
+            if content is None:
+                # 作为最后的尝试，使用二进制模式读取并转换为字符串
+                try:
+                    with open(file_full_path, 'rb') as f:
+                        binary_data = f.read()
+                    # 尝试将二进制数据转换为字符串
+                    try:
+                        content = binary_data.decode('utf-8', errors='replace')
+                    except:
+                        content = str(binary_data)
+                    logger.info("使用二进制模式读取文件并转换为字符串")
+                except Exception as e:
+                    logger.error(f"所有读取尝试均失败: {str(e)}")
+                    return Response(
+                        {"status": "error", "message": f"无法读取文件内容: {str(e)}"},
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+            
+            return Response({
+                "status": "success",
+                "message": "获取文件内容成功",
+                "data": {
+                    'file_path': file_path,
+                    'content': content,
+                    'file_type': file_type
+                }
+            })
+            
+        except Exception as e:
+            logger.error(f"获取当前项目文件内容失败: {str(e)}")
+            return Response(
+                {"status": "error", "message": f"获取当前项目文件内容失败: {str(e)}"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
 class ProjectFileViewSet(viewsets.ModelViewSet):
     """
     项目文件视图集
