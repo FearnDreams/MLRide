@@ -977,3 +977,182 @@ api.interceptors.response.use(
 **启示:**
 
 在设计 API 响应格式和前端拦截器逻辑时，要仔细考虑各种可能的返回数据结构，确保判断逻辑的鲁棒性，避免因字段名冲突等问题导致意外行为。统一和明确的 API 响应结构有助于减少此类问题。
+
+## React 侧边栏实现与优化 (Home.tsx)
+
+本次修改涉及了 React 函数组件、状态管理、条件渲染、事件处理和 UI 优化。
+
+1.  **状态管理 (`useState`)**: 使用 `useState` hook 创建了 `isCollapsed` 状态变量，用于控制侧边栏的展开和收起状态。
+    ```javascript
+    const [isCollapsed, setIsCollapsed] = useState(false);
+    ```
+2.  **条件渲染**: 基于 `isCollapsed` 状态，动态地：
+    *   改变侧边栏容器的 CSS 类 (Tailwind CSS) 来调整宽度： `` `${isCollapsed ? 'w-20' : 'w-56'}` ``。
+    *   显隐 Logo 文字、菜单项文字和底部按钮文字： `` {!isCollapsed && <span>...</span>} ``。
+    *   改变切换按钮的图标： `` {isCollapsed ? <ChevronsRight /> : <ChevronsLeft />} ``。
+3.  **事件处理**: 为切换按钮和退出登录按钮绑定了 `onClick` 事件，分别调用 `setIsCollapsed` 更新状态和 `handleLogout` 执行登出逻辑。
+4.  **组件映射**: 使用 `.map()` 方法遍历 `sidebarItems` 数组，动态生成侧边栏菜单项 (`<Link>` 组件)。
+5.  **UI 库集成 (Ant Design)**: 引入并使用了 Ant Design 的 `Tooltip` 组件，在侧边栏收起时提供图标提示，增强了可用性。
+    ```javascript
+    import { Tooltip } from 'antd';
+    // ...
+    <Tooltip title={isCollapsed ? item.label : ''} placement="right">
+      {/* ... Link component ... */}
+    </Tooltip>
+    ```
+6.  **Tailwind CSS**: 大量使用 Tailwind CSS 工具类来快速构建响应式和定制化的 UI，包括宽度、内边距、外边距、Flexbox 布局、过渡效果 (`transition-all duration-300`) 等。
+7.  **图标库 (Lucide React)**: 使用 Lucide React 提供清晰、一致的 SVG 图标。
+8.  **代码结构**: 通过将侧边栏分为顶部（Logo、导航）和底部（按钮）两部分，并使用 Flexbox (`flex flex-col justify-between`)，确保即使在不同状态下布局也保持稳定。
+9.  **路由 (`react-router-dom`)**: 使用 `<Link>` 组件进行页面导航，`useLocation` hook 获取当前路径以高亮选中的菜单项。
+
+**关键点**: 侧边栏的收起/展开功能结合了状态管理、条件渲染和 CSS 过渡，是现代 Web 应用中常见的交互模式，可以有效提升空间利用率和用户体验。
+
+## Ant Design Modal 使用
+
+Ant Design 的 `Modal` 组件用于创建对话框（弹窗），常用于显示重要信息、确认操作或展示表单。
+
+**基本用法:**
+
+1.  **导入:**
+    ```javascript
+    import { Modal, Button } from 'antd';
+    import { useState } from 'react';
+    ```
+2.  **状态管理:** 使用 `useState` 控制 Modal 的显隐。
+    ```javascript
+    const [isModalVisible, setIsModalVisible] = useState(false);
+
+    const showModal = () => {
+      setIsModalVisible(true);
+    };
+
+    const handleOk = () => {
+      // 处理确认逻辑
+      setIsModalVisible(false);
+    };
+
+    const handleCancel = () => {
+      setIsModalVisible(false);
+    };
+    ```
+3.  **渲染 Modal:**
+    ```jsx
+    <>
+      <Button type="primary" onClick={showModal}>
+        Open Modal
+      </Button>
+      <Modal 
+        title="Basic Modal" 
+        open={isModalVisible} // 控制显示
+        onOk={handleOk}       // 点击确定按钮的回调
+        onCancel={handleCancel} // 点击遮罩层或右上角叉或取消按钮的回调
+        // footer={null}      // 可以自定义底部按钮，或设为 null 隐藏
+      >
+        <p>Some contents...</p>
+        <p>Some contents...</p>
+        <p>Some contents...</p>
+      </Modal>
+    </>
+    ```
+
+**常用属性:**
+
+*   `title`: 弹窗标题，可以是字符串或 React 节点。
+*   `open`: (取代了旧版的 `visible`) 控制模态框是否可见。
+*   `onOk`: 点击确定回调。
+*   `onCancel`: 点击取消回调（包括点击遮罩层、右上角关闭按钮）。
+*   `footer`: 自定义底部内容，常用于放置按钮。可以设为 `null` 来隐藏默认按钮。
+*   `width`: 设置宽度。
+*   `centered`: 是否垂直居中显示。
+*   `closable`: 是否显示右上角的关闭按钮。
+*   `maskClosable`: 点击蒙层是否允许关闭。
+*   `destroyOnClose`: 关闭时销毁 Modal 里的子元素，常用于重置表单状态。
+*   `className`: 自定义 CSS 类名，用于样式定制。
+
+**在 MLRide 中的应用 (Home.tsx):**
+
+*   使用 `useState` (`isHelpModalVisible`) 控制帮助弹窗的显隐。
+*   为帮助按钮添加 `onClick={() => setIsHelpModalVisible(true)}`。
+*   在 Modal 组件中设置 `open={isHelpModalVisible}` 和 `onCancel={() => setIsHelpModalVisible(false)}`。
+*   使用 `footer` 属性自定义了一个 "我知道了" 的关闭按钮。
+*   通过 `className="custom-dark-modal"` 应用了自定义的深色主题样式。
+*   在 Modal 体内填充了介绍平台功能的静态文本和列表。
+
+## Ant Design 全局提示 (`message`)
+
+Ant Design 的 `message` 组件提供了一种轻量级的全局反馈方式，通常用于显示操作成功、失败或警告等短暂提示。
+
+**特点:**
+
+*   **全局调用:** 无需在每个组件中单独引入和管理状态，可以直接通过 API 调用。
+*   **轻量级:** 提示通常出现在页面顶部，不会打断用户流程。
+*   **自动消失:** 默认情况下，提示会在几秒后自动消失。
+*   **多种类型:** 支持成功 (`success`)、错误 (`error`)、警告 (`warning`)、加载中 (`loading`) 等多种类型，并带有相应的图标和颜色。
+
+**基本用法:**
+
+1.  **导入:**
+    ```javascript
+    import { message } from 'antd';
+    ```
+
+2.  **调用:**
+    ```javascript
+    // 成功提示
+    message.success('操作成功！');
+
+    // 错误提示
+    message.error('操作失败，请重试。');
+
+    // 警告提示
+    message.warning('请注意...');
+
+    // 加载中提示 (需要手动销毁)
+    const hide = message.loading('正在处理...', 0); // 0 表示不自动消失
+    // ... 执行异步操作 ...
+    setTimeout(hide, 2500); // 手动关闭
+    ```
+
+**自定义配置:**
+
+可以传递一个配置对象来自定义提示的行为：
+
+```javascript
+message.success({
+  content: '用户已成功登录',
+  duration: 5, // 持续时间（秒），0 表示不自动关闭
+  className: 'custom-message-style', // 自定义 CSS 类
+  style: {
+    marginTop: '20vh', // 自定义内联样式
+  },
+  icon: <SmileOutlined />, // 自定义图标
+  onClick: () => {
+    console.log('提示被点击了');
+  },
+  onClose: () => {
+    console.log('提示关闭了');
+  }
+});
+```
+
+**全局配置:**
+
+可以在应用入口处（如 `App.tsx` 或 `main.tsx`）进行全局配置：
+
+```javascript
+import { message } from 'antd';
+
+message.config({
+  top: 100,       // 提示距离顶部的距离
+  duration: 2,      // 默认持续时间
+  maxCount: 3,    // 最大显示数，超过限制时，最早的消息会被自动关闭
+  rtl: false,     // 是否开启 RTL 模式
+});
+```
+
+**在 MLRide 中的应用 (`CreateProjectPage.tsx`):**
+
+*   替换了原有的 `shadcn/ui` 的 `toast` 调用。
+*   使用 `message.success('项目创建成功')` 在项目成功创建后给出提示。
+*   使用 `message.error(errorMessage)` 在创建失败时显示具体的错误信息。
+*   这种全局提示方式简化了组件内的状态管理，并提供了统一的应用反馈风格。

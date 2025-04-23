@@ -17,12 +17,15 @@ import {
   Users,
   FolderOpen,
   LogOut,
-  Settings
+  Settings,
+  BarChart,
+  ChevronsLeft,
+  ChevronsRight
 } from 'lucide-react';
 import { RootState } from '@/store';
 import { authService } from '@/services/auth';
 import { UserProfile } from '@/types/auth';
-import { message } from 'antd';
+import { message, Modal } from 'antd';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -30,12 +33,15 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Tooltip } from 'antd';
 
 const Home: React.FC = () => {
   const [selectedTab, setSelectedTab] = useState("我的项目");
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const location = useLocation();
   const navigate = useNavigate();
+  const [isCollapsed, setIsCollapsed] = useState(false);
+  const [isHelpModalVisible, setIsHelpModalVisible] = useState(false);
   
   const user = useSelector((state: RootState) => state.auth.user);
   const isAuthenticated = useSelector((state: RootState) => state.auth.isAuthenticated);
@@ -90,12 +96,9 @@ const Home: React.FC = () => {
     { icon: Clock, label: "最近", path: "/dashboard/recent" },
     { icon: FolderOpen, label: "我的项目", path: "/dashboard/projects" },
     { icon: Image, label: "镜像", path: "/dashboard/images" },
-    { icon: Monitor, label: "计算资源", path: "/dashboard/compute" },
-    { icon: Database, label: "案例库", path: "/dashboard/cases" },
-    { icon: Network, label: "离线任务", path: "/dashboard/tasks" },
-    { icon: Box, label: "模型库", path: "/dashboard/models" },
-    { icon: Server, label: "模型服务", path: "/dashboard/services" },
-    { icon: Users, label: "社区资源", path: "/dashboard/community" }
+    { icon: Database, label: "数据集", path: "/dashboard/datasets" },
+    { icon: Users, label: "社区资源", path: "/dashboard/community" },
+    { icon: BarChart, label: "统计面板", path: "/dashboard/tasks" },
   ];
 
   // 处理登出
@@ -134,6 +137,63 @@ const Home: React.FC = () => {
     }
   };
 
+  // Function to render the help modal
+  const renderHelpModal = (): JSX.Element => (
+    <Modal
+      title={
+        <div className="flex items-center text-white">
+          <HelpCircle className="w-5 h-5 mr-2 text-blue-400" />
+          欢迎使用 MLRide 平台
+        </div>
+      }
+      open={isHelpModalVisible}
+      onCancel={() => setIsHelpModalVisible(false)}
+      footer={[
+        <Button
+          key="close"
+          onClick={() => setIsHelpModalVisible(false)}
+          className="bg-blue-600 hover:bg-blue-500 text-white border-0"
+          size="sm"
+        >
+          我知道了
+        </Button>
+      ]}
+      width={600}
+      className="custom-dark-modal"
+      centered // Center the modal
+    >
+      <div className="text-gray-300 space-y-4 mt-4 text-sm">
+        <p>
+          MLRide 是一个面向机器学习开发者的集成化生产力平台，旨在简化从环境配置、代码编写、版本控制到模型部署的全流程。
+        </p>
+        <h3 className="text-base font-medium text-white pt-2 text-center">🔥🔥🔥核心功能🔥🔥🔥</h3>
+        <ul className="list-disc list-inside space-y-2 pl-2">
+          <li>
+            <strong className="text-blue-400">📂项目管理:</strong> 创建和管理您的机器学习项目，支持不同类型的项目（如 Jupyter Notebook）。
+          </li>
+          <li>
+            <strong className="text-blue-400">🐋镜像管理:</strong> 选择或自定义 Docker 镜像，为项目提供一致的运行环境。
+          </li>
+          <li>
+            <strong className="text-blue-400">💻在线开发环境:</strong> 使用镜像直接在浏览器中运行和调试 Jupyter Notebook。
+          </li>
+          <li>
+            <strong className="text-blue-400">🔧版本控制:</strong> 实现项目（代码）版本的追踪与比较。
+          </li>
+          <li>
+            <strong className="text-blue-400">💾数据集管理:</strong> 上传并管理您的项目数据集。
+          </li>
+          <li>
+            <strong className="text-blue-400">🔍统计面板:</strong> 监控资源使用和任务执行情况。
+          </li>
+        </ul>
+        <p className="pt-2">
+          平台致力于提供一个高效、易用、可扩展的机器学习工作流解决方案。祝您使用愉快！
+        </p>
+      </div>
+    </Modal>
+  );
+
   return (
     <div className="flex min-h-screen bg-gradient-to-br from-slate-950 via-gray-900 to-slate-900 text-white overflow-hidden relative">
       {/* 背景装饰 */}
@@ -144,54 +204,67 @@ const Home: React.FC = () => {
       </div>
 
       {/* Sidebar */}
-      <div className="w-56 bg-slate-800/30 backdrop-blur-md border-r border-slate-700/50 z-10">
-        <div className="p-6 flex items-center gap-2">
-          <img src="/mlride-icon.svg" alt="MLRide Logo" className="w-8 h-8" />
-          <span className="font-bold text-xl bg-gradient-to-r from-blue-400 to-indigo-500 bg-clip-text text-transparent">MLRide</span>
-        </div>
-        
-        <nav className="mt-6 px-3">
-          {sidebarItems.map((item, index) => (
-            <Link 
-              key={index} 
-              to={item.path}
-              className={`flex items-center gap-3 px-4 py-3 my-1 rounded-lg transition-all duration-200 ${
-                location.pathname.includes(item.path) 
-                  ? "bg-blue-600/20 text-blue-400 border border-blue-500/30 shadow-sm shadow-blue-500/10" 
-                  : "text-gray-300 hover:bg-slate-700/30 hover:text-white"
-              }`}
+      <div className={`flex flex-col justify-between bg-slate-800/30 backdrop-blur-md border-r border-slate-700/50 z-10 transition-all duration-300 ${isCollapsed ? 'w-20' : 'w-56'}`}>
+        <div>
+          <div className={`flex items-center justify-between p-6 ${isCollapsed ? 'px-4' : ''}`}>
+            {!isCollapsed && (
+              <Link to="/dashboard/recent" className="flex items-center gap-2">
+                <img src="/mlride-icon.svg" alt="MLRide Logo" className="w-8 h-8 flex-shrink-0" />
+                <span className="font-bold text-xl bg-gradient-to-r from-blue-400 to-indigo-500 bg-clip-text text-transparent whitespace-nowrap">MLRide</span>
+              </Link>
+            )}
+            <Button 
+              variant="ghost" 
+              size="icon" 
+              onClick={() => setIsCollapsed(!isCollapsed)} 
+              className="text-gray-400 hover:text-white hover:bg-slate-700/50"
             >
-              <item.icon className={`w-5 h-5 ${location.pathname.includes(item.path) ? "text-blue-400" : ""}`} />
-              <span>{item.label}</span>
-            </Link>
-          ))}
-        </nav>
+              {isCollapsed ? <ChevronsRight className="w-5 h-5" /> : <ChevronsLeft className="w-5 h-5" />}
+            </Button>
+          </div>
+          
+          <nav className={`mt-6 ${isCollapsed ? 'px-2' : 'px-3'}`}>
+            {sidebarItems.map((item, index) => (
+              <Tooltip key={index} title={isCollapsed ? item.label : ''} placement="right">
+                <Link 
+                  to={item.path}
+                  className={`flex items-center gap-3 my-1 rounded-lg transition-all duration-200 ${isCollapsed ? 'justify-center px-2 py-3' : 'px-4 py-3'} ${
+                    location.pathname.includes(item.path) 
+                      ? "bg-blue-600/20 text-blue-400 border border-blue-500/30 shadow-sm shadow-blue-500/10" 
+                      : "text-gray-300 hover:bg-slate-700/30 hover:text-white"
+                  }`}
+                >
+                  <item.icon className={`w-5 h-5 flex-shrink-0 ${location.pathname.includes(item.path) ? "text-blue-400" : ""}`} />
+                  {!isCollapsed && <span>{item.label}</span>}
+                </Link>
+              </Tooltip>
+            ))}
+          </nav>
+        </div>
 
-        <div className="mt-auto p-4 mx-3 mb-6">
-          <button className="w-full py-2 px-4 text-white bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 rounded-lg shadow-md shadow-blue-900/20 transition-all duration-200">
-            工作台管理
-          </button>
+        <div className={`p-4 ${isCollapsed ? 'px-2' : 'px-3'} mb-6`}>
+           <Tooltip title={isCollapsed ? '退出登录' : ''} placement="right">
+            <Button 
+              onClick={handleLogout}
+              className={`w-full py-2 flex items-center gap-3 transition-all duration-200 bg-red-500/10 hover:bg-red-500/20 text-red-300 border border-red-500/50 ${isCollapsed ? 'justify-center px-0' : 'px-4'}`}
+            >
+              <LogOut className="w-5 h-5 flex-shrink-0" />
+              {!isCollapsed && <span>退出登录</span>}
+            </Button>
+          </Tooltip>
         </div>
       </div>
 
       {/* Main Content */}
-      <div className="flex-1 flex flex-col z-10">
+      <div className="flex-1 flex flex-col z-10 transition-all duration-300">
         {/* Header */}
-        <header className="h-16 flex items-center justify-between px-6 bg-slate-800/30 backdrop-blur-md border-b border-slate-700/50">
+        <header className="h-16 flex items-center justify-between px-6 bg-slate-800/30 backdrop-blur-md border-b border-slate-700/50 flex-shrink-0">
           <h1 className="text-xl font-semibold text-white">
             {location.pathname === '/dashboard/profile' 
               ? "个人信息设置"
               : sidebarItems.find(item => location.pathname.includes(item.path))?.label || "项目概览"}
           </h1>
-          <div className="flex items-center gap-6">
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
-              <input
-                type="text"
-                placeholder="搜索..."
-                className="pl-10 pr-4 py-2 bg-slate-800/50 border border-slate-700/50 rounded-lg text-sm text-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500/50"
-              />
-            </div>
+          <div className="flex items-center gap-4">
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <div className="flex items-center cursor-pointer bg-slate-800/50 hover:bg-slate-700/50 px-3 py-2 rounded-lg border border-slate-700/50 transition-all duration-200">
@@ -215,23 +288,26 @@ const Home: React.FC = () => {
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
-            <div className="flex items-center gap-1 text-gray-300 hover:text-white cursor-pointer">
-              <Bell className="w-5 h-5" />
-            </div>
-            <div className="flex items-center gap-1 text-gray-300 hover:text-white cursor-pointer">
-              <HelpCircle className="w-5 h-5" />
-              <span>帮助</span>
-            </div>
+            <Tooltip title="帮助文档" placement="bottom">
+              <div 
+                className="flex items-center gap-1 text-gray-300 hover:text-white cursor-pointer p-2 hover:bg-slate-700/50 rounded-md"
+                onClick={() => setIsHelpModalVisible(true)}
+              >
+                <HelpCircle className="w-5 h-5" />
+                {!isCollapsed && <span>帮助</span>}
+              </div>
+            </Tooltip>
           </div>
         </header>
 
         {/* Content Area */}
         <main className="flex-1 overflow-y-auto p-6">
-          <div className="bg-slate-800/30 backdrop-blur-sm rounded-xl border border-slate-700/50 shadow-md p-6">
+          <div className="h-full">
             <Outlet />
           </div>
         </main>
       </div>
+      {renderHelpModal()}
     </div>
   );
 };

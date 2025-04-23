@@ -66,3 +66,100 @@ button:focus-visible {
     background-color: #f9f9f9;
   }
 }
+
+/* Ant Design Modal Dark Theme Override */
+.custom-dark-modal .ant-modal-content {
+  background-color: rgba(15, 23, 42, 0.75) !important; /* 使用更深的背景色并添加透明度 */
+  backdrop-filter: blur(12px) !important; /* 添加模糊效果 */
+  color: white !important;
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.3) !important;
+  border: 1px solid rgba(51, 65, 85, 0.5) !important; /* 使用更深的边框色 */
+  border-radius: 0.75rem !important; /* 增加圆角 */
+}
+
+.custom-dark-modal .ant-modal-header {
+  background-color: transparent !important; /* 透明背景 */
+  border-bottom: 1px solid rgba(59, 130, 246, 0.2) !important;
+}
+
+.custom-dark-modal .ant-modal-title {
+  color: white !important;
+}
+
+.custom-dark-modal .ant-modal-close {
+  color: rgba(156, 163, 175, 0.7) !important; /* gray-400 */
+}
+
+.custom-dark-modal .ant-modal-close:hover {
+  color: white !important;
+}
+
+.custom-dark-modal .ant-modal-body {
+  background-color: transparent !important; /* 透明背景 */
+  color: #e5e7eb !important; /* gray-200 */
+}
+
+.custom-dark-modal .ant-modal-footer {
+  background-color: transparent !important; /* 透明背景 */
+  border-top: 1px solid rgba(59, 130, 246, 0.2) !important;
+}
+
+/* 添加更多的样式，参考ImagesPage.tsx的内联样式 */
+.custom-dark-modal .ant-btn-primary {
+  color: white !important;
+}
+
+.custom-dark-modal .ant-btn-default {
+  color: rgb(209, 213, 219) !important;
+  border-color: rgba(71, 85, 105, 0.5) !important;
+  background-color: rgba(51, 65, 85, 0.5) !important;
+}
+
+.custom-dark-modal .ant-btn-default:hover {
+  color: white !important;
+  border-color: rgba(59, 130, 246, 0.5) !important;
+  background-color: rgba(71, 85, 105, 0.5) !important;
+}
+
+.custom-dark-modal .ant-form-item-label > label {
+  color: rgb(209, 213, 219) !important;
+}
+
+.custom-dark-modal .ant-input,
+.custom-dark-modal .ant-input-affix-wrapper,
+.custom-dark-modal .ant-input-number,
+.custom-dark-modal .ant-input-number-input,
+.custom-dark-modal .ant-select-selector,
+.custom-dark-modal .ant-select-selection-item,
+.custom-dark-modal .ant-input-textarea {
+  background-color: rgba(30, 41, 59, 0.5) !important;
+  border-color: rgba(51, 65, 85, 0.8) !important;
+  color: rgb(237, 242, 247) !important;
+}
+
+.custom-dark-modal .ant-input::placeholder,
+.custom-dark-modal .ant-input-number-input::placeholder,
+.custom-dark-modal .ant-input-textarea textarea::placeholder {
+  color: rgba(148, 163, 184, 0.5) !important;
+}
+
+.custom-dark-modal .ant-input:hover,
+.custom-dark-modal .ant-input-affix-wrapper:hover,
+.custom-dark-modal .ant-input-number:hover,
+.custom-dark-modal .ant-select-selector:hover,
+.custom-dark-modal .ant-input-textarea:hover {
+  border-color: rgba(59, 130, 246, 0.5) !important;
+}
+
+.custom-dark-modal .ant-input:focus,
+.custom-dark-modal .ant-input-affix-wrapper:focus,
+.custom-dark-modal .ant-input-number:focus,
+.custom-dark-modal .ant-select-selector:focus,
+.custom-dark-modal .ant-input-textarea:focus {
+  border-color: rgba(59, 130, 246, 0.8) !important;
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2) !important;
+}
+
+.custom-dark-modal .ant-form-item-explain-error {
+  color: #f56565 !important;
+}

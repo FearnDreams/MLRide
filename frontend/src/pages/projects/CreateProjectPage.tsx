@@ -11,14 +11,13 @@ import { Switch } from '@/components/ui/switch';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { getDockerImages, DockerImage } from '@/services/images';
 import { createProject } from '@/services/projects';
-import { useToast } from '@/components/ui/use-toast';
+import { message } from 'antd';
 
 // 备注: 直接使用services/images.ts中定义的DockerImage接口
 
 const CreateProjectPage: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
-  const { toast } = useToast();
 
   // 从URL参数读取项目类型
   const getProjectTypeFromUrl = (): 'notebook' | 'canvas' => {
@@ -109,20 +108,12 @@ const CreateProjectPage: React.FC = () => {
     e.preventDefault();
     
     if (!projectName.trim()) {
-      toast({
-        title: "错误",
-        description: "项目名称不能为空",
-        variant: "destructive",
-      });
+      message.error("项目名称不能为空");
       return;
     }
 
     if (!selectedImageId) {
-      toast({
-        title: "错误",
-        description: "请选择一个镜像",
-        variant: "destructive",
-      });
+      message.error("请选择一个镜像");
       return;
     }
 
@@ -138,10 +129,7 @@ const CreateProjectPage: React.FC = () => {
         is_public: isPublic
       });
 
-      toast({
-        title: "成功",
-        description: "项目创建成功",
-      });
+      message.success("项目创建成功");
 
       // 导航到项目详情页
       if (response && response.data && response.data.id) {
@@ -161,11 +149,7 @@ const CreateProjectPage: React.FC = () => {
       // 使用API拦截器统一处理后的错误信息
       const errorMessage = err.response?.data?.message || err.message || '创建项目失败，请稍后重试';
       setError(errorMessage);
-      toast({
-        title: "错误",
-        description: errorMessage,
-        variant: "destructive",
-      });
+      message.error(errorMessage);
     } finally {
       setLoading(false);
     }

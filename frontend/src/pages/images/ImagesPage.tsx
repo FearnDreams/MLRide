@@ -4,11 +4,65 @@ import { Button } from '@/components/ui/button';
 import { useNavigate } from 'react-router-dom';
 import { imagesService, DockerImage } from '@/services/images';
 import { message, Spin, Empty, Modal, Tooltip, Badge, Form, Input } from 'antd';
+import _ from 'lodash'; // 引入 lodash 用于 debounce
+
+// 将 officialImages 定义移到组件顶部
+const officialImages = [
+  {
+    id: "official-1",
+    name: "气象分析镜像 Python 3.7",
+    title: "气象分析镜像 Python 3.7",
+    description: "气象专用，使用conda安装可能存在较多冲突, Python 3.7.8",
+    python_version: "3.7.8",
+    pythonVersion: "3.7.8",
+    version: "Python 3.7.8",
+    created: new Date().toISOString(),
+    status: "ready",
+    creator: 0,
+    creator_name: "官方团队",
+    type: ["官方", "CPU"],
+    packages: "numpy,pandas,matplotlib,scipy,sklearn"
+  },
+  {
+    id: "official-2",
+    name: "TF2.4 Torch1.7 推断",
+    title: "TF2.4 Torch1.7 推断",
+    description: "tf2.4.2-torch1.7.1-py3.7.10",
+    python_version: "3.7.10",
+    pythonVersion: "3.7.10",
+    version: "Python 3.7.10",
+    created: new Date().toISOString(),
+    status: "ready",
+    creator: 0,
+    creator_name: "官方团队",
+    type: ["官方", "CPU"],
+    packages: "tensorflow==2.4.2,torch==1.7.1,numpy,pandas",
+    pytorch_version: "1.7.1"
+  },
+  {
+    id: "official-3",
+    name: "Python 3.7 数据科学镜像",
+    title: "Python 3.7 数据科学镜像",
+    description: "兼容 ModelWhale IDE，Python 3.7.12",
+    python_version: "3.7.12",
+    pythonVersion: "3.7.12",
+    version: "Python 3.7.12",
+    created: new Date().toISOString(),
+    status: "ready",
+    creator: 0,
+    creator_name: "官方团队",
+    type: ["官方", "CPU"],
+    packages: "numpy,pandas,matplotlib,scipy,sklearn,jupyterlab"
+  }
+];
 
 const ImagesPage: React.FC = () => {
   const navigate = useNavigate();
   const [selectedTab, setSelectedTab] = useState("我的镜像");
   const [userImages, setUserImages] = useState<DockerImage[]>([]);
+  const [filteredUserImages, setFilteredUserImages] = useState<DockerImage[]>([]); // 过滤后的用户镜像
+  // 官方镜像列表是静态的，如果也需要过滤，则添加对应状态
+  const [filteredOfficialImages, setFilteredOfficialImages] = useState<any[]>(officialImages); // 初始化过滤后的官方镜像
   const [loading, setLoading] = useState(false);
   const [deleteLoading, setDeleteLoading] = useState(false);
   const [detailModalVisible, setDetailModalVisible] = useState(false);
@@ -16,6 +70,7 @@ const ImagesPage: React.FC = () => {
   const [editLoading, setEditLoading] = useState(false);
   const [selectedImage, setSelectedImage] = useState<DockerImage | null>(null);
   const [form] = Form.useForm();
+  const [searchTerm, setSearchTerm] = useState(''); // 搜索词状态
   
   // 获取用户镜像
   const fetchUserImages = async () => {
@@ -23,49 +78,86 @@ const ImagesPage: React.FC = () => {
     try {
       const response = await imagesService.getUserImages();
       if (response.status === 'success' && response.data) {
-        // 确保数据是数组类型
         const imagesData = Array.isArray(response.data) ? response.data : [];
-        console.log('镜像页面原始数据:', imagesData);
-        if(imagesData.length > 0) {
-          console.log('第一个镜像详情:', JSON.stringify(imagesData[0], null, 2));
-          console.log('Python版本字段:', imagesData[0].python_version, imagesData[0].pythonVersion);
-        }
-        
-        // 处理数据，确保能够正确显示Python版本
         const processedImages = imagesData.map(image => {
-          // 如果后端返回的是pythonVersion而不是python_version，做字段兼容
           if (image.pythonVersion && !image.python_version) {
-            return {
-              ...image,
-              python_version: image.pythonVersion
-            };
+            return { ...image, python_version: image.pythonVersion };
           }
-          // 如果后端返回的是python_version而不是pythonVersion，做字段兼容
           if (image.python_version && !image.pythonVersion) {
-            return {
-              ...image,
-              pythonVersion: image.python_version
-            };
+            return { ...image, pythonVersion: image.python_version };
           }
           return image;
         });
-        
         setUserImages(processedImages);
+        // 获取数据后立即应用当前搜索词进行过滤
+        applyFilter(searchTerm, selectedTab, processedImages, officialImages);
       } else {
         message.error(response.message || '获取镜像失败');
+        setUserImages([]); // 清空数据
+        setFilteredUserImages([]);
       }
     } catch (error: any) {
       console.error('获取用户镜像失败:', error);
       message.error(error.message || '获取镜像失败，请重试');
+      setUserImages([]); // 清空数据
+      setFilteredUserImages([]);
     } finally {
       setLoading(false);
     }
   };
   
   useEffect(() => {
-    fetchUserImages();
-  }, []);
+    fetchUserImages(); // 初始加载
+  }, []); // 移除 selectedTab 依赖，因为 fetchUserImages 只获取用户镜像
   
+  // 过滤函数 (提取出来方便复用和 debounce)
+  const applyFilter = (term: string, tab: string, currentUsers: DockerImage[], currentOfficials: any[]) => {
+      const terms = term
+        .toLowerCase()
+        .split(',')
+        .map(t => t.trim())
+        .filter(t => t !== '');
+
+      const filterImage = (image: DockerImage | any) => { // 使用 any 兼容官方镜像结构
+        if (terms.length === 0) return true;
+
+        const name = (image.name || '').toLowerCase();
+        const description = (image.description || '').toLowerCase();
+        const packages = (image.packages || '').toLowerCase(); // 添加对 packages 的搜索
+        
+        // 检查名称、描述或包是否包含所有搜索词
+        return terms.every(t => 
+            name.includes(t) || 
+            description.includes(t) ||
+            packages.includes(t)
+        );
+      };
+
+      if (tab === "我的镜像") {
+        setFilteredUserImages(currentUsers.filter(filterImage));
+      } else {
+        setFilteredOfficialImages(currentOfficials.filter(filterImage));
+      }
+  };
+  
+  // 使用 useEffect 监听搜索词和 Tab 变化以触发过滤
+  useEffect(() => {
+    const debouncedFilter = _.debounce(() => {
+       applyFilter(searchTerm, selectedTab, userImages, officialImages);
+    }, 300);
+    
+    debouncedFilter();
+
+    return () => {
+      debouncedFilter.cancel();
+    };
+  }, [searchTerm, selectedTab, userImages, officialImages]); // 依赖项包含原始列表
+  
+  // 处理搜索输入变化
+  const handleSearchChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    setSearchTerm(event.target.value);
+  };
+
   // 删除镜像
   const handleDeleteImage = async (id: number) => {
     Modal.confirm({
@@ -110,7 +202,7 @@ const ImagesPage: React.FC = () => {
   };
 
   // 查看镜像详情
-  const handleViewImageDetail = (image: DockerImage) => {
+  const handleViewImageDetail = (image: DockerImage | any) => { // 允许 any 类型
     setSelectedImage(image);
     setDetailModalVisible(true);
   };
@@ -180,56 +272,6 @@ const ImagesPage: React.FC = () => {
     }
   };
   
-  // 修改官方镜像的数据结构，添加更多字段以匹配DockerImage接口
-  const officialImages = [
-    {
-      id: "official-1",
-      name: "气象分析镜像 Python 3.7",
-      title: "气象分析镜像 Python 3.7",
-      description: "气象专用，使用conda安装可能存在较多冲突, Python 3.7.8",
-      python_version: "3.7.8",
-      pythonVersion: "3.7.8",
-      version: "Python 3.7.8",
-      created: new Date().toISOString(),
-      status: "ready",
-      creator: 0,
-      creator_name: "官方团队",
-      type: ["官方", "CPU"],
-      packages: "numpy,pandas,matplotlib,scipy,sklearn"
-    },
-    {
-      id: "official-2",
-      name: "TF2.4 Torch1.7 推断",
-      title: "TF2.4 Torch1.7 推断",
-      description: "tf2.4.2-torch1.7.1-py3.7.10",
-      python_version: "3.7.10",
-      pythonVersion: "3.7.10",
-      version: "Python 3.7.10",
-      created: new Date().toISOString(),
-      status: "ready",
-      creator: 0,
-      creator_name: "官方团队",
-      type: ["官方", "CPU"],
-      packages: "tensorflow==2.4.2,torch==1.7.1,numpy,pandas",
-      pytorch_version: "1.7.1"
-    },
-    {
-      id: "official-3",
-      name: "Python 3.7 数据科学镜像",
-      title: "Python 3.7 数据科学镜像",
-      description: "兼容 ModelWhale IDE，Python 3.7.12",
-      python_version: "3.7.12",
-      pythonVersion: "3.7.12",
-      version: "Python 3.7.12",
-      created: new Date().toISOString(),
-      status: "ready",
-      creator: 0,
-      creator_name: "官方团队",
-      type: ["官方", "CPU"],
-      packages: "numpy,pandas,matplotlib,scipy,sklearn,jupyterlab"
-    }
-  ];
-
   // 获取镜像状态对应的中文
   const getStatusText = (status: string) => {
     const statusMap: Record<string, string> = {
@@ -252,7 +294,7 @@ const ImagesPage: React.FC = () => {
     return styleMap[status] || { bg: 'bg-gray-500/20', text: 'text-gray-400', border: 'border-gray-500/30' };
   };
 
-  // 渲染用户镜像列表
+  // 渲染用户镜像列表 (使用过滤后数据)
   const renderUserImages = () => {
     if (loading) {
       return (
@@ -261,8 +303,8 @@ const ImagesPage: React.FC = () => {
         </div>
       );
     }
-
-    if (userImages.length === 0) {
+    // 修改：使用 filteredUserImages
+    if (filteredUserImages.length === 0) {
       return (
         <Empty
           image={Empty.PRESENTED_IMAGE_SIMPLE}
@@ -270,25 +312,28 @@ const ImagesPage: React.FC = () => {
             <div className="flex flex-col items-center">
               <div className="flex items-center text-gray-300 mb-2">
                 <AlertCircle className="w-5 h-5 mr-2" />
-                <span>暂未创建任何镜像</span>
+                <span>{searchTerm ? '未找到匹配的镜像' : '暂未创建任何镜像'}</span>
               </div>
-              <p className="text-gray-400 text-sm">您可以点击"新建镜像"按钮创建自己的镜像</p>
+              {!searchTerm && <p className="text-gray-400 text-sm">您可以点击"新建镜像"按钮创建自己的镜像</p>}
             </div>
           }
         >
-          <Button 
-            className="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white px-4 py-2 rounded-lg shadow-md shadow-blue-900/20 border-0 transition-all duration-200 mt-4"
-            onClick={() => navigate('/dashboard/images/create')}
-          >
-            新建镜像
-          </Button>
+          {!searchTerm && (
+            <Button 
+              className="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white px-4 py-2 rounded-lg shadow-md shadow-blue-900/20 border-0 transition-all duration-200 mt-4"
+              onClick={() => navigate('/dashboard/images/create')}
+            >
+               <Plus className="w-5 h-5 mr-1" /> 新建镜像
+            </Button>
+          )}
         </Empty>
       );
     }
 
     return (
       <div className="space-y-4">
-        {userImages.map((image) => (
+        {/* 修改：使用 filteredUserImages */} 
+        {filteredUserImages.map((image) => (
           <div key={image.id} className="bg-slate-800/30 backdrop-blur-sm p-5 rounded-xl border border-slate-700/50 hover:border-blue-500/30 transition-all duration-300 hover:shadow-md hover:shadow-blue-500/5">
             <div className="flex justify-between items-start">
               <div className="flex-1">
@@ -397,13 +442,29 @@ const ImagesPage: React.FC = () => {
     );
   };
 
-  // 渲染官方镜像列表
+  // 渲染官方镜像列表 (使用过滤后数据)
   const renderOfficialImages = () => {
+    // 修改：使用 filteredOfficialImages
+    if (filteredOfficialImages.length === 0) {
+        return (
+         <Empty 
+            image={Empty.PRESENTED_IMAGE_SIMPLE}
+            description={
+                <div className="flex items-center text-gray-300">
+                    <AlertCircle className="w-5 h-5 mr-2" />
+                    <span>{searchTerm ? '未找到匹配的镜像' : '暂无官方镜像'}</span>
+                </div>
+            }
+        />
+       );
+    }
     return (
       <div className="space-y-4">
-        {officialImages.map((image, index) => (
+        {/* 修改：使用 filteredOfficialImages */} 
+        {filteredOfficialImages.map((image: any, index: number) => (
           <div key={index} className="bg-slate-800/30 backdrop-blur-sm p-5 rounded-xl border border-slate-700/50 hover:border-purple-500/30 transition-all duration-300 hover:shadow-md hover:shadow-purple-500/5">
-            <div className="flex justify-between items-start">
+             {/* 卡片内部结构不变 */}
+              <div className="flex justify-between items-start">
               <div>
                 <div className="flex items-center gap-2 mb-2">
                   <h3 className="font-medium text-white">{image.title}</h3>
@@ -434,7 +495,7 @@ const ImagesPage: React.FC = () => {
                 )}
               </div>
               <div className="flex items-center gap-3">
-                {image.type.map((type, i) => (
+                {image.type.map((type: string, i: number) => (
                   <span key={i} className={`text-sm px-2 py-1 rounded-full ${
                     type === "官方" 
                       ? "bg-purple-500/20 text-purple-400 border border-purple-500/30" 
@@ -586,7 +647,7 @@ const ImagesPage: React.FC = () => {
               </h3>
               <div className="bg-slate-800/30 p-4 rounded-lg border border-slate-700/50 backdrop-blur-md">
                 <div className="flex flex-wrap gap-2">
-                  {selectedImage.packages.split(',').map((pkg, index) => (
+                  {selectedImage.packages.split(',').map((pkg: string, index: number) => (
                     <span key={index} className="text-sm px-2.5 py-1 bg-indigo-500/10 text-indigo-300 rounded-full border border-indigo-500/20">
                       {pkg.trim()}
                     </span>
@@ -666,8 +727,10 @@ const ImagesPage: React.FC = () => {
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
             <input
               type="text"
-              placeholder="搜索镜像名或标签，搜索多个标名用英文逗号分隔"
+              placeholder="搜索镜像名、描述或包，逗号分隔多标签"
               className="w-full pl-10 pr-4 py-2 bg-slate-800/50 border border-slate-700/50 rounded-lg text-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500/50"
+              value={searchTerm} // 绑定 value
+              onChange={handleSearchChange} // 绑定 onChange
             />
           </div>
           <Button 

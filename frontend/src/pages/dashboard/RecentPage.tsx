@@ -362,6 +362,82 @@ const RecentPage: React.FC = () => {
           </div>
         </div>
       </div>
+      {/* 添加 Dark Modal 样式，与 ImagesPage 保持一致 */}
+      <style>{`
+        .custom-dark-modal .ant-modal-content {
+          background-color: rgba(15, 23, 42, 0.75);
+          backdrop-filter: blur(12px);
+          border: 1px solid rgba(51, 65, 85, 0.5);
+          border-radius: 0.75rem;
+          box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.3);
+        }
+        .custom-dark-modal .ant-modal-header {
+          background-color: transparent;
+          border-bottom: 1px solid rgba(51, 65, 85, 0.5);
+        }
+        .custom-dark-modal .ant-modal-title {
+          color: white;
+        }
+        .custom-dark-modal .ant-modal-close {
+          color: rgba(148, 163, 184, 0.8);
+        }
+        .custom-dark-modal .ant-modal-close:hover {
+          color: white;
+        }
+        .image-detail-modal .ant-badge-status-text {
+          color: inherit;
+        }
+        .custom-dark-modal .ant-btn-primary {
+          color: white !important;
+        }
+        .custom-dark-modal .ant-btn-default {
+          color: rgb(209, 213, 219) !important;
+          border-color: rgba(71, 85, 105, 0.5) !important;
+          background-color: rgba(51, 65, 85, 0.5) !important;
+        }
+        .custom-dark-modal .ant-btn-default:hover {
+          color: white !important;
+          border-color: rgba(59, 130, 246, 0.5) !important;
+          background-color: rgba(71, 85, 105, 0.5) !important;
+        }
+        .custom-dark-modal .ant-form-item-label > label {
+          color: rgb(209, 213, 219) !important;
+        }
+        .custom-dark-modal .ant-input,
+        .custom-dark-modal .ant-input-affix-wrapper,
+        .custom-dark-modal .ant-input-number,
+        .custom-dark-modal .ant-input-number-input,
+        .custom-dark-modal .ant-select-selector,
+        .custom-dark-modal .ant-select-selection-item,
+        .custom-dark-modal .ant-input-textarea {
+          background-color: rgba(30, 41, 59, 0.5) !important;
+          border-color: rgba(51, 65, 85, 0.8) !important;
+          color: rgb(237, 242, 247) !important;
+        }
+        .custom-dark-modal .ant-input::placeholder,
+        .custom-dark-modal .ant-input-number-input::placeholder,
+        .custom-dark-modal .ant-input-textarea textarea::placeholder {
+          color: rgba(148, 163, 184, 0.5) !important;
+        }
+        .custom-dark-modal .ant-input:hover,
+        .custom-dark-modal .ant-input-affix-wrapper:hover,
+        .custom-dark-modal .ant-input-number:hover,
+        .custom-dark-modal .ant-select-selector:hover,
+        .custom-dark-modal .ant-input-textarea:hover {
+          border-color: rgba(59, 130, 246, 0.5) !important;
+        }
+        .custom-dark-modal .ant-input:focus,
+        .custom-dark-modal .ant-input-affix-wrapper:focus,
+        .custom-dark-modal .ant-input-number:focus,
+        .custom-dark-modal .ant-select-selector:focus,
+        .custom-dark-modal .ant-input-textarea:focus {
+          border-color: rgba(59, 130, 246, 0.8) !important;
+          box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2) !important;
+        }
+        .custom-dark-modal .ant-form-item-explain-error {
+          color: #f56565 !important;
+        }
+      `}</style>
     </div>
   );
 };

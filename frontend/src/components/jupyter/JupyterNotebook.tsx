@@ -29,10 +29,20 @@ const getStoredSessionInfo = (projectId: number): Partial<JupyterSession> | null
     // 只恢复与当前项目匹配的会话信息
     if (parsedData && parsedData.project === projectId) {
       console.log('从本地存储恢复会话信息:', parsedData);
-      console.log('恢复的docker_image:', parsedData.docker_image);
-      console.log('恢复的running_in_docker:', parsedData.running_in_docker);
-      console.log('恢复的kernel_info:', parsedData.kernel_info);
-      return parsedData;
+      
+      // 确保各字段的有效性
+      const validatedData = {
+        ...parsedData,
+        running_in_docker: parsedData.running_in_docker === true,
+        docker_image: parsedData.docker_image || '',
+        kernel_info: parsedData.kernel_info || {}
+      };
+      
+      console.log('恢复的docker_image:', validatedData.docker_image);
+      console.log('恢复的running_in_docker:', validatedData.running_in_docker);
+      console.log('恢复的kernel_info:', validatedData.kernel_info);
+      
+      return validatedData;
     }
     console.log('本地存储中的会话信息与当前项目不匹配');
     return null;
@@ -55,9 +65,9 @@ const saveSessionToStorage = (session: JupyterSession) => {
       id: session.id,
       project: session.project,
       status: session.status,
-      running_in_docker: session.running_in_docker,
-      docker_image: session.docker_image,
-      kernel_info: session.kernel_info,
+      running_in_docker: session.running_in_docker === true ? true : false, // 显式转换为布尔值
+      docker_image: session.docker_image || '',
+      kernel_info: session.kernel_info ? { ...session.kernel_info } : {}, // 确保内核信息被复制保存
       updated_at: session.updated_at,
       created_at: session.created_at,
       url: session.url,
@@ -90,19 +100,28 @@ const mergeSessionInfo = (apiSession: JupyterSession, storedSession: Partial<Jup
   // 如果API返回的信息缺少docker_image或kernel_info，则从本地存储中恢复
   const mergedSession = { ...apiSession };
   
-  if ((!mergedSession.running_in_docker || mergedSession.running_in_docker === undefined) && storedSession.running_in_docker) {
+  // 强化running_in_docker合并逻辑，更明确的检查条件
+  if ((mergedSession.running_in_docker === undefined || mergedSession.running_in_docker === false) && 
+      storedSession.running_in_docker === true) {
     console.log('从本地存储恢复running_in_docker:', storedSession.running_in_docker);
     mergedSession.running_in_docker = storedSession.running_in_docker;
   }
   
-  if ((!mergedSession.docker_image || mergedSession.docker_image === '') && storedSession.docker_image) {
+  // 改进docker_image合并逻辑
+  if ((!mergedSession.docker_image || mergedSession.docker_image === '' || mergedSession.docker_image === undefined) && 
+      storedSession.docker_image && storedSession.docker_image !== '') {
     console.log('从本地存储恢复docker_image:', storedSession.docker_image);
     mergedSession.docker_image = storedSession.docker_image;
   }
   
-  if ((!mergedSession.kernel_info || !mergedSession.kernel_info.name) && storedSession.kernel_info) {
+  // 加强kernel_info合并逻辑，确保内核信息不丢失
+  if ((!mergedSession.kernel_info || 
+       !mergedSession.kernel_info.name || 
+       Object.keys(mergedSession.kernel_info || {}).length === 0) && 
+      storedSession.kernel_info && 
+      Object.keys(storedSession.kernel_info).length > 0) {
     console.log('从本地存储恢复kernel_info:', storedSession.kernel_info);
-    mergedSession.kernel_info = storedSession.kernel_info;
+    mergedSession.kernel_info = { ...storedSession.kernel_info };
   }
   
   console.log('合并后的会话信息:', mergedSession);
@@ -230,6 +249,19 @@ const JupyterNotebook: React.FC<JupyterNotebookProps> = ({
             // 合并API返回的会话信息和本地存储的会话信息
             const mergedSession = mergeSessionInfo(response, storedSession);
             console.log('最终合并的会话信息:', mergedSession);
+            
+            // 确保保存核心会话信息，防止信息丢失
+            if (!mergedSession.running_in_docker && storedSession?.running_in_docker) {
+              mergedSession.running_in_docker = storedSession.running_in_docker;
+            }
+            
+            if ((!mergedSession.docker_image || mergedSession.docker_image === '') && storedSession?.docker_image) {
+              mergedSession.docker_image = storedSession.docker_image;
+            }
+            
+            if ((!mergedSession.kernel_info || Object.keys(mergedSession.kernel_info || {}).length === 0) && storedSession?.kernel_info) {
+              mergedSession.kernel_info = storedSession.kernel_info;
+            }
             
             // 保存合并后的会话信息到状态和本地存储
             setSession(mergedSession);
@@ -489,20 +521,20 @@ const JupyterNotebook: React.FC<JupyterNotebookProps> = ({
             }} 
           />
           Jupyter
-          {session.running_in_docker && (
+          {session.running_in_docker === true && (
             <Badge variant="outline" className="ml-2 bg-blue-900/30 text-blue-300 border-blue-500/50">
               <Server className="w-3 h-3 mr-1" />
               Docker
             </Badge>
           )}
-          {session.docker_image && (
+          {session.docker_image && session.docker_image !== '' && (
             <Badge variant="outline" className="ml-2 bg-slate-900/30 text-slate-300 border-slate-500/50 text-xs">
               {session.docker_image.includes(':') 
                 ? session.docker_image.split(':')[1] || 'custom'
                 : session.docker_image}
             </Badge>
           )}
-          {session.kernel_info && (
+          {session.kernel_info && Object.keys(session.kernel_info).length > 0 && (
             <Badge variant="outline" className="ml-2 bg-green-900/30 text-green-300 border-green-500/50 text-xs">
               {session.kernel_info.display_name || session.kernel_info.name || 'Unknown Kernel'}
             </Badge>
@@ -631,8 +663,10 @@ const JupyterNotebook: React.FC<JupyterNotebookProps> = ({
                 <p className="text-xs text-slate-400">环境: <span className="text-blue-400">本地环境</span></p>
               )}
               
-              {session.kernel_info ? (
+              {session.kernel_info && Object.keys(session.kernel_info).length > 0 && session.kernel_info.display_name ? (
                 <p className="text-xs text-slate-400 mt-2">内核: <span className="text-green-400">{session.kernel_info.display_name}</span></p>
+              ) : session.kernel_info && session.kernel_info.name ? (
+                <p className="text-xs text-slate-400 mt-2">内核: <span className="text-green-400">{session.kernel_info.name}</span></p>
               ) : (
                 <p className="text-xs text-slate-400 mt-2">内核: <span className="text-yellow-400">信息不可用</span></p>
               )}

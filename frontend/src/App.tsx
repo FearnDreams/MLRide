@@ -18,6 +18,7 @@ import CreateProjectPage from './pages/projects/CreateProjectPage';
 import ProjectDetailPage from './pages/projects/ProjectDetailPage';
 import ProtectedRoute from './components/ProtectedRoute';
 import RecentPage from './pages/dashboard/RecentPage';
+import DatasetsPage from './pages/datasets/DatasetsPage';
 import './App.css'
 
 // 内部App组件，用于访问Redux的dispatch
@@ -51,14 +52,10 @@ const AppContent: React.FC = () => {
                         <Route path="projects/:id" element={<ProjectDetailPage />} />
                         <Route path="images" element={<ImagesPage />} />
                         <Route path="images/create" element={<CreateImagePage />} />
-                        <Route path="models" element={<ProjectsPage />} />
-                        <Route path="datasets" element={<ProjectsPage />} />
-                        <Route path="deployments" element={<ProjectsPage />} />
-                        <Route path="compute" element={<ProjectsPage />} />
-                        <Route path="cases" element={<ProjectsPage />} />
-                        <Route path="tasks" element={<ProjectsPage />} />
-                        <Route path="services" element={<ProjectsPage />} />
-                        <Route path="community" element={<ProjectsPage />} />
+                        <Route path="datasets" element={<DatasetsPage />} />
+                        <Route path="datasets/create" element={<DatasetsPage />} />
+                        <Route path="tasks" element={<RecentPage />} />
+                        <Route path="community" element={<RecentPage />} />
                         <Route path="profile" element={<ProfilePage />} />
                     </Route>
                 </Route>

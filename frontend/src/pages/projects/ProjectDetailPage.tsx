@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Play, Square, RefreshCw, Settings, Cpu, HardDrive, Zap, BookOpen, Trash2, Loader2, Image, Edit2, Save, GitBranch, RotateCcw, ExternalLink, Clock, FileText, GitCompare, ChevronDown, ChevronUp, ChevronRight, Eye, EyeOff, AlertCircle } from 'lucide-react';
+import { ArrowLeft, Play, Square, RefreshCw, Settings, Cpu, HardDrive, Zap, BookOpen, Trash2, Loader2, Image, Edit2, Save, GitBranch, RotateCcw, ExternalLink, Clock, FileText, GitCompare, ChevronDown, ChevronUp, ChevronRight, Eye, EyeOff, AlertCircle, Upload } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { getProject, startProject, stopProject, getProjectStats, deleteProject, updateProject, createProjectSnapshot, getProjectSnapshots, restoreProjectSnapshot, getProjectSnapshot, getSnapshotFileContent, deleteProjectSnapshot } from '@/services/projects';
 import services from '@/services/projects';
@@ -1581,33 +1581,37 @@ const ProjectDetailPage = () => {
         }
         open={compareModalVisible}
         onCancel={() => setCompareModalVisible(false)}
-        footer={[
-                <Button 
-            key="cancel"
-            onClick={() => setCompareModalVisible(false)}
-            className="bg-slate-700 hover:bg-slate-600 text-gray-300 hover:text-white border-slate-600 mr-4"
-          >
-            取消
-          </Button>,
-          <Button
-            key="submit"
-            onClick={handleCompareSnapshots}
-            className="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white border-0"
-            disabled={compareLoading}
-          >
-            {compareLoading ? (
-              <>
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                比较中...
-                    </>
-                  ) : (
-                    <>
-                <GitCompare className="mr-2 h-4 w-4" />
-                开始比较
-                    </>
-                  )}
-                </Button>
-        ]}
+        footer={
+          <div className="flex justify-end space-x-4">
+            <Button 
+              key="cancel"
+              size="sm"
+              variant="outline"
+              onClick={() => setCompareModalVisible(false)}
+            >
+              取消
+            </Button>
+            <Button
+              key="submit"
+              size="sm"
+              onClick={handleCompareSnapshots}
+              className="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white border-0"
+              disabled={compareLoading}
+            >
+              {compareLoading ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  比较中...
+                </>
+              ) : (
+                <>
+                  <GitCompare className="mr-2 h-4 w-4" />
+                  开始比较
+                </>
+              )}
+            </Button>
+          </div>
+        }
         className="custom-dark-modal"
       >
         <Form
@@ -1623,6 +1627,7 @@ const ProjectDetailPage = () => {
             <Select
               placeholder="选择源版本"
               className="custom-dark-select"
+              dropdownClassName="custom-dark-select-dropdown" // 应用自定义下拉菜单样式
               disabled={compareWithCurrentAsSource} // 当选择当前版本作为源时禁用
               onChange={(value) => {
                 console.log('源版本选择变更为:', value);
@@ -1693,6 +1698,7 @@ const ProjectDetailPage = () => {
             <Select
               placeholder="选择目标版本"
               className="custom-dark-select"
+              dropdownClassName="custom-dark-select-dropdown" // 应用自定义下拉菜单样式
               disabled={compareWithCurrent}
               listHeight={300}
               optionFilterProp="label"
@@ -1769,165 +1775,136 @@ const ProjectDetailPage = () => {
 
   // 渲染基于项目类型的界面
   const renderProjectContent = () => {
+    // 检查项目类型是否为 notebook
     if (project?.project_type === 'notebook') {
-      return (
-        <>
-          {/* Jupyter Notebook区域 */}
-          {jupyterSession && (jupyterSession.status === 'running' || forceShowJupyter) ? (
-            <div className="border border-slate-600 rounded-xl overflow-hidden bg-slate-800">
-        <JupyterNotebook 
-                projectId={parseInt(id || '0')}
-          onSessionError={handleJupyterSessionError}
-        />
-            </div>
-          ) : (
-            <div className="border border-slate-600 rounded-xl flex items-center justify-center flex-col p-8 bg-slate-800">
-              <div className="flex flex-col h-full w-full">
-                <div className="bg-slate-800 p-2 flex items-center justify-between border-b border-slate-700">
-                  <h3 className="text-white font-medium flex items-center">
+      // 如果项目状态不是 running，显示项目未运行的提示
+      if (project.status !== 'running') {
+        return (
+          <div className="border border-slate-600 rounded-xl flex items-center justify-center flex-col p-8 bg-slate-800">
+            {/* ... 省略未运行时的UI ... */}
+            <div className="flex flex-col h-full w-full">
+              <div className="bg-slate-800 p-2 flex items-center justify-between border-b border-slate-700">
+                <h3 className="text-white font-medium flex items-center">
+                  <img 
+                    src="/jupyter-logo.svg" 
+                    alt="Jupyter" 
+                    className="w-5 h-5 mr-2" 
+                    onError={(e) => {
+                      (e.target as HTMLImageElement).src = "https://jupyter.org/favicon.ico";
+                    }} 
+                  />
+                  Jupyter
+                </h3>
+              </div>
+              
+              <div className="flex-grow flex items-center justify-center p-12">
+                <div className="text-center max-w-xl w-full">
+                  <div className="flex justify-center mb-8">
                     <img 
                       src="/jupyter-logo.svg" 
                       alt="Jupyter" 
-                      className="w-5 h-5 mr-2" 
+                      className="w-20 h-20 opacity-50" 
                       onError={(e) => {
                         (e.target as HTMLImageElement).src = "https://jupyter.org/favicon.ico";
                       }} 
                     />
-                    Jupyter
-                  </h3>
-                </div>
-                
-                <div className="flex-grow flex items-center justify-center p-12">
-                  <div className="text-center max-w-xl w-full">
-                    <div className="flex justify-center mb-8">
-                      <img 
-                        src="/jupyter-logo.svg" 
-                        alt="Jupyter" 
-                        className="w-20 h-20 opacity-50" 
-                        onError={(e) => {
-                          (e.target as HTMLImageElement).src = "https://jupyter.org/favicon.ico";
-                        }} 
-                      />
-                    </div>
-                    
-                    <h2 className="text-2xl font-bold text-white mb-6">Jupyter Notebook 未运行</h2>
-                    <p className="text-slate-400 mb-10 px-4">
-                {project?.status !== 'running' 
-                        ? '项目容器未运行，请先启动项目以使用Jupyter服务。'
-                        : 'Jupyter服务未启动，请点击下方按钮启动服务。'}
-                    </p>
-                    
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-10 px-6">
-                      <div className="bg-slate-700/50 rounded-lg p-5 text-left">
-                        <h3 className="text-sm font-medium text-slate-300 mb-3">项目状态</h3>
-                        <p className="text-xs text-slate-400 mb-2">
-                          状态: 
-                          <span className={project?.status === 'running' ? 'text-green-400 ml-1' : 'text-amber-400 ml-1'}>
-                            {project?.status === 'running' ? '运行中' : '已停止'}
-                          </span>
-              </p>
-              {project?.status === 'running' && (
-                          <p className="text-xs text-slate-400">
-                            资源使用: {stats ? `${stats.cpu_usage?.toFixed(1)}% CPU | ${stats.memory_usage?.toFixed(1)}MB 内存` : '数据加载中...'}
-                          </p>
-                        )}
-                      </div>
-                      
-                      <div className="bg-slate-700/50 rounded-lg p-5 text-left">
-                        <h3 className="text-sm font-medium text-slate-300 mb-3">环境信息</h3>
-                        {project?.image_details ? (
-                          <>
-                            <p className="text-xs text-slate-400 mb-2">Docker镜像: <span className="text-blue-400">{project.image_details.name}</span></p>
-                            {project.image_details.pythonVersion && (
-                              <p className="text-xs text-slate-400">Python版本: <span className="text-blue-400">{project.image_details.pythonVersion}</span></p>
-                            )}
-                          </>
-                        ) : (
-                          <p className="text-xs text-slate-400">镜像信息: <span className="text-amber-400">暂无信息</span></p>
-                        )}
-                      </div>
-                    </div>
-                    
-                    {project?.status === 'running' ? (
-                <Button 
-                        className="bg-purple-600 hover:bg-purple-700 text-white py-3 px-6 rounded-md"
-                  onClick={handleStartJupyter}
-                  disabled={jupyterLoading}
-                >
-                  {jupyterLoading ? (
-                          <>
-                    <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
-                            启动中...
-                          </>
-                  ) : (
-                          <>
-                    <Play className="w-4 h-4 mr-2" />
-                  启动 Jupyter
-                          </>
-                        )}
-                      </Button>
-                    ) : (
-                      <Button 
-                        className="bg-green-600 hover:bg-green-700 text-white py-3 px-6 rounded-md"
-                        onClick={handleStartProject}
-                        disabled={statusLoading}
-                      >
-                        {statusLoading ? (
-                          <>
-                            <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
-                            启动中...
-                          </>
-                        ) : (
-                          <>
-                            <Play className="w-4 h-4 mr-2" />
-                            启动项目
-                          </>
-                        )}
-                </Button>
-              )}
                   </div>
+                  
+                  <h2 className="text-2xl font-bold text-white mb-6">Jupyter Notebook 未运行</h2>
+                  <p className="text-slate-400 mb-10 px-4">
+                    项目容器未运行，请先启动项目以使用Jupyter服务。
+                  </p>
+                  
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-10 px-6">
+                    <div className="bg-slate-700/50 rounded-lg p-5 text-left">
+                      <h3 className="text-sm font-medium text-slate-300 mb-3">项目状态</h3>
+                      <p className="text-xs text-slate-400 mb-2">
+                        状态: 
+                        <span className={'text-amber-400 ml-1'}>
+                          已停止
+                        </span>
+                      </p>
+                    </div>
+                    
+                    <div className="bg-slate-700/50 rounded-lg p-5 text-left">
+                      <h3 className="text-sm font-medium text-slate-300 mb-3">环境信息</h3>
+                      {project?.image_details ? (
+                        <>
+                          <p className="text-xs text-slate-400 mb-2">Docker镜像: <span className="text-blue-400">{project.image_details.name}</span></p>
+                          {project.image_details.pythonVersion && (
+                            <p className="text-xs text-slate-400">Python版本: <span className="text-blue-400">{project.image_details.pythonVersion}</span></p>
+                          )}
+                        </>
+                      ) : (
+                        <p className="text-xs text-slate-400">镜像信息: <span className="text-amber-400">暂无信息</span></p>
+                      )}
+                    </div>
+                  </div>
+                  
+                  {/* 添加按钮组 */}
+                  <div className="flex justify-center space-x-4">
+                    <Button 
+                      className="bg-blue-600 hover:bg-blue-700 text-white py-3 px-6 rounded-md flex items-center"
+                      // onClick={handleUploadData} // 暂时注释掉，后续实现
+                    >
+                      <Upload className="w-4 h-4 mr-2" />
+                      上传数据
+                    </Button>
+                    <Button 
+                      className="bg-green-600 hover:bg-green-700 text-white py-3 px-6 rounded-md flex items-center"
+                      onClick={handleStartProject}
+                      disabled={statusLoading}
+                    >
+                      {statusLoading ? (
+                        <>
+                          <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
+                          启动中...
+                        </>
+                      ) : (
+                        <>
+                          <Play className="w-4 h-4 mr-2" />
+                          启动项目
+                        </>
+                      )}
+                    </Button>
+                  </div>
+
                 </div>
               </div>
             </div>
-          )}
-          
-          {/* 版本历史区域 - 移动到Jupyter框下方 */}
-          <div className="mt-6">
-            {renderSnapshotsList()}
-        </div>
-        </>
-      );
-    } else if (project?.project_type === 'canvas') {
-      return (
-        <>
-          {/* Canvas区域 - 未实现 */}
-          <div className="border border-slate-600 rounded-xl flex items-center justify-center flex-col p-8 bg-slate-800">
-            <Image className="w-16 h-16 text-gray-500 mb-4" />
-            <h3 className="text-xl font-semibold text-white mb-2">可视化拖拽编程</h3>
-            <p className="text-gray-400 text-center mb-4">
-              该功能正在开发中，敬请期待。
-            </p>
           </div>
-          
-          {/* 版本历史区域 - 移动到Canvas框下方 */}
-          <div className="mt-6">
-            {renderSnapshotsList()}
+        );
+      } else {
+        // 如果项目状态是 running，则直接渲染 JupyterNotebook 组件
+        // 让 JupyterNotebook 组件自己处理加载状态和最终显示
+        return (
+          <div className="border border-slate-600 rounded-xl overflow-hidden bg-slate-800">
+            <JupyterNotebook 
+              projectId={parseInt(id || '0')}
+              onSessionError={handleJupyterSessionError}
+            />
+          </div>
+        );
+      }
+    } 
+    // ... 省略其他项目类型的处理 ...
+    else if (project?.project_type === 'canvas') {
+      // ... canvas UI ...
+      return (
+        <div className="border border-slate-600 rounded-xl flex items-center justify-center flex-col p-8 bg-slate-800">
+          <Image className="w-16 h-16 text-gray-500 mb-4" />
+          <h3 className="text-xl font-semibold text-white mb-2">可视化拖拽编程</h3>
+          <p className="text-gray-400 text-center mb-4">
+            该功能正在开发中，敬请期待。
+          </p>
         </div>
-        </>
       );
     } else {
+      // ... 未知类型 UI ...
       return (
-        <>
-          {/* 未知项目类型 */}
-          <div className="border border-slate-600 rounded-xl flex items-center justify-center p-8 bg-slate-800">
-            <p className="text-gray-400">未知的项目类型: {project?.project_type}</p>
-          </div>
-          
-          {/* 版本历史区域 - 移动到主要内容下方 */}
-          <div className="mt-6">
-            {renderSnapshotsList()}
+        <div className="border border-slate-600 rounded-xl flex items-center justify-center p-8 bg-slate-800">
+          <p className="text-gray-400">未知的项目类型: {project?.project_type}</p>
         </div>
-        </>
       );
     }
   };
@@ -1988,91 +1965,10 @@ const ProjectDetailPage = () => {
 
   // 渲染版本列表
   const renderSnapshotsList = () => {
-    const columns = [
-      {
-        title: '版本号',
-        dataIndex: 'version',
-        key: 'version',
-        render: (text: string) => <span className="font-medium text-white">{text}</span>
-      },
-      {
-        title: '描述',
-        dataIndex: 'description',
-        key: 'description',
-        render: (text: string) => <span className="text-gray-300">{text || '无描述'}</span>
-      },
-      {
-        title: '创建时间',
-        dataIndex: 'created_at',
-        key: 'created_at',
-        render: (date: string) => (
-          <Tooltip title={new Date(date).toLocaleString('zh-CN')}>
-            <span className="text-gray-400 flex items-center">
-              <Clock className="w-4 h-4 mr-1" />
-              {formatDistance(new Date(date), new Date(), {
-                addSuffix: true,
-                locale: zhCN
-              })}
-            </span>
-          </Tooltip>
-        )
-      },
-      {
-        title: '操作',
-        key: 'action',
-        render: (_: any, record: SnapshotInfo) => (
-          <div className="flex items-center space-x-2">
-            <Popconfirm
-              title="恢复版本"
-              description="确定要恢复到这个版本吗？当前未保存的更改将丢失。"
-              onConfirm={() => handleRestoreSnapshot(record.id)}
-              okText="确定"
-              cancelText="取消"
-              placement="left"
-            >
-              <Button size="sm" variant="ghost" className="text-blue-400 hover:text-blue-300 hover:bg-blue-900/30">
-                {restoreLoading === record.id ? (
-                  <Loader2 className="w-4 h-4 mr-1 animate-spin" />
-                ) : (
-                  <RotateCcw className="w-4 h-4 mr-1" />
-                )}
-                恢复
-              </Button>
-            </Popconfirm>
-            <Button 
-              size="sm" 
-              variant="ghost" 
-              className="text-purple-400 hover:text-purple-300 hover:bg-purple-900/30"
-              onClick={() => handleOpenCompareModal(record.id)}
-            >
-              <GitCompare className="w-4 h-4 mr-1" />
-              比较
-            </Button>
-            <Popconfirm
-              title="删除版本"
-              description="确定要删除这个版本吗？此操作不可撤销。"
-              onConfirm={() => handleDeleteSnapshot(record.id)}
-              okText="确定"
-              cancelText="取消"
-              placement="left"
-              okButtonProps={{ className: 'bg-red-500 hover:bg-red-600' }}
-            >
-              <Button size="sm" variant="ghost" className="text-red-400 hover:text-red-300 hover:bg-red-900/30">
-                {deleteSnapshotLoading === record.id ? (
-                  <Loader2 className="w-4 h-4 mr-1 animate-spin" />
-                ) : (
-                  <Trash2 className="w-4 h-4 mr-1" />
-                )}
-                删除
-              </Button>
-            </Popconfirm>
-          </div>
-        )
-      },
-    ];
+    // 移除原有的 columns 定义
 
     return (
-      <div className="mt-6 bg-slate-800 rounded-xl border border-slate-600 p-4">
+      <div className="mt-6 bg-slate-800/50 backdrop-blur-sm rounded-xl border border-slate-700/50 p-4">
         <div className="flex justify-between items-center mb-4">
           <h2 className="text-lg font-semibold text-white flex items-center">
             <GitBranch className="w-5 h-5 mr-2 text-blue-400" />
@@ -2081,21 +1977,129 @@ const ProjectDetailPage = () => {
           <Button
             onClick={() => setCreateSnapshotModalVisible(true)}
             className="bg-blue-600 hover:bg-blue-500 text-white"
+            size="sm" // 统一按钮大小
           >
             <Save className="w-4 h-4 mr-2" />
             创建版本
           </Button>
         </div>
         
-        <Table
-          dataSource={snapshots}
-          columns={columns}
-          rowKey="id"
-          loading={snapshotLoading}
-          pagination={{ pageSize: 5 }}
-          className="custom-dark-table"
-          locale={{ emptyText: '暂无版本记录' }}
-        />
+        {snapshotLoading ? (
+          <div className="flex justify-center items-center py-8">
+            <Spin tip="加载版本历史..." />
+          </div>
+        ) : snapshots.length === 0 ? (
+          <Empty
+            image={Empty.PRESENTED_IMAGE_SIMPLE}
+            description={<span className="text-gray-400">暂无版本记录</span>}
+          />
+        ) : (
+          <div className="space-y-3">
+            {snapshots.map((record: SnapshotInfo) => (
+              <div key={record.id} className="bg-slate-700/30 p-4 rounded-lg border border-slate-600/50 flex justify-between items-center hover:border-blue-500/30 transition-colors duration-200">
+                <div className="flex-1 mr-4">
+                  <div className="flex items-center mb-1">
+                    <span className="font-medium text-white mr-2">{record.version}</span>
+                    <Tooltip 
+                      title={new Date(record.created_at).toLocaleString('zh-CN')}
+                      overlayClassName="custom-dark-tooltip" // 应用自定义样式
+                    >
+                      <span className="text-xs text-gray-400 flex items-center">
+                        <Clock className="w-3 h-3 mr-1" />
+                        {formatDistance(new Date(record.created_at), new Date(), {
+                          addSuffix: true,
+                          locale: zhCN
+                        })}
+                      </span>
+                    </Tooltip>
+                  </div>
+                  <p className="text-sm text-gray-300">{record.description || '无描述'}</p>
+                </div>
+                
+                {/* 操作按钮区域 */}
+                <div className="flex items-center space-x-1">
+                  <Tooltip 
+                    title="恢复到此版本"
+                    overlayClassName="custom-dark-tooltip" // 应用自定义样式
+                  >
+                    <Popconfirm
+                      title={<span className="text-white">恢复版本</span>}
+                      description={<span className="text-gray-300">确定要恢复到这个版本吗？当前未保存的更改将丢失。</span>}
+                      onConfirm={() => handleRestoreSnapshot(record.id)}
+                      okText="确定"
+                      cancelText="取消"
+                      placement="left"
+                      overlayClassName="custom-dark-popconfirm" // 应用自定义样式
+                      okButtonProps={{ 
+                        className: 'bg-blue-600 hover:bg-blue-500 border-blue-600 text-white', 
+                        size: 'small' 
+                      }} // 确定按钮样式
+                      cancelButtonProps={{ 
+                        className: 'custom-popconfirm-cancel-btn', // 添加特定类名
+                        size: 'small' 
+                      }} // 取消按钮样式
+                    >
+                      <Button size="icon" variant="ghost" className="text-blue-400 hover:text-blue-300 hover:bg-blue-900/30 w-7 h-7">
+                        {restoreLoading === record.id ? (
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                        ) : (
+                          <RotateCcw className="w-4 h-4" />
+                        )}
+                      </Button>
+                    </Popconfirm>
+                  </Tooltip>
+                  
+                  <Tooltip 
+                    title="比较此版本"
+                    overlayClassName="custom-dark-tooltip" // 应用自定义样式
+                  >
+                    <Button 
+                      size="icon" 
+                      variant="ghost" 
+                      className="text-purple-400 hover:text-purple-300 hover:bg-purple-900/30 w-7 h-7"
+                      onClick={() => handleOpenCompareModal(record.id)}
+                    >
+                      <GitCompare className="w-4 h-4" />
+                    </Button>
+                  </Tooltip>
+                  
+                  <Tooltip 
+                    title="删除此版本"
+                    overlayClassName="custom-dark-tooltip" // 应用自定义样式
+                  >
+                    <Popconfirm
+                      title={<span className="text-white">删除版本</span>}
+                      description={<span className="text-gray-300">确定要删除这个版本吗？此操作不可撤销。</span>}
+                      onConfirm={() => handleDeleteSnapshot(record.id)}
+                      okText="删除"
+                      cancelText="取消"
+                      placement="left"
+                      overlayClassName="custom-dark-popconfirm" // 应用自定义样式
+                      okButtonProps={{ 
+                        className: 'bg-red-600 hover:bg-red-500 border-red-600 text-white',
+                        size: 'small' 
+                      }} // 确定按钮样式 (红色)
+                      cancelButtonProps={{ 
+                        className: 'custom-popconfirm-cancel-btn', // 添加特定类名
+                        size: 'small' 
+                      }} // 取消按钮样式
+                    >
+                      <Button size="icon" variant="ghost" className="text-red-400 hover:text-red-300 hover:bg-red-900/30 w-7 h-7">
+                        {deleteSnapshotLoading === record.id ? (
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                        ) : (
+                          <Trash2 className="w-4 h-4" />
+                        )}
+                      </Button>
+                    </Popconfirm>
+                  </Tooltip>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+        
+        {/* 移除原有的 Table 组件 */}
       </div>
     );
   };
@@ -2107,33 +2111,37 @@ const ProjectDetailPage = () => {
         title={<span className="text-white font-medium">编辑项目</span>}
         open={editModalVisible}
         onCancel={() => setEditModalVisible(false)}
-        footer={[
-          <Button
-            key="cancel"
-            onClick={() => setEditModalVisible(false)}
-            className="bg-slate-700 hover:bg-slate-600 text-gray-300 hover:text-white border-slate-600 mr-4"
-          >
-            取消
-          </Button>,
-          <Button
-            key="submit"
-            onClick={handleEditSubmit}
-            className="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white border-0"
-            disabled={editLoading}
-          >
-            {editLoading ? (
-              <>
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                保存中...
-              </>
-            ) : (
-              <>
-                <Save className="mr-2 h-4 w-4" />
-                保存
-              </>
-            )}
-          </Button>
-        ]}
+        footer={
+          <div className="flex justify-end space-x-4">
+            <Button
+              key="cancel"
+              size="sm"
+              variant="outline"
+              onClick={() => setEditModalVisible(false)}
+            >
+              取消
+            </Button>
+            <Button
+              key="submit"
+              size="sm"
+              onClick={handleEditSubmit}
+              className="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white border-0"
+              disabled={editLoading}
+            >
+              {editLoading ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  保存中...
+                </>
+              ) : (
+                <>
+                  <Save className="mr-2 h-4 w-4" />
+                  保存
+                </>
+              )}
+            </Button>
+          </div>
+        }
         className="custom-dark-modal"
       >
         <Form
@@ -2178,33 +2186,37 @@ const ProjectDetailPage = () => {
         }
         open={createSnapshotModalVisible}
         onCancel={() => setCreateSnapshotModalVisible(false)}
-        footer={[
-          <Button
-            key="cancel"
-            onClick={() => setCreateSnapshotModalVisible(false)}
-            className="bg-slate-700 hover:bg-slate-600 text-gray-300 hover:text-white border-slate-600 mr-4"
-          >
-            取消
-          </Button>,
-          <Button
-            key="submit"
-            onClick={handleCreateSnapshot}
-            className="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white border-0"
-            disabled={createSnapshotLoading}
-          >
-            {createSnapshotLoading ? (
-              <>
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                保存中...
-              </>
-            ) : (
-              <>
-                <Save className="mr-2 h-4 w-4" />
-                创建版本
-              </>
-            )}
-          </Button>
-        ]}
+        footer={
+          <div className="flex justify-end space-x-4">
+            <Button
+              key="cancel"
+              size="sm"
+              variant="outline"
+              onClick={() => setCreateSnapshotModalVisible(false)}
+            >
+              取消
+            </Button>
+            <Button
+              key="submit"
+              size="sm"
+              onClick={handleCreateSnapshot}
+              className="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white border-0"
+              disabled={createSnapshotLoading}
+            >
+              {createSnapshotLoading ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  保存中...
+                </>
+              ) : (
+                <>
+                  <Save className="mr-2 h-4 w-4" />
+                  创建版本
+                </>
+              )}
+            </Button>
+          </div>
+        }
         className="custom-dark-modal"
       >
         <Form
@@ -2324,12 +2336,22 @@ const ProjectDetailPage = () => {
             创建版本
           </Button>
           
+          {/* 添加上传数据按钮 */}
+          <Button 
+            variant="outline" 
+            className="bg-teal-500/10 hover:bg-teal-500/20 text-teal-300 border-teal-500/50"
+            // onClick={handleUploadData} // 暂时注释掉，后续实现
+          >
+            <Upload className="w-4 h-4 mr-2" />
+            上传数据
+          </Button>
+          
           {/* 现有的按钮 */}
           {project?.status === 'running' ? (
             <Button 
               variant="outline" 
               className="bg-red-500/10 hover:bg-red-500/20 text-red-300 border-red-500/50"
-              onClick={handleStopProject}
+              onClick={handleStopProject} // 确保是函数引用
               disabled={statusLoading}
             >
               {statusLoading ? (
@@ -2343,7 +2365,7 @@ const ProjectDetailPage = () => {
             <Button 
               variant="outline" 
               className="bg-green-500/10 hover:bg-green-500/20 text-green-300 border-green-500/50"
-              onClick={handleStartProject}
+              onClick={handleStartProject} // 确保是函数引用
               disabled={statusLoading}
             >
               {statusLoading ? (
@@ -2456,8 +2478,14 @@ const ProjectDetailPage = () => {
         </div>
       </div>
       
-      {/* IDE/Jupyter 界面 - 直接渲染内容而不添加外层div */}
+      {/* 主要内容区 */}
+      <div className="flex flex-col space-y-6">
+        {/* IDE/Jupyter 界面 */}
         {typeof renderProjectContent === 'function' && renderProjectContent()}
+        
+        {/* 版本历史区域 - 独立于Jupyter区域 */}
+        {renderSnapshotsList()}
+      </div>
       
       {/* 删除确认对话框 */}
       <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
@@ -2529,18 +2557,19 @@ const ProjectDetailPage = () => {
         .custom-dark-modal .ant-btn-primary {
           color: white !important;
         }
+        /* 更新默认按钮样式以匹配shadcn/ui的outline变体 */
         .custom-dark-modal .ant-btn-default {
           color: rgb(209, 213, 219) !important;
-          border-color: rgba(71, 85, 105, 0.5) !important;
-          background-color: rgba(51, 65, 85, 0.5) !important;
+          border-color: rgb(71, 85, 105) !important; /* 更深的边框色 */
+          background-color: transparent !important; /* 透明背景 */
         }
         .custom-dark-modal .ant-btn-default:hover {
           color: white !important;
-          border-color: rgba(59, 130, 246, 0.5) !important;
-          background-color: rgba(71, 85, 105, 0.5) !important;
+          border-color: rgb(59, 130, 246) !important; /* 悬停时边框变亮 */
+          background-color: rgba(59, 130, 246, 0.1) !important; /* 悬停时淡蓝色背景 */
         }
         .custom-dark-modal .ant-form-item-label > label {
-          color: rgb(209, 213, 219) !important;
+          color: rgb(209, 213, 219) !important; /* 确保label是浅灰色 */
         }
         .custom-dark-modal .ant-input,
         .custom-dark-modal .ant-input-affix-wrapper,
@@ -2555,8 +2584,10 @@ const ProjectDetailPage = () => {
         }
         .custom-dark-modal .ant-input::placeholder,
         .custom-dark-modal .ant-input-number-input::placeholder,
-        .custom-dark-modal .ant-input-textarea textarea::placeholder {
-          color: rgba(148, 163, 184, 0.5) !important;
+        .custom-dark-modal .ant-input-textarea textarea::placeholder,
+        /* 添加 Select placeholder 样式 */
+        .custom-dark-modal .ant-select-selection-placeholder {
+          color: rgba(148, 163, 184, 0.6) !important; /* 调整占位符颜色 */
         }
         .custom-dark-modal .ant-input:hover,
         .custom-dark-modal .ant-input-affix-wrapper:hover,
@@ -2578,100 +2609,168 @@ const ProjectDetailPage = () => {
         }
 
         /* AlertDialog 样式 */
-        [role="dialog"][data-state="open"] {
-          animation: fadeIn 150ms ease-out;
-        }
-        @keyframes fadeIn {
-          from { opacity: 0; }
-          to { opacity: 1; }
-        }
-        
-        [data-state="open"] > [data-state="open"] {
-          animation: zoomIn 150ms ease-out;
-        }
-        @keyframes zoomIn {
-          from { 
-            opacity: 0; 
-            transform: scale(0.95);
-          }
-          to { 
-            opacity: 1; 
-            transform: scale(1);
-          }
-        }
-        
-        div[role="alertdialog"] {
-          background-color: rgba(15, 23, 42, 0.75) !important;
-          backdrop-filter: blur(12px) !important;
-          border: 1px solid rgba(51, 65, 85, 0.5) !important;
-          border-radius: 0.75rem !important;
-          box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.3) !important;
-          padding: 1.5rem !important;
-        }
-        
-        div[role="alertdialog"] h2 {
-          color: white !important;
-          font-size: 1.25rem !important;
-          margin-bottom: 0.5rem !important;
-        }
-        
-        div[role="alertdialog"] button:first-of-type {
-          background-color: rgba(51, 65, 85, 0.5) !important;
-          border-color: rgba(71, 85, 105, 0.5) !important;
-          color: rgb(209, 213, 219) !important;
-          outline: none !important;
-        }
-        
-        div[role="alertdialog"] button:first-of-type:hover {
-          background-color: rgba(71, 85, 105, 0.5) !important;
-          border-color: rgba(59, 130, 246, 0.5) !important;
-          color: white !important;
-        }
-        
-        div[role="alertdialog"] button:first-of-type:focus,
-        div[role="alertdialog"] button:first-of-type:focus-visible {
-          background-color: rgba(51, 65, 85, 0.5) !important;
-          border-color: rgba(71, 85, 105, 0.5) !important;
-          outline: none !important;
-          box-shadow: none !important;
-          color: rgb(209, 213, 219) !important;
-        }
+        /* ... (省略 AlertDialog 样式) ... */
 
-        div[role="alertdialog"] button:focus,
-        div[role="alertdialog"] button:focus-visible {
-          outline: none !important;
-          box-shadow: none !important;
-        }
-        
-        div[role="alertdialog"] button:last-of-type {
-          background: linear-gradient(to right, #dc2626, #b91c1c) !important;
-        }
-        
-        div[role="alertdialog"] button:last-of-type:hover {
-          background: linear-gradient(to right, #ef4444, #dc2626) !important;
-        }
-
-        /* 在样式部分添加以下内容，确保下拉菜单可以正确显示 */
-        .custom-dark-select .ant-select-dropdown {
-          background-color: rgba(15, 23, 42, 0.75);
+        /* 确保 Select 下拉菜单样式生效 */
+        .custom-dark-select-dropdown {
+          background-color: rgba(15, 23, 42, 0.9) !important; /* 更深的背景，减少透明度 */
           backdrop-filter: blur(12px);
-          border: 1px solid rgba(51, 65, 85, 0.5);
-          max-height: 300px;
+          border: 1px solid rgba(51, 65, 85, 0.7) !important; /* 更清晰的边框 */
+          border-radius: 0.5rem; /* 统一圆角 */
         }
         
-        .custom-dark-select .ant-select-item {
-          color: white;
-          padding: 8px 12px;
+        .custom-dark-select-dropdown .ant-select-item {
+          color: rgb(209, 213, 219) !important; /* 浅灰色文字 */
+          padding: 8px 12px !important;
+          border-radius: 0.25rem; /* 为选项添加圆角 */
+          margin: 2px 4px; /* 添加选项间距 */
         }
         
-        .custom-dark-select .ant-select-item-option-active {
-          background-color: rgba(59, 130, 246, 0.2);
+        .custom-dark-select-dropdown .ant-select-item-option-active {
+          background-color: rgba(59, 130, 246, 0.2) !important; /* 悬停背景 */
         }
         
-        .custom-dark-select .ant-select-item-option-selected {
-          background-color: rgba(59, 130, 246, 0.4);
-          font-weight: bold;
+        .custom-dark-select-dropdown .ant-select-item-option-selected {
+          background-color: rgba(59, 130, 246, 0.4) !important; /* 选中背景 */
+          font-weight: 600; /* 选中加粗 */
+          color: white !important; /* 选中文字变白 */
         }
+        /* 覆盖空状态的文字颜色 */
+        .custom-dark-select-dropdown .ant-empty-description {
+           color: rgba(148, 163, 184, 0.8) !important;
+        }
+
+        /* 自定义 Popconfirm 样式 */
+        .custom-dark-popconfirm .ant-popover-inner {
+          background-color: rgba(30, 41, 59, 0.9) !important; /* 深色背景 */
+          backdrop-filter: blur(8px);
+          border: 1px solid rgba(51, 65, 85, 0.7) !important;
+          border-radius: 0.5rem !important;
+          box-shadow: 0 4px 15px -3px rgba(0, 0, 0, 0.2);
+        }
+        .custom-dark-popconfirm .ant-popover-inner-content {
+            padding: 12px 16px !important; /* 调整内边距 */
+        }
+        .custom-dark-popconfirm .ant-popover-message-title {
+          color: white !important; /* 标题白色 */
+          padding-left: 24px !important; /* 为图标留出空间 */
+          font-size: 0.9rem; /* 调整标题大小 */
+        }
+        .custom-dark-popconfirm .ant-popover-message-description {
+          color: rgb(209, 213, 219) !important; /* 描述浅灰色 */
+           margin-left: 24px !important; /* 与标题对齐 */
+           margin-top: 4px !important; /* 增加与标题的间距 */
+           font-size: 0.8rem; /* 调整描述大小 */
+        }
+        .custom-dark-popconfirm .ant-popover-message > .anticon {
+           color: #facc15 !important; /* 图标黄色 */
+           font-size: 16px; /* 调整图标大小 */
+           top: 14px !important; /* 微调图标位置 */
+        }
+        .custom-dark-popconfirm .ant-popover-buttons {
+          margin-top: 12px !important; /* 增加按钮与内容的间距 */
+        }
+        /* Popconfirm 按钮样式已通过 props 传入 */
+
+        /* 自定义 Table 样式 (如果将来恢复使用) */
+        .custom-dark-table .ant-table {
+          background: transparent !important;
+        }
+        .custom-dark-table .ant-table-thead > tr > th {
+          background: rgba(30, 41, 59, 0.5) !important;
+          color: rgb(156, 163, 175) !important; /* 表头文字颜色 */
+          border-bottom: 1px solid rgba(51, 65, 85, 0.8) !important;
+        }
+        .custom-dark-table .ant-table-tbody > tr > td {
+          border-bottom: 1px solid rgba(51, 65, 85, 0.5) !important;
+          color: rgb(209, 213, 219) !important; /* 表格内容文字颜色 */
+        }
+        .custom-dark-table .ant-table-tbody > tr.ant-table-row:hover > td {
+          background: rgba(51, 65, 85, 0.3) !important; /* 悬停行背景色 */
+        }
+        .custom-dark-table .ant-pagination-item,
+        .custom-dark-table .ant-pagination-prev,
+        .custom-dark-table .ant-pagination-next {
+          background: rgba(30, 41, 59, 0.5) !important;
+          border-color: rgba(51, 65, 85, 0.8) !important;
+        }
+        .custom-dark-table .ant-pagination-item a,
+        .custom-dark-table .ant-pagination-prev a,
+        .custom-dark-table .ant-pagination-next a {
+          color: rgb(156, 163, 175) !important;
+        }
+        .custom-dark-table .ant-pagination-item-active {
+          background: rgba(59, 130, 246, 0.3) !important;
+          border-color: rgba(59, 130, 246, 0.5) !important;
+        }
+        .custom-dark-table .ant-pagination-item-active a {
+          color: white !important;
+        }
+        .custom-dark-table .ant-empty-description {
+          color: rgb(156, 163, 175) !important; /* 空状态文字颜色 */
+        }
+
+        /* 自定义 Tooltip 样式 */
+        .custom-dark-tooltip .ant-tooltip-inner {
+          background-color: rgba(30, 41, 59, 0.95) !important; /* 深色背景 */
+          color: white !important; /* 白色文字 */
+          border-radius: 0.375rem !important; /* 圆角 */
+          border: 1px solid rgba(51, 65, 85, 0.7) !important;
+          box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+          padding: 6px 10px !important; /* 内边距 */
+          font-size: 0.8rem; /* 字体大小 */
+        }
+        .custom-dark-tooltip .ant-tooltip-arrow::before,
+        .custom-dark-tooltip .ant-tooltip-arrow::after {
+          background-color: rgba(30, 41, 59, 0.95) !important; /* 箭头颜色 */
+        }
+        
+        /* 自定义 Popconfirm 样式 */
+        .custom-dark-popconfirm .ant-popover-inner {
+          background-color: rgba(30, 41, 59, 0.9) !important; /* 深色背景 */
+          backdrop-filter: blur(8px);
+          border: 1px solid rgba(51, 65, 85, 0.7) !important;
+          border-radius: 0.5rem !important;
+          box-shadow: 0 4px 15px -3px rgba(0, 0, 0, 0.2);
+        }
+        .custom-dark-popconfirm .ant-popover-inner-content {
+            padding: 12px 16px !important; /* 调整内边距 */
+        }
+        .custom-dark-popconfirm .ant-popover-message-title {
+          color: white !important; /* 标题白色 */
+          padding-left: 24px !important; /* 为图标留出空间 */
+          font-size: 0.9rem; /* 调整标题大小 */
+        }
+        .custom-dark-popconfirm .ant-popover-message-description {
+          color: rgb(209, 213, 219) !important; /* 描述浅灰色 */
+           margin-left: 24px !important; /* 与标题对齐 */
+           margin-top: 4px !important; /* 增加与标题的间距 */
+           font-size: 0.8rem; /* 调整描述大小 */
+        }
+        .custom-dark-popconfirm .ant-popover-message > .anticon {
+           color: #facc15 !important; /* 图标黄色 */
+           font-size: 16px; /* 调整图标大小 */
+           top: 14px !important; /* 微调图标位置 */
+        }
+        .custom-dark-popconfirm .ant-popover-buttons {
+          margin-top: 12px !important; /* 增加按钮与内容的间距 */
+        }
+        /* Popconfirm 取消按钮自定义悬停/聚焦样式 */
+        .custom-popconfirm-cancel-btn {
+          background-color: rgba(51, 65, 85, 0.5) !important;
+          border-color: rgba(71, 85, 105, 0.5) !important;
+          color: rgb(209, 213, 219) !important;
+        }
+        .custom-popconfirm-cancel-btn:hover,
+        .custom-popconfirm-cancel-btn:focus {
+          color: white !important;
+          border-color: rgba(59, 130, 246, 0.5) !important; 
+          background-color: rgba(59, 130, 246, 0.1) !important; 
+          outline: none !important; /* 移除默认聚焦轮廓 */
+          box-shadow: none !important; /* 移除默认聚焦阴影 */
+        }
+        /* Popconfirm 其他按钮样式已通过 props 传入 */
+
       `}</style>
     </div>
   );
