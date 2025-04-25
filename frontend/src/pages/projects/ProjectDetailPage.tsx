@@ -20,11 +20,16 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { Modal, Form, Input, message, Table, Tooltip, Badge, Popconfirm, Select, Tabs, Spin, Empty } from 'antd';
+import { Modal, Form, Input, message, Table, Tooltip, Badge, Popconfirm, Select, Tabs, Spin, Empty, Tag, Upload as AntUpload } from 'antd'; // 直接从 antd 导入 Upload
 import { formatDistance } from 'date-fns';
 import { zhCN } from 'date-fns/locale';
 import { Diff, Hunk, parseDiff } from 'react-diff-view';
 import 'react-diff-view/style/index.css';
+import { datasetsService, Dataset } from '@/services/datasets'; // 导入数据集服务和类型
+import type { UploadProps, UploadFile } from 'antd'; // 导入 Antd Upload 相关类型
+import { filesize } from "filesize"; // 导入 filesize
+import { ApiResponse } from '@/types/auth'; // 导入 ApiResponse
+import { RcFile } from 'antd/es/upload/interface'; // 导入 RcFile 类型
 
 // 版本信息接口
 interface SnapshotInfo {
@@ -247,6 +252,19 @@ const isIgnoredFile = (filePath: string): boolean => {
   return false;
 };
 
+// 复制 formatFileSize 函数
+const formatFileSize = (size: number | string | null | undefined) => {
+  if (typeof size === 'number') {
+    return filesize(size, { base: 2, standard: "jedec" });
+  } else if (typeof size === 'string') {
+      const numSize = parseInt(size, 10);
+      if (!isNaN(numSize)) {
+          return filesize(numSize, { base: 2, standard: "jedec" });
+      }
+  }
+  return 'N/A';
+};
+
 const ProjectDetailPage = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -293,6 +311,16 @@ const ProjectDetailPage = () => {
 
   // 在ProjectDetailPage组件中添加删除快照的状态和处理函数
   const [deleteSnapshotLoading, setDeleteSnapshotLoading] = useState<string | null>(null);
+
+  // 上传数据模态框状态
+  const [uploadDataModalVisible, setUploadDataModalVisible] = useState(false);
+  const [uploadTabKey, setUploadTabKey] = useState('local');
+  const [selectedDatasetIds, setSelectedDatasetIds] = useState<React.Key[]>([]); // 改为 React.Key[]
+  const [localFileList, setLocalFileList] = useState<UploadFile[]>([]); // antd Upload component file list
+  const [filesToUpload, setFilesToUpload] = useState<Array<{ uid: string; file: File }>>([]); // 存储 uid 和 File 对象
+  const [userDatasets, setUserDatasets] = useState<Dataset[]>([]);
+  const [datasetsLoading, setDatasetsLoading] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
 
   useEffect(() => {
     const fetchProject = async () => {
@@ -1845,7 +1873,7 @@ const ProjectDetailPage = () => {
                   <div className="flex justify-center space-x-4">
                     <Button 
                       className="bg-blue-600 hover:bg-blue-700 text-white py-3 px-6 rounded-md flex items-center"
-                      // onClick={handleUploadData} // 暂时注释掉，后续实现
+                      onClick={handleOpenUploadDataModal} // 绑定 handler
                     >
                       <Upload className="w-4 h-4 mr-2" />
                       上传数据
@@ -1882,6 +1910,7 @@ const ProjectDetailPage = () => {
             <JupyterNotebook 
               projectId={parseInt(id || '0')}
               onSessionError={handleJupyterSessionError}
+              onUploadDataClick={handleOpenUploadDataModal} // 传递 handler
             />
           </div>
         );
@@ -2296,6 +2325,337 @@ const ProjectDetailPage = () => {
     }
   };
 
+  // 获取用户数据集（用于上传模态框） - 确保在使用前定义
+  const fetchUserDatasetsForUpload = async () => {
+    setDatasetsLoading(true);
+    try {
+      const response = await datasetsService.getUserDatasets();
+      if (response.status === 'success') {
+        // 过滤掉状态不是 'ready' 的数据集
+        const readyDatasets = (response.data as Dataset[]).filter(ds => ds.status === 'ready');
+        setUserDatasets(readyDatasets);
+      } else {
+        message.error(response.message || '获取用户数据集失败');
+        setUserDatasets([]);
+      }
+    } catch (error: any) {
+      message.error(error.message || '获取用户数据集失败');
+      setUserDatasets([]);
+    } finally {
+      setDatasetsLoading(false);
+    }
+  };
+
+  // 打开上传数据模态框
+  const handleOpenUploadDataModal = () => {
+    console.log('handleOpenUploadDataModal called'); // 添加日志
+    setUploadDataModalVisible(true);
+    // 重置状态并在模态框打开时获取数据集
+    const nextUploadTabKey = 'local';
+    const nextSelectedDatasetIds: React.Key[] = [];
+    const nextLocalFileList: UploadFile[] = [];
+    const nextFilesToUpload: Array<{ uid: string; file: File }> = [];
+
+    setUploadTabKey(nextUploadTabKey);
+    setSelectedDatasetIds(nextSelectedDatasetIds);
+    setLocalFileList(nextLocalFileList);
+    setFilesToUpload(nextFilesToUpload);
+    
+    // 添加日志确认状态重置
+    console.log('[Modal Open] Resetting state:', {
+      uploadTabKey: nextUploadTabKey,
+      selectedDatasetIdsLength: nextSelectedDatasetIds.length, 
+      filesToUploadLength: nextFilesToUpload.length
+    });
+
+    fetchUserDatasetsForUpload(); // 获取数据集列表
+  };
+
+  // 渲染上传数据模态框
+  const renderUploadDataModal = () => {
+    // "我的数据集"选项卡表格列定义
+    const datasetColumns = [
+      {
+        title: '数据集名称',
+        dataIndex: 'name',
+        key: 'name',
+        render: (text: string) => <span className="text-gray-200 font-medium">{text}</span>, // 改为 text-gray-200
+      },
+      {
+        title: '描述',
+        dataIndex: 'description',
+        key: 'description',
+        render: (text: string) => <span className="text-gray-400 text-xs">{text || '-'}</span>,
+      },
+      {
+        title: '文件类型',
+        dataIndex: 'file_type',
+        key: 'file_type',
+        render: (type: string) => <Tag className="bg-gray-700 border-gray-600 text-gray-300">{type?.toUpperCase() || 'N/A'}</Tag>,
+      },
+      {
+        title: '大小',
+        dataIndex: 'file_size',
+        key: 'file_size',
+        render: (size: number) => <span className="text-gray-300 text-xs">{formatFileSize(size)}</span>,
+      },
+    ];
+
+    // "我的数据集"选项卡表格行选择配置
+    const datasetRowSelection = {
+      selectedRowKeys: selectedDatasetIds,
+      onChange: (selectedKeys: React.Key[]) => {
+        console.log('datasetRowSelection onChange called', selectedKeys); // 添加日志
+        setSelectedDatasetIds(selectedKeys); // 直接使用 React.Key[]
+      },
+    };
+
+    // "本地上传"选项卡 Antd Upload 配置
+    const localUploadProps: UploadProps = {
+      multiple: true,
+      fileList: localFileList,
+      // 使用 RcFile 类型，它包含 uid
+      beforeUpload: (file: RcFile) => { 
+        console.log('localUploadProps beforeUpload called', file.name); // 添加日志
+        const uid = file.uid;
+        
+        // 创建符合 UploadFile 接口的对象
+        const uploadFile: UploadFile = {
+          uid: uid,
+          name: file.name,
+          size: file.size,
+          type: file.type,
+          originFileObj: file as any, // 强制类型转换，因为 RcFile 兼容 File
+          status: 'done', // 标记为完成以在列表中显示
+        };
+        
+        // 添加到待上传列表 (包含 uid 和 原始 File/RcFile)
+        const nextFilesToUpload = [...filesToUpload, { uid: uid, file: file }];
+        setFilesToUpload(nextFilesToUpload);
+        // 添加日志确认本地文件添加更新
+        console.log('[Local File Added] Updated filesToUpload:', nextFilesToUpload);
+        
+        // 更新 antd 的 fileList (UploadFile 对象)
+        setLocalFileList(prev => [...prev, uploadFile]);
+        
+        return false; // 阻止自动上传
+      },
+      onRemove: (file: UploadFile) => { // 参数类型为 UploadFile
+        // 从待上传列表移除 (根据 uid)
+        setFilesToUpload(prev => prev.filter(item => item.uid !== file.uid));
+        
+        // 从 antd 的 fileList 移除 (UploadFile 对象)
+        setLocalFileList(prev => prev.filter(f => f.uid !== file.uid));
+      },
+    };
+
+    // 处理上传按钮点击事件
+    const handleUpload = async () => {
+      if (!project) return;
+      setIsUploading(true);
+      
+      try {
+        let response: ApiResponse | null = null;
+        if (uploadTabKey === 'dataset') {
+          // 上传选中的数据集
+          if (selectedDatasetIds.length === 0) {
+            message.warning('请至少选择一个数据集');
+            setIsUploading(false); // 别忘了在校验失败时重置 loading
+            return;
+          }
+          console.log(`准备上传数据集: ${selectedDatasetIds.join(', ')}`);
+          response = await services.uploadDataToProject(project.id, { dataset_ids: selectedDatasetIds }); // 取消注释
+          // message.info('上传数据集功能待实现'); // 移除临时提示
+
+        } else if (uploadTabKey === 'local') {
+          // 上传本地文件
+          if (filesToUpload.length === 0) {
+            message.warning('请至少选择一个本地文件');
+            setIsUploading(false); // 别忘了在校验失败时重置 loading
+            return;
+          }
+          const formData = new FormData();
+          filesToUpload.forEach(item => {
+            // 从 item 中获取原始 File 对象添加到 FormData
+            formData.append('files', item.file);
+          });
+          console.log(`准备上传本地文件: ${filesToUpload.map(item => item.file.name).join(', ')}`);
+          response = await services.uploadDataToProject(project.id, formData); // 取消注释
+          // message.info('上传本地文件功能待实现'); // 移除临时提示
+        }
+
+        // 恢复对 response 的判断
+        if (response && response.status === 'success') {
+          message.success(response.message || '数据上传成功!');
+          setUploadDataModalVisible(false);
+          // 这里可以添加刷新项目文件列表的逻辑（如果需要）
+        } else if (response && response.status === 'warning') {
+          // 处理带有警告的成功或部分成功响应
+          message.warning(response.message || '部分数据上传成功，但有警告');
+          // 可以在这里显示具体的警告信息给用户，例如使用 Modal 或 notification
+          if (response.warnings && response.warnings.length > 0) {
+            Modal.warning({
+              title: <span className="text-white">上传警告</span>,
+              content: (
+                <ul className="list-disc list-inside text-gray-300">
+                  {response.warnings.map((warn: string, index: number) => <li key={index}>{warn}</li>)}
+                </ul>
+              ),
+              className: 'custom-dark-modal',
+              okText: '知道了',
+            });
+          }
+          setUploadDataModalVisible(false); // 关闭主模态框
+        } else {
+          // 处理纯粹的错误响应
+          message.error(response?.message || '数据上传失败');
+        }
+        // 移除模拟成功逻辑
+        // 模拟成功，暂时关闭模态框 (调试用，后续需根据实际 API 调用结果)
+        // await new Promise(resolve => setTimeout(resolve, 1000)); // 模拟网络延迟
+        // message.success('模拟上传成功 (功能待实现)');
+        setUploadDataModalVisible(false);
+        // 清空选择状态
+        setFilesToUpload([]);
+        setLocalFileList([]);
+        setSelectedDatasetIds([]);
+
+      } catch (error: any) {
+        // 处理服务层抛出的包含 warnings 的错误
+        if (error.warnings && error.warnings.length > 0) {
+          message.error(error.message || '数据上传过程中发生错误，并伴有警告');
+          Modal.error({
+            title: <span className="text-white">上传出错并伴有警告</span>,
+            content: (
+              <div>
+                <p className="text-red-400 mb-2">{error.message || '发生错误'}</p>
+                <p className="text-gray-300 mb-1">警告信息:</p>
+                <ul className="list-disc list-inside text-gray-300">
+                  {error.warnings.map((warn: string, index: number) => <li key={index}>{warn}</li>)}
+                </ul>
+              </div>
+            ),
+            className: 'custom-dark-modal',
+            okText: '知道了',
+          });
+        } else {
+          message.error(error.message || '数据上传过程中发生错误');
+        }
+      } finally {
+        setIsUploading(false);
+        console.log('handleUpload finally: isUploading set to false'); // 添加日志
+      }
+    };
+
+    const items = [
+      {
+        key: 'local',
+        label: <span className={uploadTabKey === 'local' ? 'text-white' : 'text-gray-400'}>从本地上传</span>,
+        children: (
+          <div className="mt-4">
+            {/* 使用直接导入的 AntUpload.Dragger */}
+            <AntUpload.Dragger {...localUploadProps} className="custom-dark-uploader">
+              <p className="ant-upload-drag-icon">
+                <Upload className="w-12 h-12 mx-auto text-blue-500" />
+              </p>
+              {/* 修改 Dragger 内文本颜色 */}
+              <p className="ant-upload-text text-gray-300">点击或拖拽文件到此区域上传</p>
+              <p className="ant-upload-hint text-gray-400">
+                支持多文件上传。文件将被上传到项目根目录。
+              </p>
+            </AntUpload.Dragger>
+          </div>
+        ),
+      },
+      {
+        key: 'dataset',
+        label: <span className={uploadTabKey === 'dataset' ? 'text-white' : 'text-gray-400'}>从我的数据集上传</span>,
+        children: (
+          <div className="mt-4">
+            {datasetsLoading ? (
+              <div className="flex justify-center items-center py-8"><Spin tip={<span className="text-gray-300">加载数据集中...</span>} /></div>
+            ) : userDatasets.length === 0 ? (
+              <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={<span className="text-gray-400">没有可用的数据集</span>} />
+            ) : (
+              <Table
+                rowKey="id"
+                columns={datasetColumns} // 列定义中已包含颜色样式
+                dataSource={userDatasets}
+                rowSelection={datasetRowSelection}
+                pagination={{ pageSize: 5, size: 'small' }}
+                scroll={{ y: 240 }}
+                size="small"
+                className="custom-dark-table" // 确保自定义样式包含文本颜色
+              />
+            )}
+          </div>
+        ),
+      },
+    ];
+
+    return (
+      <Modal
+        title={
+          <div className="flex items-center text-white">
+            <Upload className="w-5 h-5 mr-2 text-teal-400" />
+            上传数据到项目 "{project?.name || ''}"
+          </div>
+        }
+        open={uploadDataModalVisible}
+        onCancel={() => setUploadDataModalVisible(false)}
+        destroyOnClose={true} // 添加 destroyOnClose 属性
+        footer={
+          <div className="flex justify-between items-center">
+            <span className="text-xs text-gray-500">文件将上传至项目根目录</span>
+            <div className="flex space-x-4">
+              <Button
+                key="cancel"
+                size="sm"
+                variant="outline"
+                onClick={() => setUploadDataModalVisible(false)}
+                disabled={isUploading}
+              >
+                取消
+              </Button>
+              <Button
+                key="submit"
+                size="sm"
+                className="bg-gradient-to-r from-teal-600 to-cyan-600 hover:from-teal-500 hover:to-cyan-500 text-white border-0"
+                onClick={handleUpload}
+                disabled={isUploading || (uploadTabKey === 'local' && filesToUpload.length === 0) || (uploadTabKey === 'dataset' && selectedDatasetIds.length === 0)}
+              >
+                {isUploading ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    上传中...
+                  </>
+                ) : (
+                  '开始上传' // 非加载状态文本
+                )}
+              </Button>
+            </div>
+          </div>
+        }
+        className="custom-dark-modal"
+        width={700} // 适当增加宽度以容纳表格
+      >
+        {/* Tabs 组件需要 key 来确保在 destroyOnClose 时重新渲染 */}
+        {/* 使用 activeKey 显式控制 */}
+        <Tabs 
+          // defaultActiveKey="local" // 移除 defaultActiveKey
+          activeKey={uploadTabKey} // 使用 activeKey
+          items={items} 
+          onChange={(key) => { 
+            console.log('Tab changed to:', key); // 添加日志
+            setUploadTabKey(key); 
+          }} 
+          key={uploadTabKey} // 保留 key 以强制重新渲染
+          className="custom-dark-tabs" 
+        />
+      </Modal>
+    );
+  };
+
   return (
     <div className="flex-1 flex flex-col">
       {/* 顶部导航栏 */}
@@ -2340,7 +2700,7 @@ const ProjectDetailPage = () => {
           <Button 
             variant="outline" 
             className="bg-teal-500/10 hover:bg-teal-500/20 text-teal-300 border-teal-500/50"
-            // onClick={handleUploadData} // 暂时注释掉，后续实现
+            onClick={handleOpenUploadDataModal} // 绑定 handler
           >
             <Upload className="w-4 h-4 mr-2" />
             上传数据
@@ -2351,7 +2711,7 @@ const ProjectDetailPage = () => {
             <Button 
               variant="outline" 
               className="bg-red-500/10 hover:bg-red-500/20 text-red-300 border-red-500/50"
-              onClick={handleStopProject} // 确保是函数引用
+              onClick={handleStopProject} 
               disabled={statusLoading}
             >
               {statusLoading ? (
@@ -2365,7 +2725,7 @@ const ProjectDetailPage = () => {
             <Button 
               variant="outline" 
               className="bg-green-500/10 hover:bg-green-500/20 text-green-300 border-green-500/50"
-              onClick={handleStartProject} // 确保是函数引用
+              onClick={handleStartProject} 
               disabled={statusLoading}
             >
               {statusLoading ? (
@@ -2393,7 +2753,7 @@ const ProjectDetailPage = () => {
               )}
               启动Jupyter
             </Button>
-          )}
+          )} 
           
           <Button 
             variant="outline"
@@ -2532,6 +2892,9 @@ const ProjectDetailPage = () => {
       {/* 比较结果模态框 */}
       {renderCompareResultModal()}
       
+      {/* 上传数据模态框 */}       
+      {renderUploadDataModal()}      
+
       {/* 添加Dark Modal样式 */}
       <style>{`
         .custom-dark-modal .ant-modal-content {
@@ -2771,6 +3134,83 @@ const ProjectDetailPage = () => {
         }
         /* Popconfirm 其他按钮样式已通过 props 传入 */
 
+        /* Upload Dragger specific styles */
+        .custom-dark-uploader .ant-upload-text {
+          color: #e5e7eb !important; /* text-gray-200 */
+        }
+        .custom-dark-uploader .ant-upload-hint {
+          color: #9ca3af !important; /* text-gray-400 */
+        }
+        .custom-dark-uploader .ant-upload-drag {
+          background: rgba(30, 41, 59, 0.3) !important;
+          border: 1px dashed rgba(51, 65, 85, 0.8) !important;
+        }
+        .custom-dark-uploader .ant-upload-drag:hover {
+          border-color: rgba(59, 130, 246, 0.6) !important;
+        }
+        /* Change color of uploaded file names in the list */
+        .custom-dark-uploader .ant-upload-list-item .ant-upload-list-item-name {
+          color: #e5e7eb !important; /* text-gray-200 */
+          transition: color 0.3s;
+        }
+        .custom-dark-uploader .ant-upload-list-item:hover .ant-upload-list-item-name {
+           color: #ffffff !important; /* White on hover */
+        }
+        /* Adjust icon colors if needed */
+        .custom-dark-uploader .ant-upload-list-item .anticon-paper-clip,
+        .custom-dark-uploader .ant-upload-list-item .anticon-delete {
+           color: #9ca3af; /* text-gray-400 */
+           transition: color 0.3s;
+        }
+        .custom-dark-uploader .ant-upload-list-item:hover .anticon-paper-clip,
+        .custom-dark-uploader .ant-upload-list-item:hover .anticon-delete {
+           color: #ffffff !important; /* White on hover */
+        }
+
+        /* 修改选中行背景色 */
+        .custom-dark-table .ant-table-tbody > tr.ant-table-row-selected > td {
+           background: rgba(59, 130, 246, 0.2) !important; /* 更柔和的蓝色高亮 */
+           /* 或者尝试其他的颜色，例如： */
+           /* background: rgba(71, 85, 105, 0.6) !important; */ /* 稍亮的背景色 */
+        }
+        .custom-dark-table .ant-pagination-item,
+        .custom-dark-table .ant-pagination-prev,
+        .custom-dark-table .ant-pagination-next {
+          background: rgba(30, 41, 59, 0.5) !important;
+          border-color: rgba(51, 65, 85, 0.8) !important;
+        }
+
+        /* Adjust icon colors and visibility */
+        /* Paperclip icon always white */
+        .custom-dark-uploader .ant-upload-list-item .anticon-paper-clip {
+          color: #ffffff !important; /* Always white */
+        }
+
+        /* Delete icon: hidden by default, shown on hover */
+        .custom-dark-uploader .ant-upload-list-item .anticon-delete {
+          color: #ffffff !important; /* Make it white when visible */
+          opacity: 0;
+          visibility: hidden;
+          transition: opacity 0.2s ease-in-out, visibility 0.2s ease-in-out;
+        }
+        .custom-dark-uploader .ant-upload-list-item:hover .anticon-delete {
+          opacity: 1;
+          visibility: visible;
+        }
+
+        /* Keep filename color styles */
+        .custom-dark-uploader .ant-upload-list-item .ant-upload-list-item-name {
+          color: #e5e7eb !important; /* text-gray-200 */
+          transition: color 0.3s;
+        }
+        .custom-dark-uploader .ant-upload-list-item:hover .ant-upload-list-item-name {
+          color: #ffffff !important; /* White on hover */
+        }
+
+        /* Table styles */
+        .custom-dark-table .ant-table {
+          background: transparent !important;
+        }
       `}</style>
     </div>
   );

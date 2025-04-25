@@ -11,11 +11,13 @@ from django.shortcuts import get_object_or_404
 from django.contrib.auth import get_user_model
 from django.db import transaction
 from django.utils import timezone
+from django.conf import settings
 
 from .models import Project, ProjectFile
 from .serializers import ProjectSerializer, ProjectFileSerializer
 from container.models import ContainerInstance, DockerImage
 from container.docker_ops import DockerClient
+from dataset.models import Dataset
 
 import logging
 import json
@@ -1074,6 +1076,134 @@ class ProjectViewSet(viewsets.ModelViewSet):
                 {"status": "error", "message": f"获取当前项目文件内容失败: {str(e)}"},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
+
+    @action(detail=True, methods=['post'], permission_classes=[IsAuthenticated])
+    def upload_data(self, request, pk=None):
+        """
+        上传数据到项目工作区
+        支持从用户的数据集或本地文件上传
+        """
+        try:
+            project = self.get_object() # 获取项目实例
+        except Exception as e:
+            logger.error(f"获取项目 {pk} 失败: {str(e)}")
+            return Response({"status": "error", "message": "找不到指定的项目"}, status=status.HTTP_404_NOT_FOUND)
+
+        # 检查用户是否有权限操作此项目 (通常 get_object 会处理，但可以加一层保险)
+        if project.user != request.user:
+            return Response({"status": "error", "message": "权限不足"}, status=status.HTTP_403_FORBIDDEN)
+
+        # 确定项目工作区路径
+        workspace_path = os.path.join(settings.WORKSPACE_DIR, f'project_{project.id}')
+        os.makedirs(workspace_path, exist_ok=True) # 确保目录存在
+
+        uploaded_files = []
+        warnings = []
+
+        # 检查请求类型并处理
+        content_type = request.content_type
+        logger.info(f"接收到上传请求: 项目ID={pk}, Content-Type={content_type}")
+
+        try:
+            # 情况1: 从数据集上传 (Content-Type: application/json)
+            if 'application/json' in content_type:
+                dataset_ids = request.data.get('dataset_ids', [])
+                logger.info(f"处理从数据集上传: IDs={dataset_ids}")
+                if not dataset_ids:
+                    return Response({"status": "error", "message": "未选择任何数据集"}, status=status.HTTP_400_BAD_REQUEST)
+
+                # 查询选中的数据集 (确保是用户自己的且状态为 ready)
+                datasets_to_upload = Dataset.objects.filter(
+                    id__in=dataset_ids,
+                    creator=request.user,
+                    status='ready'
+                )
+                
+                found_ids = [str(ds.id) for ds in datasets_to_upload]
+                missing_ids = [item for item in map(str, dataset_ids) if item not in found_ids]
+                if missing_ids:
+                    warnings.append(f"以下数据集未找到、非用户创建或状态未就绪，已跳过: {', '.join(missing_ids)}")
+
+                if not datasets_to_upload.exists():
+                     return Response({"status": "warning", "message": "没有有效的数据集可供上传", "warnings": warnings}, status=status.HTTP_400_BAD_REQUEST)
+
+                for dataset in datasets_to_upload:
+                    source_path = dataset.get_absolute_file_path()
+                    if source_path and os.path.isfile(source_path):
+                        base_filename = os.path.basename(dataset.file.name)
+                        target_path = os.path.join(workspace_path, base_filename)
+                        
+                        # 处理文件名冲突 (简单处理：如果已存在则跳过并警告)
+                        if os.path.exists(target_path):
+                            warnings.append(f"文件 '{base_filename}' 已存在于项目目录中，已跳过上传。")
+                            logger.warning(f"文件冲突: {target_path} 已存在，跳过数据集 {dataset.id}")
+                            continue
+                            
+                        try:
+                            shutil.copy2(source_path, target_path) # copy2 尝试保留元数据
+                            uploaded_files.append(base_filename)
+                            logger.info(f"成功复制数据集文件: {source_path} -> {target_path}")
+                        except Exception as copy_err:
+                            error_msg = f"复制数据集文件 '{base_filename}' 时出错: {copy_err}"
+                            warnings.append(error_msg)
+                            logger.error(error_msg)
+                    else:
+                        warnings.append(f"数据集 '{dataset.name}' (ID: {dataset.id}) 的源文件未找到或无效，已跳过。")
+                        logger.warning(f"数据集源文件无效: ID={dataset.id}, Path={source_path}")
+            
+            # 情况2: 从本地上传 (Content-Type: multipart/form-data)
+            elif 'multipart/form-data' in content_type:
+                files = request.FILES.getlist('files') # 获取所有名为 'files' 的文件
+                logger.info(f"处理从本地上传: 文件数量={len(files)}")
+                if not files:
+                    return Response({"status": "error", "message": "没有选择任何本地文件"}, status=status.HTTP_400_BAD_REQUEST)
+
+                for uploaded_file in files:
+                    file_name = uploaded_file.name
+                    target_path = os.path.join(workspace_path, file_name)
+                    
+                    # 处理文件名冲突 (简单处理：如果已存在则跳过并警告)
+                    if os.path.exists(target_path):
+                        warnings.append(f"文件 '{file_name}' 已存在于项目目录中，已跳过上传。")
+                        logger.warning(f"文件冲突: {target_path} 已存在，跳过本地文件 {file_name}")
+                        continue
+                        
+                    try:
+                        # 分块写入以处理大文件
+                        with open(target_path, 'wb+') as destination:
+                            for chunk in uploaded_file.chunks():
+                                destination.write(chunk)
+                        uploaded_files.append(file_name)
+                        logger.info(f"成功保存本地上传文件: {target_path}")
+                    except Exception as save_err:
+                        error_msg = f"保存本地文件 '{file_name}' 时出错: {save_err}"
+                        warnings.append(error_msg)
+                        logger.error(error_msg)
+                        # 如果保存失败，尝试删除可能已创建的不完整文件
+                        if os.path.exists(target_path):
+                            try:
+                                os.remove(target_path)
+                            except OSError as remove_err:
+                                logger.error(f"删除不完整文件 {target_path} 失败: {remove_err}")
+            
+            # 其他 Content-Type 不支持
+            else:
+                return Response({"status": "error", "message": f"不支持的 Content-Type: {content_type}"}, status=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE)
+
+        except Exception as e:
+            logger.exception(f"处理上传数据时发生意外错误: 项目ID={pk}, Error: {str(e)}")
+            return Response({"status": "error", "message": f"处理上传时发生内部错误: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        # 根据上传结果返回响应
+        if not uploaded_files and not warnings:
+             # 这种情况理论上不应该发生，除非所有文件都因冲突被跳过且没有其他警告
+             return Response({"status": "info", "message": "没有文件被上传（可能所有文件已存在或无效）"}, status=status.HTTP_200_OK)
+        elif not uploaded_files and warnings:
+            return Response({"status": "warning", "message": "数据上传失败或已存在", "warnings": warnings}, status=status.HTTP_400_BAD_REQUEST)
+        elif uploaded_files and warnings:
+            return Response({"status": "warning", "message": f"部分数据上传成功，但有警告", "uploaded_files": uploaded_files, "warnings": warnings}, status=status.HTTP_200_OK)
+        else: # uploaded_files and not warnings
+            return Response({"status": "success", "message": f"成功上传 {len(uploaded_files)} 个文件", "uploaded_files": uploaded_files}, status=status.HTTP_200_OK)
 
 class ProjectFileViewSet(viewsets.ModelViewSet):
     """

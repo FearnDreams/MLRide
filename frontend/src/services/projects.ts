@@ -471,6 +471,55 @@ export const getCurrentFileContent = async (projectId: number, filePath: string)
   }
 };
 
+// 上传数据到项目工作区
+export const uploadDataToProject = async (projectId: number, data: { dataset_ids: React.Key[] } | FormData): Promise<ApiResponse> => {
+  try {
+    let config = {};
+    let requestData: any = data;
+    const url = `project/projects/${projectId}/upload_data/`;
+
+    if (data instanceof FormData) {
+      // 本地文件上传
+      config = {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
+      };
+      console.log("Service: Uploading local files to project");
+    } else if (data && Array.isArray(data.dataset_ids)) {
+      // 数据集上传
+      config = {
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      };
+      // 确保 dataset_ids 是数字数组 (React.Key 可能包含字符串)
+      requestData = { dataset_ids: data.dataset_ids.map(id => Number(id)) }; 
+      console.log("Service: Uploading datasets to project");
+    } else {
+      throw new Error('无效的上传数据格式');
+    }
+
+    const response = await api.post<ApiResponse>(url, requestData, config);
+    return response.data;
+
+  } catch (error: any) {
+    console.error('上传数据到项目失败:', error);
+    if (error.response?.data) {
+      throw {
+        status: error.response.data.status || 'error',
+        message: error.response.data.message || '上传数据失败',
+        warnings: error.response.data.warnings || []
+      };
+    }
+    throw {
+      status: 'error',
+      message: error.message || '上传数据时发生未知错误',
+      warnings: []
+    };
+  }
+};
+
 export default {
   getProjects,
   getProject,
@@ -491,4 +540,5 @@ export default {
   deleteProjectSnapshot,
   getCurrentProjectFiles,
   getCurrentFileContent,
+  uploadDataToProject,
 }; 

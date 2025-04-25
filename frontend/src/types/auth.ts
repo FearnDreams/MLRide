@@ -45,9 +45,10 @@ export interface ApiResponseData {
 
 // API响应接口
 export interface ApiResponse {
-    status: 'success' | 'error';
+    status: 'success' | 'error' | 'warning' | 'info';
     message: string;
-    data?: ApiResponseData;
+    data?: any;
+    warnings?: string[];
 }
 
 // 认证状态接口

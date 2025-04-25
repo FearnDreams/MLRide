@@ -97,8 +97,8 @@ const Home: React.FC = () => {
     { icon: FolderOpen, label: "我的项目", path: "/dashboard/projects" },
     { icon: Image, label: "镜像", path: "/dashboard/images" },
     { icon: Database, label: "数据集", path: "/dashboard/datasets" },
-    { icon: Users, label: "社区资源", path: "/dashboard/community" },
     { icon: BarChart, label: "统计面板", path: "/dashboard/tasks" },
+    { icon: Users, label: "社区资源", path: "/dashboard/community" },
   ];
 
   // 处理登出

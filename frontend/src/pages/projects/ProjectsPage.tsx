@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { Search, Plus, Upload, Rocket, Loader2, Trash2, MoreVertical, Code, Image, BookOpen, Layers, Edit2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { getProjects, deleteProject, updateProject } from '@/services/projects';
@@ -277,42 +277,33 @@ const ProjectsPage: React.FC = () => {
           </Button>
         </div>
 
-        {/* Quick Actions */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-          <div className="bg-slate-800/30 backdrop-blur-sm p-6 rounded-xl border border-slate-700/50 hover:border-blue-500/30 transition-all duration-300 hover:shadow-md hover:shadow-blue-500/5">
-            <div className="w-10 h-10 rounded-full bg-blue-500/10 flex items-center justify-center mb-4">
-              <Plus className="w-5 h-5 text-blue-400" />
-            </div>
-            <h3 className="text-lg font-medium mb-2 text-white">创建新项目</h3>
-            <p className="text-gray-400 mb-4">开始一个新的机器学习项目</p>
-            <Button 
-              className="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 border-0 shadow-md shadow-blue-900/20 text-gray-100 transition-all duration-200"
-              onClick={handleCreateProject}
-            >
-              创建项目
-            </Button>
-          </div>
-          <div className="bg-slate-800/30 backdrop-blur-sm p-6 rounded-xl border border-slate-700/50 hover:border-green-500/30 transition-all duration-300 hover:shadow-md hover:shadow-green-500/5">
-            <div className="w-10 h-10 rounded-full bg-green-500/10 flex items-center justify-center mb-4">
-              <Upload className="w-5 h-5 text-green-400" />
-            </div>
-            <h3 className="text-lg font-medium mb-2 text-white">导入数据集</h3>
-            <p className="text-gray-400 mb-4">上传或导入已有的数据集</p>
-            <Button className="bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-500 hover:to-emerald-500 border-0 shadow-md shadow-green-900/20 text-gray-100 transition-all duration-200">
-              导入数据
-            </Button>
-          </div>
-          <div className="bg-slate-800/30 backdrop-blur-sm p-6 rounded-xl border border-slate-700/50 hover:border-purple-500/30 transition-all duration-300 hover:shadow-md hover:shadow-purple-500/5">
-            <div className="w-10 h-10 rounded-full bg-purple-500/10 flex items-center justify-center mb-4">
-              <Rocket className="w-5 h-5 text-purple-400" />
-            </div>
-            <h3 className="text-lg font-medium mb-2 text-white">部署模型</h3>
-            <p className="text-gray-400 mb-4">将训练好的模型部署到生产环境</p>
-            <Button className="bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 border-0 shadow-md shadow-purple-900/20 text-gray-100 transition-all duration-200">
-              开始部署
-            </Button>
+        {/* Quick Create Section (Replaced) */}
+        <div className="mb-8">
+          <h2 className="text-xl font-bold mb-4 text-white">快速创建</h2>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <Link to="/dashboard/projects/create-notebook" className="block">
+              <div className="bg-slate-800/30 backdrop-blur-sm p-6 rounded-xl border border-slate-700/50 hover:border-green-500/30 transition-all duration-300 hover:shadow-md hover:shadow-green-500/5 flex items-center gap-4">
+                <div className="w-10 h-10 rounded-full bg-green-500/10 flex items-center justify-center">
+                  <BookOpen className="w-5 h-5 text-green-400" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-medium text-white">新建 Notebook</h3>
+                </div>
+              </div>
+            </Link>
+            <Link to="/dashboard/projects/create-canvas" className="block">
+              <div className="bg-slate-800/30 backdrop-blur-sm p-6 rounded-xl border border-slate-700/50 hover:border-purple-500/30 transition-all duration-300 hover:shadow-md hover:shadow-purple-500/5 flex items-center gap-4">
+                <div className="w-10 h-10 rounded-full bg-purple-500/10 flex items-center justify-center">
+                  <Layers className="w-5 h-5 text-purple-400" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-medium text-white">新建 Canvas</h3>
+                </div>
+              </div>
+            </Link>
           </div>
         </div>
+        {/* End of Quick Create Section */}
 
         {/* Projects List */}
         <div className="bg-slate-800/30 backdrop-blur-sm rounded-xl border border-slate-700/50 overflow-hidden">

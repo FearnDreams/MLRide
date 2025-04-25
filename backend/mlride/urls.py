@@ -15,6 +15,7 @@ urlpatterns = [
     path('api/container/', include('container.urls')),
     path('api/project/', include('project.urls')),
     path('api/jupyter/', include('jupyterapp.urls')),  # 添加jupyterapp的URL配置
+    path('api/data/', include('dataset.urls')),  # 添加dataset的URL配置
 ]
 
 # 在开发环境中添加媒体文件的URL配置

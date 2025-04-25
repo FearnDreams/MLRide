@@ -32,6 +32,17 @@ export interface CreateDatasetRequest {
   license?: string; // 许可证
 }
 
+// Helper function to convert Base64 to Blob
+const base64ToBlob = (base64: string, contentType: string = 'application/octet-stream'): Blob => {
+  const byteCharacters = atob(base64);
+  const byteNumbers = new Array(byteCharacters.length);
+  for (let i = 0; i < byteCharacters.length; i++) {
+    byteNumbers[i] = byteCharacters.charCodeAt(i);
+  }
+  const byteArray = new Uint8Array(byteNumbers);
+  return new Blob([byteArray], { type: contentType });
+};
+
 export const datasetsService = {
   // 获取用户的数据集列表
   getUserDatasets: async (): Promise<ApiResponse> => {
@@ -163,51 +174,61 @@ export const datasetsService = {
     }
   },
   
-  // 下载数据集
+  // 下载数据集 (修改后)
   downloadDataset: async (id: number): Promise<ApiResponse> => {
     try {
-      const response = await api.get<Blob>(`data/datasets/${id}/download/`, {
-        responseType: 'blob'
-      });
+      // 请求API，期望接收JSON响应
+      const response = await api.get<ApiResponse>(`data/datasets/${id}/download/`);
       
-      // 从响应头中获取文件名
-      const contentDisposition = response.headers['content-disposition'];
-      let filename = 'dataset.zip';
-      
-      if (contentDisposition) {
-        const filenameRegex = /filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/;
-        const matches = filenameRegex.exec(contentDisposition);
-        if (matches != null && matches[1]) {
-          filename = matches[1].replace(/['"]/g, '');
-        }
+      // 检查响应状态和数据结构
+      if (response.data.status !== 'success' || !response.data.data) {
+         console.error('下载API响应无效:', response.data);
+         throw new Error(response.data.message || '获取下载数据失败');
       }
+      
+      // 从响应数据中提取文件名、Base64内容和MIME类型
+      const { file_name, file_content, content_type } = response.data.data;
+      
+      if (!file_name || !file_content) {
+        console.error('下载API响应缺少必要数据:', response.data.data);
+        throw new Error('下载数据不完整');
+      }
+      
+      // 将Base64内容解码为Blob
+      const blobData = base64ToBlob(file_content, content_type);
       
       // 创建下载链接并触发下载
-      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const url = window.URL.createObjectURL(blobData);
       const link = document.createElement('a');
       link.href = url;
-      link.setAttribute('download', filename);
+      link.setAttribute('download', file_name); // 使用从API获取的文件名
       document.body.appendChild(link);
       link.click();
-      link.remove();
       
+      // 清理
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+      
+      // 返回成功状态（因为下载已触发）
       return {
         status: 'success',
-        message: '下载成功',
+        message: '下载已开始', // 消息可以调整
         data: undefined
       };
+      
     } catch (error: any) {
       console.error('下载数据集失败:', error);
-      
-      if (error.response?.data) {
-        throw {
-          status: 'error',
-          message: error.response.data.message || '下载数据集失败'
-        };
+      let message = '下载数据集失败';
+      // 保留之前的错误处理逻辑，以防API直接返回错误
+      if (error.response?.data?.message) {
+          message = error.response.data.message;
+      } else if (error.message) {
+           message = error.message;
       }
-      throw {
+      // 抛出包含错误消息的对象，以便上层捕获
+      throw { 
         status: 'error',
-        message: error.message || '下载数据集失败'
+        message: message 
       };
     }
   },

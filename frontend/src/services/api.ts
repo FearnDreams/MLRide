@@ -87,6 +87,12 @@ api.interceptors.request.use(
 // 响应拦截器
 api.interceptors.response.use(
     (response: AxiosResponse) => {
+        // 对于Blob类型的响应，不进行任何处理直接返回
+        if (response.data instanceof Blob) {
+            console.log('检测到Blob响应，跳过包装');
+            return response;
+        }
+        
         console.log('API响应原始数据:', response.data);
 
         // 修改响应数据结构以匹配ApiResponse接口

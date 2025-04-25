@@ -132,13 +132,15 @@ interface JupyterNotebookProps {
   projectId: number;
   sessionId?: number; // 可选的会话ID，用于恢复特定会话
   onSessionError?: () => void;
+  onUploadDataClick?: () => void; // 新增 prop，用于处理上传数据按钮点击
 }
 
 const JupyterNotebook: React.FC<JupyterNotebookProps> = ({ 
   projectId, 
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   sessionId, 
-  onSessionError 
+  onSessionError, 
+  onUploadDataClick // 接收 prop
 }) => {
   const [loading, setLoading] = useState(true);
   const [initializing, setInitializing] = useState(true); // 初始化状态，包括检查后端是否真正准备好
@@ -353,8 +355,13 @@ const JupyterNotebook: React.FC<JupyterNotebookProps> = ({
   };
   
   const handleUploadData = () => {
-    // 该功能后续实现
-    console.log('上传数据功能将在后续版本实现');
+    // 调用传入的 prop 函数
+    if (onUploadDataClick) {
+      onUploadDataClick();
+    } else {
+      // 如果没有传入 prop，可以保留原来的日志或提示
+      console.log('上传数据功能未连接到父组件');
+    }
   };
   
   // 显示加载状态UI

@@ -55,6 +55,7 @@ INSTALLED_APPS = [
     'container',  # 添加container应用
     'project',  # 添加project应用
     'jupyterapp',  # 添加jupyterapp应用
+    'dataset',  # 添加dataset应用
 ]
 
 MIDDLEWARE = [
@@ -151,6 +152,11 @@ STATIC_URL = "static/"
 # 媒体文件配置
 MEDIA_URL = '/media/'  # 媒体文件URL前缀
 MEDIA_ROOT = os.path.join(BASE_DIR, 'media')  # 媒体文件存储路径
+
+# 项目工作区根目录
+WORKSPACE_DIR = os.path.join(BASE_DIR, 'workspaces')
+# 确保工作区目录存在
+os.makedirs(WORKSPACE_DIR, exist_ok=True)
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/4.2/ref/settings/#default-auto-field
@@ -296,13 +302,20 @@ LOGS_DIR = os.path.join(BASE_DIR, 'logs')
 os.makedirs(LOGS_DIR, exist_ok=True)
 
 # 增加请求头和请求体大小限制设置
-DATA_UPLOAD_MAX_MEMORY_SIZE = 10 * 1024 * 1024  # 10MB
+DATA_UPLOAD_MAX_MEMORY_SIZE = 10 * 1024 * 1024 * 1024  # 10GB
 DATA_UPLOAD_MAX_NUMBER_FIELDS = 10000
 DATA_UPLOAD_MAX_NUMBER_FILES = 100
 
 # 请求头大小限制 (覆盖默认值)
 # 解决"431 Request Header Fields Too Large"错误
-FILE_UPLOAD_MAX_MEMORY_SIZE = 10 * 1024 * 1024  # 10MB
+FILE_UPLOAD_MAX_MEMORY_SIZE = 2 * 1024 * 1024 * 1024  # 2GB
+
+# 如果文件大于2GB，将使用磁盘存储而不是内存
+# 启用分块上传，对于大于2GB的文件将通过分块处理
+FILE_UPLOAD_HANDLERS = [
+    'django.core.files.uploadhandler.MemoryFileUploadHandler',
+    'django.core.files.uploadhandler.TemporaryFileUploadHandler',
+]
 
 # 增加超时设置
 # 超时时间，单位秒

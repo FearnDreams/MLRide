@@ -1156,3 +1156,242 @@ message.config({
 *   使用 `message.success('项目创建成功')` 在项目成功创建后给出提示。
 *   使用 `message.error(errorMessage)` 在创建失败时显示具体的错误信息。
 *   这种全局提示方式简化了组件内的状态管理，并提供了统一的应用反馈风格。
+
+## chardet库应用与工作原理
+
+### 1. chardet库简介
+
+[chardet](https://github.com/chardet/chardet) 是Python中用于检测文本编码的库，它能够自动识别文本文件的字符编码。在处理来源不明或多语言环境的文本文件时，正确识别编码是确保数据正确读取和显示的关键步骤。
+
+### 2. 在数据集预览中的应用
+
+在MLRide平台中，chardet主要用于数据集预览功能，特别是处理TXT文件时:
+
+```python
+# 使用chardet检测文件编码
+with open(file_path, 'rb') as f:
+    raw_data = f.read(10240)  # 读取前10KB数据进行编码检测
+    result = chardet.detect(raw_data)
+    encoding = result['encoding']
+    confidence = result['confidence']
+    
+    if confidence < 0.7:  # 如果置信度过低，默认使用utf-8
+        encoding = 'utf-8'
+```
+
+### 3. 工作原理
+
+chardet的编码检测基于统计和模式匹配方法:
+
+1. **字节频率分析**: 分析文本中字节的出现频率和分布
+2. **编码特征匹配**: 不同编码有特定的字节模式和标记
+3. **语言模型**: 使用不同语言的统计模型辅助判断
+4. **置信度计算**: 对每种可能的编码计算一个置信度值(0-1之间)
+
+### 4. 使用chardet的优势
+
+1. **提高用户体验**: 自动处理编码问题，用户无需手动指定
+2. **增强兼容性**: 支持多种编码格式(UTF-8, UTF-16, GBK, ISO-8859等)
+3. **处理未知来源文件**: 适合处理用户上传的各种来源的文件
+4. **高准确率**: 对常见编码的识别准确率较高
+5. **错误恢复**: 通过置信度阈值(如0.7)可以避免误判带来的问题
+
+### 5. 使用注意事项
+
+1. **样本量**: 检测的准确性与提供的文本样本量相关，样本太小可能导致准确率下降
+2. **置信度阈值**: 需要设置合理的置信度阈值，过高可能导致无法识别部分编码，过低可能导致误判
+3. **默认编码**: 当置信度不足时，应提供合理的默认编码(通常是UTF-8)
+4. **性能考虑**: 对大文件只检测开头部分(如10KB)可以提高性能
+5. **特殊编码处理**: 某些特殊或罕见的编码可能需要额外处理
+
+### 6. 实现示例
+
+完整的TXT文件预览函数实现:
+
+```python
+def _preview_txt(file_path):
+    """
+    预览TXT文件内容
+    
+    Args:
+        file_path: 文件路径
+        
+    Returns:
+        包含预览数据的字典
+    """
+    try:
+        # 使用chardet检测编码
+        with open(file_path, 'rb') as f:
+            raw_data = f.read(10240)  # 读取前10KB进行编码检测
+            result = chardet.detect(raw_data)
+            encoding = result['encoding']
+            confidence = result['confidence']
+            
+            if confidence < 0.7:  # 如果置信度低于0.7，使用UTF-8
+                encoding = 'utf-8'
+                
+        # 读取文件内容
+        line_count = 0
+        content = []
+        
+        with open(file_path, 'r', encoding=encoding, errors='replace') as f:
+            # 最多读取100行
+            for i, line in enumerate(f):
+                if i < 100:
+                    content.append(line.rstrip('\n'))
+                line_count = i + 1
+                if i >= 100:
+                    break
+                    
+        # 判断是否被截断
+        is_truncated = line_count > 100
+        
+        return {
+            'success': True,
+            'content': content,
+            'encoding': encoding,
+            'confidence': confidence,
+            'line_count': len(content),
+            'total_lines': line_count,
+            'truncated': is_truncated
+        }
+    except Exception as e:
+        logger.error(f"预览TXT文件失败: {str(e)}")
+        return {
+            'success': False,
+            'message': f"预览TXT文件失败: {str(e)}"
+        }
+```
+
+通过chardet的应用，MLRide平台能够更准确地处理各种编码的文本文件，提高数据集预览功能的可靠性和用户体验。
+
+## UI 样式和主题
+
+### Ant Design 组件样式覆盖
+
+*   **场景:** 当使用 Ant Design 组件库时，其默认样式可能不符合项目的设计（例如深色主题）。
+*   **方法:**
+    *   **检查元素:** 使用浏览器开发者工具检查需要修改样式的组件元素，找到对应的 Ant Design CSS 类名（例如 `.ant-modal-content`, `.ant-table-tbody > tr > td`, `.ant-upload-list-item-name`）。
+    *   **添加全局或局部 CSS:** 在全局 CSS 文件（如 `index.css`）或组件内部的 `<style>` 标签中，编写针对这些类名的 CSS 规则。
+    *   **使用 `!important`:** Ant Design 的样式优先级可能较高，有时需要使用 `!important` 关键字来强制覆盖默认样式。
+    *   **示例 (修改 Upload 文件列表项颜色):**
+        ```css
+        /* ProjectDetailPage.tsx <style> */
+        .custom-dark-uploader .ant-upload-list-item .ant-upload-list-item-name {
+          color: #e5e7eb !important; /* text-gray-200 */
+        }
+        .custom-dark-uploader .ant-upload-list-item:hover .ant-upload-list-item-name {
+           color: #ffffff !important; /* White on hover */
+        }
+        ```
+*   **好处:** 可以在不修改组件库源代码的情况下，灵活定制组件外观，使其融入项目整体风格。
+*   **注意:** 过度使用 `!important` 可能导致样式难以维护，应尽量通过提高选择器 specificity 来覆盖样式。仅在必要时使用 `!important`。
+
+### Tailwind CSS 与 Ant Design 结合
+
+*   虽然 Ant Design 有自己的样式系统，但有时我们可能想用 Tailwind 的工具类来快速调整布局或特定元素的样式。
+*   可以直接在 JSX 元素上添加 Tailwind 类名。对于 Ant Design 组件内部无法直接添加类名的元素，仍需依赖 CSS 覆盖。
+*   **示例 (修改 Table 列文字颜色):**
+    ```tsx
+    const columns = [
+      {
+        title: '数据集名称',
+        dataIndex: 'name',
+        key: 'name',
+        // 直接在 render 函数中使用 Tailwind 类
+        render: (text: string) => <span className="text-gray-200 font-medium">{text}</span>,
+      },
+      // ... 其他列
+    ];
+    ```
+
+### 深色主题适配
+
+*   在深色背景下，需要确保文本、图标、边框、背景等颜色具有足够对比度，保证可读性。
+*   高亮/选中状态的颜色不宜过于刺眼，可以选择半透明的亮色或稍亮的灰色。
+*   使用 Tailwind 的 `text-gray-xxx` 系列可以方便地选择不同灰度的浅色文本。
+
+### CSS 悬停效果与元素显隐控制
+
+*   **场景:** 在用户与界面交互时，动态地改变元素的样式或可见性，以提供反馈或显示/隐藏相关操作。
+*   **`:hover` 伪类:** 最常用的交互伪类，当鼠标指针悬停在元素上时，应用指定的 CSS 规则。
+    ```css
+    /* 基础样式 */
+    .my-button {
+      background-color: blue;
+      color: white;
+      transition: background-color 0.3s;
+    }
+    /* 悬停样式 */
+    .my-button:hover {
+      background-color: darkblue;
+    }
+    ```
+*   **控制元素显隐:**
+    *   `display: none;` vs `display: block/flex/etc.;`: 完全从文档流中移除元素，不占据空间。切换时可能导致布局重排。
+    *   `visibility: hidden;` vs `visibility: visible;`: 隐藏元素，但仍占据空间。切换时布局稳定。
+    *   `opacity: 0;` vs `opacity: 1;`: 设置元素透明度。元素仍然存在，占据空间，且可能响应事件（除非配合 `pointer-events: none;`）。常与 `transition` 结合实现淡入淡出效果。
+*   **结合 `:hover` 实现悬停显隐:**
+    *   **示例 (上传列表删除按钮):** 让某个子元素（删除按钮 `.anticon-delete`）在父元素（列表项 `.ant-upload-list-item`）悬停时才显示。
+        ```css
+        /* 默认隐藏删除按钮 */
+        .custom-dark-uploader .ant-upload-list-item .anticon-delete {
+          opacity: 0;
+          visibility: hidden;
+          transition: opacity 0.2s ease-in-out, visibility 0.2s ease-in-out;
+        }
+        /* 父元素悬停时显示删除按钮 */
+        .custom-dark-uploader .ant-upload-list-item:hover .anticon-delete {
+          opacity: 1;
+          visibility: visible;
+        }
+        ```
+*   **`transition` 属性:** 用于指定 CSS 属性变化时的过渡效果（如持续时间、缓动函数），使视觉变化更平滑自然。
+    ```css
+    transition: all 0.3s ease-in-out; /* 对所有可过渡属性应用 0.3 秒的缓入缓出效果 */
+    transition: opacity 0.2s ease-in-out, visibility 0.2s ease-in-out; /* 分别为 opacity 和 visibility 指定过渡 */
+    ```
+*   **好处:** 提升用户体验，使界面交互更直观、更流畅。
+*   **注意:** 避免滥用复杂的过渡效果，保持界面简洁。
+
+## 创建新页面与路由配置
+
+*   **场景:** 为应用添加新的功能页面，并在导航中使其可访问。
+*   **步骤:**
+    1.  **创建组件文件:** 在合适的目录（通常是 `src/pages/` 下的子目录）创建新的 `.tsx` 文件，例如 `src/pages/dashboard/StatisticsPage.tsx`。
+    2.  **编写页面组件:** 实现 React 组件的基本结构，可以先从简单的占位内容开始。
+        ```tsx
+        import React from 'react';
+        import { BarChart, Wrench } from 'lucide-react'; // 导入所需图标
+
+        const StatisticsPage: React.FC = () => {
+          return (
+            <div className="flex-1 flex flex-col items-center justify-center h-full">
+              <BarChart className="w-12 h-12 text-yellow-400 mb-4" />
+              <h2 className="text-xl font-bold text-white mb-2">统计面板</h2>
+              <p className="text-gray-400">此功能正在开发中。</p>
+              <Wrench className="w-4 h-4 text-orange-400 mt-2" />
+            </div>
+          );
+        };
+
+        export default StatisticsPage;
+        ```
+    3.  **配置路由:** 在主要的路由配置文件（通常是 `src/App.tsx` 或类似的路由中心文件）中：
+        *   **导入新组件:** `import StatisticsPage from './pages/dashboard/StatisticsPage';`
+        *   **添加 `<Route>`:** 在 `<Routes>` 组件内部，为新页面添加一个 `<Route>` 规则，指定 `path` 和 `element`。
+            ```tsx
+            <Routes>
+              {/* ... 其他路由 ... */}
+              <Route path="/dashboard" element={<Home />}>
+                {/* ... 其他仪表盘路由 ... */}
+                <Route path="tasks" element={<StatisticsPage />} /> {/* 新增或修改路由 */}
+              </Route>
+            </Routes>
+            ```
+    4.  **更新导航链接 (如果需要):** 确保侧边栏或其他导航组件中的链接 (`<Link to="...">`) 指向正确的路径 (`/dashboard/tasks`)。
+*   **好处:** 结构清晰，方便管理和扩展应用的不同功能模块。
+*   **注意:**
+    *   保持路由 `path` 的唯一性。
+    *   组件的导入路径要正确。
+    *   考虑路由嵌套关系，例如将所有仪表盘页面放在 `/dashboard` 路径下。

@@ -84,7 +84,7 @@ const LandingPage: React.FC = () => {
                 核心功能
               </h2>
               <p className="text-gray-400 max-w-[700px] mx-auto">
-                我们提供全面的机器学习开发工具，帮助您从数据处理到模型部署的全流程
+                平台提供全面的机器学习开发工具，帮助您从数据处理到模型部署的全流程
               </p>
             </div>
             
@@ -160,7 +160,7 @@ const LandingPage: React.FC = () => {
                   <h3 className="text-xl font-bold text-white">版本控制追踪</h3>
                 </div>
                 <p className="text-gray-400 leading-relaxed">
-                  使用 MLflow 和 DVC 进行模型和数据版本控制，确保开发过程的可追溯性。轻松比较不同版本的模型性能。
+                  提供代码和项目的版本控制，确保开发过程的可追溯性。轻松比较不同版本的代码和项目。
                 </p>
               </div>
               
@@ -222,45 +222,6 @@ const LandingPage: React.FC = () => {
                     <span className="text-sm text-gray-400">Docker</span>
                   </div>
                   
-                  {/* Kubernetes */}
-                  <div className="flex flex-col items-center">
-                    <div className="w-16 h-16 bg-slate-800/50 rounded-lg flex items-center justify-center mb-2 border border-slate-700/50">
-                      <svg className="w-10 h-10 text-blue-400" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                        <path d="M12 2L3 7V17L12 22L21 17V7L12 2Z" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-                        <path d="M12 22V17" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-                        <path d="M21 7L12 12L3 7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-                        <path d="M3 17L12 12L21 17" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-                        <path d="M12 2V7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-                      </svg>
-                    </div>
-                    <span className="text-sm text-gray-400">Kubernetes</span>
-                  </div>
-                  
-                  {/* MLflow */}
-                  <div className="flex flex-col items-center">
-                    <div className="w-16 h-16 bg-slate-800/50 rounded-lg flex items-center justify-center mb-2 border border-slate-700/50">
-                      <svg className="w-10 h-10 text-green-400" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                        <path d="M20 4L12 12L4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-                        <path d="M4 4V20H20V4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-                        <circle cx="9" cy="15" r="2" stroke="currentColor" strokeWidth="1.5" />
-                        <circle cx="15" cy="9" r="2" stroke="currentColor" strokeWidth="1.5" />
-                      </svg>
-                    </div>
-                    <span className="text-sm text-gray-400">MLflow</span>
-                  </div>
-                  
-                  {/* DVC */}
-                  <div className="flex flex-col items-center">
-                    <div className="w-16 h-16 bg-slate-800/50 rounded-lg flex items-center justify-center mb-2 border border-slate-700/50">
-                      <svg className="w-10 h-10 text-purple-400" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                        <path d="M12 3L4 7.5V16.5L12 21L20 16.5V7.5L12 3Z" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-                        <path d="M12 12L4 7.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-                        <path d="M12 12V21" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-                        <path d="M12 12L20 7.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-                      </svg>
-                    </div>
-                    <span className="text-sm text-gray-400">DVC</span>
-                  </div>
                   
                   {/* Jupyter */}
                   <div className="flex flex-col items-center">
