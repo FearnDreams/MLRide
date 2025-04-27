@@ -373,7 +373,7 @@ const LandingPage: React.FC = () => {
             
             <div className="mt-12 pt-8 border-t border-slate-900 flex flex-col md:flex-row justify-between items-center">
               <p className="text-sm text-gray-500">
-                © 2023 MLRide. 保留所有权利。
+                © 2025 MLRide. 保留所有权利。
               </p>
               <div className="flex space-x-6 mt-4 md:mt-0">
                 <a href="#" className="text-gray-400 hover:text-white transition-colors duration-200">

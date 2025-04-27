@@ -13,11 +13,16 @@ from django.db import transaction
 from django.utils import timezone
 from django.conf import settings
 
-from .models import Project, ProjectFile
-from .serializers import ProjectSerializer, ProjectFileSerializer
+from .models import Project, ProjectFile, Workflow, WorkflowExecution, WorkflowComponentExecution
+from .serializers import (
+    ProjectSerializer, ProjectFileSerializer, 
+    WorkflowSerializer, WorkflowListSerializer, 
+    WorkflowExecutionSerializer, WorkflowComponentExecutionSerializer
+)
 from container.models import ContainerInstance, DockerImage
 from container.docker_ops import DockerClient
 from dataset.models import Dataset
+from workflow_engine.engine import WorkflowEngineManager
 
 import logging
 import json
@@ -308,6 +313,33 @@ class ProjectViewSet(viewsets.ModelViewSet):
                     
                     # 删除容器实例记录
                     project.container.delete()
+                
+                # 检查并删除关联的工作流（如果表存在）
+                try:
+                    # 尝试手动删除关联的工作流，避免级联删除失败
+                    if hasattr(project, 'workflows'):
+                        workflows = project.workflows.all()
+                        for workflow in workflows:
+                            # 先删除工作流执行记录
+                            try:
+                                executions = workflow.executions.all()
+                                for execution in executions:
+                                    # 删除组件执行记录
+                                    execution.component_executions.all().delete()
+                                    execution.delete()
+                            except Exception as e:
+                                logger.warning(f"删除工作流执行记录时出错: {str(e)}")
+                            # 删除工作流本身
+                            workflow.delete()
+                except Exception as e:
+                    # 如果工作流相关表不存在，记录警告但继续执行
+                    logger.warning(f"删除工作流记录时出错（表可能不存在）: {str(e)}")
+                
+                # 删除项目文件记录
+                try:
+                    project.files.all().delete()
+                except Exception as e:
+                    logger.warning(f"删除项目文件记录时出错: {str(e)}")
                 
                 # 删除项目
                 project.delete()
@@ -1225,29 +1257,243 @@ class ProjectFileViewSet(viewsets.ModelViewSet):
         """
         创建项目文件
         """
-        # 确保项目属于当前用户
-        project = serializer.validated_data.get('project')
-        if project.user != self.request.user:
-            raise serializers.ValidationError("您没有权限在此项目中创建文件")
-        
         serializer.save()
     
-    @action(detail=False, methods=['get'])
-    def list_by_project(self, request):
+    @action(detail=False, methods=['get'], url_path='project/(?P<project_id>[^/.]+)')
+    def list_by_project(self, request, project_id=None):
         """
         按项目列出文件
         """
-        project_id = request.query_params.get('project_id')
-        if not project_id:
+        try:
+            project = Project.objects.get(id=project_id, user=request.user)
+        except Project.DoesNotExist:
             return Response(
-                {"detail": "缺少项目ID参数"},
-                status=status.HTTP_400_BAD_REQUEST
+                {"status": "error", "message": "找不到指定的项目或没有权限访问"},
+                status=status.HTTP_404_NOT_FOUND
             )
             
-        # 确保项目存在且属于当前用户
-        project = get_object_or_404(Project, id=project_id, user=request.user)
-        
         files = ProjectFile.objects.filter(project=project)
         serializer = self.get_serializer(files, many=True)
+        return Response(serializer.data)
+
+
+class WorkflowViewSet(viewsets.ModelViewSet):
+    """
+    工作流视图集
+    
+    提供工作流的CRUD操作和执行功能
+    """
+    permission_classes = [IsAuthenticated]
+    
+    def get_serializer_class(self):
+        """
+        根据操作类型返回不同的序列化器
+        列表视图使用简化版，详情视图使用完整版
+        """
+        if self.action == 'list':
+            return WorkflowListSerializer
+        return WorkflowSerializer
+    
+    def get_queryset(self):
+        """
+        获取查询集，只返回当前用户项目的工作流
+        """
+        user = self.request.user
+        return Workflow.objects.filter(project__user=user)
+    
+    def perform_create(self, serializer):
+        """
+        创建工作流
+        """
+        # 验证项目是否存在并且属于当前用户
+        project_id = self.request.data.get('project')
+        if project_id:
+            try:
+                project = Project.objects.get(id=project_id, user=self.request.user)
+            except Project.DoesNotExist:
+                raise serializers.ValidationError("项目不存在或无权访问该项目")
+                
+        serializer.save()
+    
+    @action(detail=True, methods=['get'])
+    def executions(self, request, pk=None):
+        """
+        获取工作流的所有执行记录
+        """
+        workflow = self.get_object()
+        executions = WorkflowExecution.objects.filter(workflow=workflow)
+        serializer = WorkflowExecutionSerializer(executions, many=True)
+        return Response(serializer.data)
+    
+    @action(detail=True, methods=['post'])
+    def execute(self, request, pk=None):
+        """
+        执行工作流
+        """
+        workflow = self.get_object()
         
+        # 确保关联项目有运行中的容器
+        project = workflow.project
+        if not project.container or project.status != 'running':
+            return Response(
+                {"detail": "无法执行工作流：项目容器未运行"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # 创建执行记录
+        execution = WorkflowExecution.objects.create(
+            workflow=workflow,
+            status='pending'
+        )
+        
+        try:
+            # 使用工作流引擎管理器创建并启动执行引擎
+            engine = WorkflowEngineManager.create_engine(execution.id)
+            success = engine.start()
+            
+            if not success:
+                return Response(
+                    {"detail": "启动工作流执行失败，请查看执行日志"},
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                )
+            
+            # 返回执行记录，客户端可以通过轮询执行记录状态了解执行进度
+            serializer = WorkflowExecutionSerializer(execution)
+            return Response(serializer.data)
+            
+        except Exception as e:
+            logger.error(f"启动工作流执行失败: {str(e)}")
+            execution.status = 'failed'
+            execution.logs = f"[{timezone.now().isoformat()}] 工作流执行失败: {str(e)}\n"
+            execution.save()
+            
+            return Response(
+                {"detail": f"执行工作流失败: {str(e)}"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+    
+    @action(detail=False, methods=['get'], url_path='project/(?P<project_id>[^/.]+)')
+    def list_by_project(self, request, project_id=None):
+        """
+        按项目列出工作流
+        """
+        try:
+            project = Project.objects.get(id=project_id, user=request.user)
+        except Project.DoesNotExist:
+            return Response(
+                {"status": "error", "message": "找不到指定的项目或没有权限访问"},
+                status=status.HTTP_404_NOT_FOUND
+            )
+            
+        workflows = Workflow.objects.filter(project=project)
+        serializer = WorkflowListSerializer(workflows, many=True)
+        return Response(serializer.data)
+    
+    @action(detail=True, methods=['post'])
+    def clone(self, request, pk=None):
+        """
+        克隆工作流
+        """
+        original_workflow = self.get_object()
+        
+        # 获取新工作流名称，默认为"复制 - 原始名称"
+        name = request.data.get('name', f"复制 - {original_workflow.name}")
+        
+        # 创建新工作流
+        new_workflow = Workflow.objects.create(
+            project=original_workflow.project,
+            name=name,
+            description=original_workflow.description,
+            definition=original_workflow.definition,
+            version=1
+        )
+        
+        serializer = self.get_serializer(new_workflow)
+        return Response(serializer.data)
+
+
+class WorkflowExecutionViewSet(viewsets.ModelViewSet):
+    """
+    工作流执行记录视图集
+    
+    提供工作流执行记录的查询和管理
+    """
+    serializer_class = WorkflowExecutionSerializer
+    permission_classes = [IsAuthenticated]
+    
+    def get_queryset(self):
+        """
+        获取查询集，只返回当前用户项目的工作流执行记录
+        """
+        user = self.request.user
+        return WorkflowExecution.objects.filter(workflow__project__user=user)
+    
+    @action(detail=True, methods=['get'])
+    def status(self, request, pk=None):
+        """
+        获取工作流执行状态
+        """
+        execution = self.get_object()
+        serializer = self.get_serializer(execution)
+        return Response(serializer.data)
+    
+    @action(detail=True, methods=['post'])
+    def cancel(self, request, pk=None):
+        """
+        取消正在执行的工作流
+        """
+        execution = self.get_object()
+        
+        # 只有等待中或运行中的工作流可以取消
+        if execution.status not in ['pending', 'running']:
+            return Response(
+                {"detail": "只能取消等待中或运行中的工作流"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # 获取对应的执行引擎
+        engine = WorkflowEngineManager.get_engine(execution.id)
+        if engine:
+            # 取消执行
+            success = engine.cancel()
+            if not success:
+                return Response(
+                    {"detail": "取消工作流执行失败"},
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                )
+        else:
+            # 找不到执行引擎，直接更新状态
+            execution.status = 'canceled'
+            execution.end_time = timezone.now()
+            execution.logs += f"[{timezone.now().isoformat()}] 工作流执行已取消\n"
+            execution.save()
+        
+        serializer = self.get_serializer(execution)
+        return Response(serializer.data)
+    
+    @action(detail=True, methods=['get'])
+    def components(self, request, pk=None):
+        """
+        获取工作流执行中各组件的执行记录
+        """
+        execution = self.get_object()
+        component_executions = WorkflowComponentExecution.objects.filter(execution=execution)
+        serializer = WorkflowComponentExecutionSerializer(component_executions, many=True)
+        return Response(serializer.data)
+    
+    @action(detail=False, methods=['get'], url_path='workflow/(?P<workflow_id>[^/.]+)')
+    def list_by_workflow(self, request, workflow_id=None):
+        """
+        按工作流列出执行记录
+        """
+        try:
+            workflow = Workflow.objects.get(id=workflow_id, project__user=request.user)
+        except Workflow.DoesNotExist:
+            return Response(
+                {"status": "error", "message": "找不到指定的工作流或没有权限访问"},
+                status=status.HTTP_404_NOT_FOUND
+            )
+            
+        executions = WorkflowExecution.objects.filter(workflow=workflow)
+        serializer = self.get_serializer(executions, many=True)
         return Response(serializer.data)

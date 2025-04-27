@@ -1917,22 +1917,21 @@ const ProjectDetailPage = () => {
       }
     } 
     // ... 省略其他项目类型的处理 ...
-    else if (project?.project_type === 'canvas') {
-      // ... canvas UI ...
-      return (
-        <div className="border border-slate-600 rounded-xl flex items-center justify-center flex-col p-8 bg-slate-800">
-          <Image className="w-16 h-16 text-gray-500 mb-4" />
-          <h3 className="text-xl font-semibold text-white mb-2">可视化拖拽编程</h3>
-          <p className="text-gray-400 text-center mb-4">
-            该功能正在开发中，敬请期待。
-          </p>
-        </div>
-      );
-    } else {
-      // ... 未知类型 UI ...
+    else {
+      // 未知类型项目 - 提示用户使用适当的界面
       return (
         <div className="border border-slate-600 rounded-xl flex items-center justify-center p-8 bg-slate-800">
-          <p className="text-gray-400">未知的项目类型: {project?.project_type}</p>
+          <div className="text-center">
+            <p className="text-gray-400 mb-3">此项目类型 ({project?.project_type}) 无法在此页面打开</p>
+            {project?.project_type === 'canvas' && (
+              <Button 
+                onClick={() => navigate(`/dashboard/projects/${id}/workflow`)}
+                className="bg-blue-600 hover:bg-blue-700"
+              >
+                打开工作流编辑器
+              </Button>
+            )}
+          </div>
         </div>
       );
     }
@@ -1950,7 +1949,7 @@ const ProjectDetailPage = () => {
             <span className="text-gray-400">项目类型:</span>
             <span className="text-white font-medium">
               {project.project_type === 'notebook' ? 'Jupyter Notebook' :
-               project.project_type === 'canvas' ? '可视化拖拽编程' : 
+               project.project_type === 'canvas' ? '可视化工作流' : 
                project.project_type}
             </span>
           </div>
@@ -2810,7 +2809,7 @@ const ProjectDetailPage = () => {
               <h3 className="text-sm font-medium text-gray-300">项目类型</h3>
               <p className="text-lg font-semibold text-white">
                 {project?.project_type === 'notebook' ? 'Jupyter Notebook' :
-                project?.project_type === 'canvas' ? '可视化拖拽编程' : project?.project_type}
+                project?.project_type === 'canvas' ? '可视化工作流' : project?.project_type}
               </p>
             </div>
           </div>

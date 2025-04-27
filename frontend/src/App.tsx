@@ -16,10 +16,13 @@ import CreateImagePage from './pages/images/CreateImagePage';
 import ProjectsPage from './pages/projects/ProjectsPage';
 import CreateProjectPage from './pages/projects/CreateProjectPage';
 import ProjectDetailPage from './pages/projects/ProjectDetailPage';
+import WorkflowDesignerPage from './pages/workflows/WorkflowDesignerPage';
 import ProtectedRoute from './components/ProtectedRoute';
 import RecentPage from './pages/dashboard/RecentPage';
 import DatasetsPage from './pages/datasets/DatasetsPage';
 import StatisticsPage from './pages/dashboard/StatisticsPage';
+import '@/styles/globals.css';
+import '@/styles/scrollbar.css';
 import './App.css'
 
 // 内部App组件，用于访问Redux的dispatch
@@ -51,10 +54,12 @@ const AppContent: React.FC = () => {
                         <Route path="projects/create-notebook" element={<Navigate to="/dashboard/projects/create?type=notebook" replace />} />
                         <Route path="projects/create-canvas" element={<Navigate to="/dashboard/projects/create?type=canvas" replace />} />
                         <Route path="projects/:id" element={<ProjectDetailPage />} />
+                        <Route path="projects/:id/workflow" element={<WorkflowDesignerPage />} />
                         <Route path="images" element={<ImagesPage />} />
                         <Route path="images/create" element={<CreateImagePage />} />
                         <Route path="datasets" element={<DatasetsPage />} />
                         <Route path="datasets/create" element={<DatasetsPage />} />
+                        <Route path="workflows" element={<WorkflowDesignerPage />} />
                         <Route path="tasks" element={<StatisticsPage />} />
                         <Route path="profile" element={<ProfilePage />} />
                         <Route path="community" element={<RecentPage />} />

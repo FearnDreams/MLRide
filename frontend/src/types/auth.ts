@@ -49,6 +49,7 @@ export interface ApiResponse {
     message: string;
     data?: any;
     warnings?: string[];
+    uploaded_files?: string[];
 }
 
 // 认证状态接口

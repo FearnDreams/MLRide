@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { Search, Plus, Upload, Rocket, Loader2, Trash2, MoreVertical, Code, Image, BookOpen, Layers, Edit2 } from 'lucide-react';
+import { Search, Plus, Rocket, Loader2, Trash2, MoreVertical, Code, Image, BookOpen, Layers, Edit2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { getProjects, deleteProject, updateProject } from '@/services/projects';
 import { ProjectResponse } from '@/services/projects';
@@ -20,7 +20,6 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { useToast } from '@/components/ui/use-toast';
 import { Modal, Form, Input, message } from 'antd';
 
 const ProjectsPage: React.FC = () => {
@@ -342,7 +341,15 @@ const ProjectsPage: React.FC = () => {
                     key={project.id}
                     className="bg-slate-900/40 rounded-lg border border-slate-700/50 hover:border-blue-500/30 overflow-hidden transition-all duration-300 hover:shadow-lg hover:shadow-blue-900/10 cursor-pointer group"
                   >
-                    <div className="p-5" onClick={() => navigate(`/dashboard/projects/${project.id}`)}>
+                    <div className="p-5" onClick={() => {
+                      // 对于Canvas类型的项目，跳转到工作流设计页面
+                      if (project.project_type === 'canvas') {
+                        navigate(`/dashboard/projects/${project.id}/workflow`);
+                      } else {
+                        // 其他类型项目跳转到常规项目详情页
+                        navigate(`/dashboard/projects/${project.id}`);
+                      }
+                    }}>
                       <div className="flex justify-between items-start mb-3">
                         <div className="flex items-start gap-3">
                           <div className="w-10 h-10 rounded-full bg-slate-700/50 flex items-center justify-center">
@@ -354,6 +361,8 @@ const ProjectsPage: React.FC = () => {
                               <button 
                                 className="text-gray-400 hover:text-amber-400 transition-colors inline-flex items-center opacity-0 group-hover:opacity-100 focus:opacity-100"
                                 onClick={(e) => openEditModal(project, e)}
+                                title="编辑项目"
+                                aria-label="编辑项目"
                               >
                                 <Edit2 className="w-3.5 h-3.5" />
                               </button>
