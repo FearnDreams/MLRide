@@ -20,33 +20,15 @@ export const dataInputComponents: ComponentDefinition[] = [
     icon: 'FileText',
     inputs: [],
     outputs: [
-      { id: 'output', type: DataType.DATAFRAME, label: '数据集' }
+      { id: 'dataset', type: DataType.DATAFRAME, label: '数据集' }
     ],
     params: [
       {
-        name: 'source',
-        label: '数据来源',
-        type: 'select',
-        options: [
-          { value: 'upload', label: '上传文件' },
-          { value: 'dataset', label: '已有数据集' }
-        ],
-        defaultValue: 'upload',
-        required: true
-      },
-      {
         name: 'file_path',
-        label: '文件路径',
+        label: 'CSV文件',
         type: 'file',
         description: '选择要上传的CSV文件',
-        required: false
-      },
-      {
-        name: 'dataset_name',
-        label: '数据集名称',
-        type: 'string',
-        placeholder: '请输入数据集名称',
-        required: false
+        required: true
       },
       {
         name: 'has_header',
@@ -61,16 +43,15 @@ export const dataInputComponents: ComponentDefinition[] = [
         options: [
           { value: ',', label: '逗号 (,)' },
           { value: ';', label: '分号 (;)' },
-          { value: '\\t', label: '制表符 (\\t)' },
-          { value: ' ', label: '空格 ( )' }
+          { value: '\\t', label: '制表符 (Tab)' },
+          { value: ' ', label: '空格' }
         ],
-        defaultValue: ','
+        defaultValue: ',',
+        required: true
       }
     ],
     defaultParams: {
-      source: 'upload',
-      file_path: '',
-      dataset_name: '',
+      file_path: null,
       has_header: true,
       separator: ','
     }
@@ -351,74 +332,130 @@ export const dataProcessingComponents: ComponentDefinition[] = [
     type: ComponentType.PROCESS,
     category: ComponentCategory.DATA_PREPROCESSING,
     name: '数据清洗',
-    description: '清理数据中的缺失值、异常值等',
+    description: '清理数据中的缺失值、异常值或进行文本清洗',
     color: '#2196f3',
     icon: 'Filter',
     inputs: [
-      { id: 'input', type: DataType.DATAFRAME, label: '输入数据' }
+      { id: 'dataset', type: DataType.DATAFRAME, label: '输入数据' }
     ],
     outputs: [
       { id: 'output', type: DataType.DATAFRAME, label: '清洗后数据' }
     ],
     params: [
       {
+        name: 'data_type',
+        label: '数据类型',
+        type: 'select',
+        options: [
+          { value: 'numeric', label: '数值型数据' },
+          { value: 'text', label: '文本数据' }
+        ],
+        defaultValue: 'numeric',
+        required: true
+      },
+      // 数值型数据参数 - 仅在 data_type === 'numeric' 时显示
+      {
         name: 'handle_missing',
         label: '处理缺失值',
         type: 'select',
         options: [
-          { value: 'drop_rows', label: '删除包含缺失值的行' },
-          { value: 'drop_columns', label: '删除包含缺失值的列' },
+          { value: 'drop', label: '删除包含缺失值的行' },
           { value: 'fill_mean', label: '用均值填充' },
           { value: 'fill_median', label: '用中位数填充' },
           { value: 'fill_mode', label: '用众数填充' },
-          { value: 'fill_constant', label: '用常数填充' },
+          { value: 'fill_value', label: '用常数填充' },
           { value: 'none', label: '不处理' }
         ],
-        defaultValue: 'fill_mean'
+        defaultValue: 'fill_mean',
+        showWhen: { field: 'data_type', value: 'numeric' }
       },
       {
         name: 'fill_value',
         label: '填充值',
         type: 'string',
         placeholder: '用于常数填充',
-        defaultValue: '0'
+        defaultValue: '0',
+        showWhen: { field: 'handle_missing', value: 'fill_value' }
       },
       {
         name: 'handle_outliers',
         label: '处理异常值',
-        type: 'select',
-        options: [
-          { value: 'remove', label: '删除异常值' },
-          { value: 'cap', label: '限制到分位数范围' },
-          { value: 'none', label: '不处理' }
-        ],
-        defaultValue: 'none'
+        type: 'boolean',
+        defaultValue: false,
+        showWhen: { field: 'data_type', value: 'numeric' }
+      },
+      // 文本数据参数 - 仅在 data_type === 'text' 时显示
+      {
+        name: 'lowercase',
+        label: '转换为小写',
+        type: 'boolean',
+        defaultValue: true,
+        showWhen: { field: 'data_type', value: 'text' }
       },
       {
-        name: 'lower_quantile',
-        label: '下限分位数',
-        type: 'number',
-        min: 0,
-        max: 0.5,
-        step: 0.01,
-        defaultValue: 0.05
+        name: 'remove_html',
+        label: '移除HTML标签',
+        type: 'boolean',
+        defaultValue: true,
+        showWhen: { field: 'data_type', value: 'text' }
       },
       {
-        name: 'upper_quantile',
-        label: '上限分位数',
-        type: 'number',
-        min: 0.5,
-        max: 1,
-        step: 0.01,
-        defaultValue: 0.95
+        name: 'remove_special_chars',
+        label: '移除特殊字符',
+        type: 'boolean',
+        defaultValue: true,
+        showWhen: { field: 'data_type', value: 'text' }
+      },
+      {
+        name: 'remove_extra_spaces',
+        label: '移除多余空格',
+        type: 'boolean',
+        defaultValue: true,
+        showWhen: { field: 'data_type', value: 'text' }
+      },
+      {
+        name: 'remove_stopwords',
+        label: '移除停用词',
+        type: 'boolean',
+        defaultValue: false,
+        showWhen: { field: 'data_type', value: 'text' }
+      },
+      {
+        name: 'stemming',
+        label: '词干提取',
+        type: 'boolean',
+        defaultValue: false,
+        showWhen: { field: 'data_type', value: 'text' }
+      },
+      {
+        name: 'lemmatization',
+        label: '词形还原',
+        type: 'boolean',
+        defaultValue: false,
+        showWhen: { field: 'data_type', value: 'text' }
+      },
+      // 通用参数
+      {
+        name: 'columns',
+        label: '处理列',
+        type: 'string',
+        placeholder: '列名，用逗号分隔，留空处理所有适用列',
+        defaultValue: ''
       }
     ],
     defaultParams: {
+      data_type: 'numeric',
       handle_missing: 'fill_mean',
       fill_value: '0',
-      handle_outliers: 'none',
-      lower_quantile: 0.05,
-      upper_quantile: 0.95
+      handle_outliers: false,
+      lowercase: true,
+      remove_html: true,
+      remove_special_chars: true,
+      remove_extra_spaces: true,
+      remove_stopwords: false,
+      stemming: false,
+      lemmatization: false,
+      columns: ''
     }
   },
   {

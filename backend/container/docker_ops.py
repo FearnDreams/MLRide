@@ -21,6 +21,7 @@ import datetime
 import tarfile
 import io
 import threading
+import traceback
 
 # 设置日志记录器
 logger = logging.getLogger(__name__)
@@ -2008,7 +2009,7 @@ CMD ["python", "-c", "print('Emergency fallback Dockerfile')"]
         except Exception as e:
             self.logger.error(f"复制文件到容器时出错: {str(e)}")
             return False
-            
+
     def copy_from_container(self, container_id, source_path, target_path):
         """
         将文件从容器复制到宿主机
@@ -2056,6 +2057,92 @@ CMD ["python", "-c", "print('Emergency fallback Dockerfile')"]
             self.logger.error(f"从容器复制文件时出错: {str(e)}")
             return False
             
+    def copy_content_to_container(self, container_id, content, target_path):
+        """
+        将内容直接复制到容器中的文件
+        
+        Args:
+            container_id (str): 容器ID
+            content (bytes or str): 要写入的内容
+            target_path (str): 目标文件路径（容器内）
+            
+        Returns:
+            bool: 是否复制成功
+        """
+        try:
+            container = self.client.containers.get(container_id)
+            
+            # 确保content是二进制
+            if isinstance(content, str):
+                content = content.encode('utf-8')
+                
+            # 确保目标目录存在
+            target_dir = os.path.dirname(target_path)
+            if target_dir:
+                container.exec_run(f"mkdir -p {target_dir}")
+                
+            # 使用put_archive方法复制文件
+            # 创建临时tar文件
+            import tarfile
+            import tempfile
+            import io
+            
+            # 获取文件名
+            filename = os.path.basename(target_path)
+            
+            # 创建临时目录
+            with tempfile.TemporaryDirectory() as tmp_dir:
+                # 创建临时文件
+                temp_file_path = os.path.join(tmp_dir, filename)
+                with open(temp_file_path, 'wb') as f:
+                    f.write(content)
+                
+                # 创建临时tar文件
+                temp_tar_path = os.path.join(tmp_dir, 'temp.tar')
+                with tarfile.open(temp_tar_path, 'w') as tar:
+                    tar.add(temp_file_path, arcname=filename)
+                
+                # 读取tar文件内容
+                with open(temp_tar_path, 'rb') as f:
+                    tar_data = f.read()
+                
+                # 获取目标目录
+                target_dir = os.path.dirname(target_path)
+                if not target_dir:
+                    target_dir = '/'
+                
+                # 将tar文件复制到容器中
+                success = container.put_archive(target_dir, tar_data)
+                if not success:
+                    self.logger.error(f"复制内容到容器失败: [content] -> {target_path}")
+                    return False
+                
+                self.logger.info(f"成功复制内容到容器文件: {target_path} (大小: {len(content)} 字节)")
+                return True
+                
+        except Exception as e:
+            self.logger.error(f"复制内容到容器时出错: {str(e)}")
+            return False
+            
+    def exec_command_in_container(self, container_id, command):
+        """
+        在容器中执行命令
+        
+        Args:
+            container_id (str): 容器ID
+            command (str): 要执行的命令
+            
+        Returns:
+            tuple: (exit_code, output)
+        """
+        try:
+            container = self.client.containers.get(container_id)
+            result = container.exec_run(command, stderr=True)
+            return result.exit_code, result.output.decode('utf-8', errors='ignore')
+        except Exception as e:
+            self.logger.error(f"在容器中执行命令时出错: {str(e)}")
+            return -1, str(e)
+    
     def sync_container_directory(self, container_id, container_dir, host_dir, direction='both'):
         """
         同步容器和宿主机之间的目录
@@ -3177,3 +3264,63 @@ CMD ["python", "-c", "print('Emergency Dockerfile after repair failure')"]
                 i += 1
         
         return "\n".join(result_lines)
+
+    def exec_in_container(self, container_id: str, cmd: List[str], workdir: Optional[str] = None) -> Dict:
+        """
+        在容器中执行命令
+        
+        Args:
+            container_id: 容器ID或名称
+            cmd: 要执行的命令
+            workdir: 工作目录
+            
+        Returns:
+            Dict: 执行结果，包含 success, exit_code, output 字段
+        """
+        try:
+            # 获取容器
+            container = self.client.containers.get(container_id)
+            if not container:
+                return {
+                    'success': False,
+                    'error': f"找不到容器: {container_id}",
+                    'exit_code': -1,
+                    'output': ''
+                }
+            
+            self.logger.info(f"在容器 {container_id} 中执行命令: {cmd}")
+            if workdir:
+                self.logger.info(f"工作目录: {workdir}")
+            
+            # 执行命令
+            environment = {'PATH': '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin'}
+            exec_kwargs = {
+                'environment': environment
+            }
+            if workdir:
+                exec_kwargs['workdir'] = workdir
+                
+            result = container.exec_run(cmd, **exec_kwargs)
+            
+            exit_code = result.exit_code
+            output = result.output.decode('utf-8', errors='replace') if result.output else ''
+            
+            self.logger.info(f"命令执行完成，退出码: {exit_code}")
+            if exit_code != 0:
+                self.logger.warning(f"命令执行失败，输出: {output[:500]}...")
+                
+            return {
+                'success': exit_code == 0,
+                'exit_code': exit_code,
+                'output': output
+            }
+                
+        except Exception as e:
+            self.logger.error(f"在容器中执行命令时出错: {str(e)}")
+            traceback.print_exc()
+            return {
+                'success': False,
+                'error': str(e),
+                'exit_code': -1,
+                'output': ''
+            }

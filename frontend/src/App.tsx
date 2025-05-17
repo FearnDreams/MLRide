@@ -5,7 +5,7 @@ import { useDispatch } from 'react-redux';
 import { store } from './store';
 import { AppDispatch } from './store';
 import { checkAuth } from './store/authSlice';
-import { Toaster } from "./components/ui/toaster";
+import { Toaster } from 'sonner';
 import LoginPage from './pages/auth/LoginPage';
 import RegisterPage from './pages/auth/RegisterPage';
 import ProfilePage from './pages/auth/ProfilePage';
@@ -37,7 +37,7 @@ const AppContent: React.FC = () => {
 
     return (
         <Router>
-            <Toaster />
+            <Toaster richColors position="top-right" />
             <Routes>
                 {/* 公开路由 */}
                 <Route path="/" element={<LandingPage />} />

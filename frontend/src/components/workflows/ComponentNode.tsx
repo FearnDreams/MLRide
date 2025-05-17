@@ -107,7 +107,28 @@ const ComponentNode = memo(({ data, selected }: ComponentNodeProps) => {
             <span className="text-xs text-slate-400 ml-auto opacity-60">{input.type.toString().toLowerCase()}</span>
           </div>
         ))}
-        {component.inputs.length === 0 && (
+        {/* 特殊处理 CSV 输入组件的文件状态显示 */}
+        {component.id === 'csv-input' && (
+          <div className="px-3 py-1 text-sm text-slate-300">
+            {data.params?.file_path ? (
+              typeof data.params.file_path === 'string' ? (
+                (() => {
+                  const filePathString = data.params.file_path as string;
+                  const fileName = filePathString.split('\\').pop()?.split('/').pop() || filePathString;
+                  return <span title={filePathString}>文件: {fileName}</span>;
+                })()
+              ) : data.params.file_path instanceof File ? (
+                <span title={data.params.file_path.name}>已选: {data.params.file_path.name}</span>
+              ) : (
+                '无文件指定'
+              )
+            ) : (
+              '无文件指定'
+            )}
+          </div>
+        )}
+        {/* 对于非CSV输入组件，如果 inputs 为空，则显示无输入 */}
+        {component.id !== 'csv-input' && component.inputs.length === 0 && (
           <div className="px-3 py-1 text-sm text-slate-400">无输入</div>
         )}
       </div>

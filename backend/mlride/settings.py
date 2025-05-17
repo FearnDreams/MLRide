@@ -109,6 +109,13 @@ DATABASES = {
         "PASSWORD": "851262",
         "HOST": "localhost",
         "PORT": "3306",
+        "OPTIONS": {
+            "init_command": "SET GLOBAL max_allowed_packet=67108864",  # 设置为64MB
+            "charset": "utf8mb4",
+            # 防止MySQL连接断开
+            "autocommit": True,
+            "connect_timeout": 60,
+        }
     }
 }
 

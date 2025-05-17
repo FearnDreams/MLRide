@@ -12,6 +12,8 @@ from django.contrib.auth import get_user_model
 from django.db import transaction
 from django.utils import timezone
 from django.conf import settings
+from rest_framework.parsers import MultiPartParser
+import re
 
 from .models import Project, ProjectFile, Workflow, WorkflowExecution, WorkflowComponentExecution
 from .serializers import (
@@ -36,6 +38,24 @@ from typing import Dict, Any, List
 logger = logging.getLogger(__name__)
 
 User = get_user_model()
+
+def simple_secure_filename(filename: str) -> str:
+    """
+    一个非常基础和简化的文件名清理函数。
+    将非字母数字、下划线、点、连字符替换为下划线。
+    生产环境建议使用更健壮的库如 Werkzeug 的 secure_filename。
+    """
+    # 移除非法字符
+    filename = re.sub(r'[^a-zA-Z0-9_.-]', '_', filename)
+    # 防止文件名以点或连字符开头
+    if filename.startswith(('.', '-')):
+        filename = '_' + filename[1:]
+    # 防止文件名过长 (可选)
+    # max_len = 200 
+    # if len(filename) > max_len:
+    #     name, ext = os.path.splitext(filename)
+    #     filename = name[:max_len - len(ext) -1] + ext
+    return filename
 
 class ProjectViewSet(viewsets.ModelViewSet):
     """
@@ -1236,6 +1256,136 @@ class ProjectViewSet(viewsets.ModelViewSet):
             return Response({"status": "warning", "message": f"部分数据上传成功，但有警告", "uploaded_files": uploaded_files, "warnings": warnings}, status=status.HTTP_200_OK)
         else: # uploaded_files and not warnings
             return Response({"status": "success", "message": f"成功上传 {len(uploaded_files)} 个文件", "uploaded_files": uploaded_files}, status=status.HTTP_200_OK)
+
+    @action(detail=True, methods=['post'], url_path='upload-file', parser_classes=[MultiPartParser])
+    def upload_workflow_file(self, request, pk=None):
+        """
+        处理专用于工作流组件的文件上传（例如CSV输入）。
+        文件将保存到项目工作区的 'uploads' 子目录中，并返回相对路径。
+        期望的表单字段名为 'file'。
+        """
+        try:
+            project = self.get_object() # pk 是 project_id
+        except Exception as e:
+            logger.error(f"获取项目 {pk} 失败: {str(e)}")
+            return Response({"detail": "找不到指定的项目。"}, status=status.HTTP_404_NOT_FOUND)
+
+        file_obj = request.FILES.get('file') # 前端发送的字段名是 'file'
+
+        if not file_obj:
+            return Response({'detail': '未提供文件。'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # 基本的文件类型校验 (仅允许CSV)
+        if not file_obj.name.lower().endswith('.csv'):
+            return Response({'detail': '文件类型无效，仅支持CSV文件。'}, status=status.HTTP_400_BAD_REQUEST)
+        
+        # 文件大小校验 (可选, 例如最大50MB)
+        # max_size_mb = 50
+        # if file_obj.size > max_size_mb * 1024 * 1024:
+        #     return Response({'detail': f'文件过大，最大允许 {max_size_mb}MB。'}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            # 确定项目工作区在宿主机上的绝对路径
+            # 这里的路径构建逻辑应与 perform_create 中创建工作区和Docker卷挂载的逻辑一致
+            # 例如: settings.BASE_DIR -> backend/ -> workspaces/ -> project_{project.id}
+            # 或者如果 settings.WORKSPACE_DIR 已定义为 backend/workspaces/
+            if hasattr(settings, 'WORKSPACE_SUBDIR') and hasattr(settings, 'PROJECT_DIR_PREFIX'):
+                 # 基于您现有 upload_data 的 settings.WORKSPACE_DIR 和 project_id 结构
+                 # settings.WORKSPACE_DIR 可能是指向 '.../backend/workspaces/'
+                 host_project_workspace_root = os.path.join(settings.WORKSPACE_DIR, f'{settings.PROJECT_DIR_PREFIX}{project.id}')
+            else: # 后备，基于 perform_create 中的结构
+                 # settings.BASE_DIR 通常是 Django 项目的根目录 (manage.py 所在的目录)
+                 # 如果 views.py 在 backend/project/views.py, 那么 settings.BASE_DIR/../workspaces/project_{project.id}
+                 # 或者更安全的方式是从 settings 获取工作区基础路径
+                 base_workspace_dir = getattr(settings, 'PROJECT_WORKSPACES_ROOT', 
+                                             os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'workspaces'))
+                 host_project_workspace_root = os.path.join(base_workspace_dir, f'project_{project.id}')
+
+
+            uploads_subdir_name = 'uploads' # 工作流组件上传文件的子目录
+            host_uploads_dir = os.path.join(host_project_workspace_root, uploads_subdir_name)
+            
+            os.makedirs(host_uploads_dir, exist_ok=True) # 确保 'uploads' 子目录存在
+            logger.info(f"项目 {project.id} 的上传目录: {host_uploads_dir}")
+
+            # 清理原始文件名并创建唯一文件名以避免冲突
+            original_filename, original_extension = os.path.splitext(file_obj.name)
+            safe_original_filename = simple_secure_filename(original_filename) # 使用我们定义的清理函数
+            
+            # 生成更短的UUID部分或时间戳确保唯一性
+            unique_suffix = uuid.uuid4().hex[:8] 
+            unique_filename = f"{safe_original_filename}_{unique_suffix}{original_extension.lower()}"
+            
+            host_file_path = os.path.join(host_uploads_dir, unique_filename)
+
+            # 保存文件
+            with open(host_file_path, 'wb+') as destination:
+                for chunk in file_obj.chunks():
+                    destination.write(chunk)
+            
+            # 返回给前端的路径是相对于项目工作区根目录的 (即容器内 /workspace/uploads/unique_filename.csv)
+            relative_path_for_component = os.path.join(uploads_subdir_name, unique_filename).replace("\\\\", "/") # 确保使用正斜杠
+
+            logger.info(f"文件 {file_obj.name} 已作为 {unique_filename} 上传到项目 {project.id} 的 {relative_path_for_component}")
+            
+            return Response({
+                'detail': '文件上传成功。',
+                'file_path': relative_path_for_component, # 这是组件参数将使用的路径
+                'filename': unique_filename # 实际保存的文件名
+            }, status=status.HTTP_201_CREATED)
+
+        except IOError as e:
+            logger.error(f"保存上传文件到 {host_file_path if 'host_file_path' in locals() else 'unknown path'} 失败: {e}")
+            return Response({'detail': f'文件保存失败: {e}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        except Exception as e:
+            logger.exception(f"处理项目 {project.id} 的文件上传时发生意外错误: {e}")
+            return Response({'detail': f'处理文件上传时发生内部错误: {e}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    @action(detail=True, methods=['POST'])
+    def ensure_uploads_directory(self, request, pk=None):
+        """确保项目的uploads目录存在
+        
+        创建uploads目录(如果不存在)，确保文件上传有效。
+        """
+        try:
+            project = self.get_object()
+            
+            # 获取项目工作区路径
+            workspace_dir = os.path.join(
+                os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 
+                'workspaces', 
+                f'project_{project.id}'
+            )
+            
+            # 创建标准化路径，确保使用正斜杠
+            uploads_dir = os.path.join(workspace_dir, 'uploads').replace('\\', '/')
+            
+            # 确保uploads目录存在
+            if not os.path.exists(uploads_dir):
+                os.makedirs(uploads_dir, exist_ok=True)
+                logger.info(f"为项目 {project.id} 创建了uploads目录: {uploads_dir}")
+            else:
+                logger.info(f"uploads目录已存在: {uploads_dir}")
+            
+            # 检查容器中是否也需要创建uploads目录
+            docker_client = DockerClient()
+            
+            if project.container:
+                try:
+                    # 在容器中执行命令创建目录
+                    cmd = ['mkdir', '-p', '/workspace/uploads']
+                    result = docker_client.exec_command_in_container(project.container.container_id, cmd)
+                    logger.info(f"在容器 {project.container.container_id} 中创建uploads目录，结果: {result}")
+                except Exception as e:
+                    logger.warning(f"无法在容器中创建uploads目录: {str(e)}")
+            
+            return Response({'status': 'success', 'message': 'uploads目录已创建或已确认存在'})
+        except Exception as e:
+            logger.error(f"确保uploads目录存在时出错: {str(e)}")
+            return Response(
+                {'status': 'error', 'message': f"创建uploads目录失败: {str(e)}"}, 
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
 
 class ProjectFileViewSet(viewsets.ModelViewSet):
     """
