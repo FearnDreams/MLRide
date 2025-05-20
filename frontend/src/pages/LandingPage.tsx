@@ -19,18 +19,7 @@ const LandingPage: React.FC = () => {
           <span className="text-xl font-bold text-white">MLRide</span>
         </Link>
         <nav className="ml-auto flex gap-4 sm:gap-6">
-          <Link className="text-sm font-medium text-gray-300 hover:text-white transition-colors duration-200" to="/features">
-            功能
-          </Link>
-          <Link className="text-sm font-medium text-gray-300 hover:text-white transition-colors duration-200" to="/docs">
-            文档
-          </Link>
-          <Link className="text-sm font-medium text-gray-300 hover:text-white transition-colors duration-200" to="/about">
-            关于
-          </Link>
-          <Link className="text-sm font-medium text-gray-300 hover:text-white transition-colors duration-200" to="/contact">
-            联系我们
-          </Link>
+          
         </nav>
         <div className="ml-4 flex items-center gap-2">
           <Link to="/login">
@@ -51,23 +40,18 @@ const LandingPage: React.FC = () => {
           <div className="container mx-auto px-4 md:px-6 flex flex-col items-center">
             <div className="flex flex-col items-center space-y-8 text-center">
               <div className="inline-block px-3 py-1 rounded-full bg-slate-800/50 backdrop-blur-sm border border-slate-700/50 text-blue-400 text-xs font-medium mb-2">
-                全新发布 v1.0
+                MLRide全新发布
               </div>
               <h1 className="text-4xl font-bold tracking-tighter sm:text-5xl md:text-6xl lg:text-7xl text-white">
                 智能<span className="bg-gradient-to-r from-blue-400 to-indigo-500 bg-clip-text text-transparent">机器学习</span>生产平台
               </h1>
               <p className="mx-auto max-w-[700px] text-gray-400 text-lg md:text-xl leading-relaxed">
-                MLRide 提供一站式机器学习解决方案。容器化环境、在线编程、版本控制，让您的 AI 之旅更轻松。
+                MLRide 提供一站式机器学习解决方案。<br></br>容器化环境、在线编程、版本控制，可视化拖拽编程，让您的 AI 之旅更轻松。
               </p>
               <div className="flex flex-wrap gap-4 mt-8 justify-center">
                 <Link to="/login">
                   <Button size="lg" className="text-lg px-8 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 border-0 shadow-lg shadow-blue-900/20">
                     立即体验
-                  </Button>
-                </Link>
-                <Link to="/docs">
-                  <Button size="lg" variant="outline" className="text-lg px-8 border-slate-700 hover:bg-slate-800/50 text-gray-300">
-                    了解更多
                   </Button>
                 </Link>
               </div>
@@ -84,9 +68,249 @@ const LandingPage: React.FC = () => {
                 核心功能
               </h2>
               <p className="text-gray-400 max-w-[700px] mx-auto">
-                平台提供全面的机器学习开发工具，帮助您从数据处理到模型部署的全流程
+                平台提供全面的机器学习开发工具，帮助您轻松实现数据处理到模型训练。
               </p>
             </div>
+            
+            {/* 竞品对比部分 */}
+            <section className="w-full py-24 lg:py-28 relative">
+              <div className="container px-4 md:px-6 relative">
+                <div className="flex flex-col items-center text-center mb-12">
+                  <div className="inline-block px-3 py-1 rounded-full bg-slate-800/50 backdrop-blur-sm border border-slate-700/50 text-blue-400 text-xs font-medium mb-4">
+                    平台对比
+                  </div>
+                  <h2 className="text-3xl font-bold tracking-tighter text-center mb-4 text-white">
+                    选择 MLRide 的理由
+                  </h2>
+                  <p className="text-gray-400 max-w-[700px] mx-auto">
+                    与同类平台相比，我们在功能完整性、易用性和操作便捷性上具有显著优势。
+                  </p>
+                </div>
+                
+                {/* 比较表格 */}
+                <div className="overflow-x-auto">
+                  <div className="inline-block min-w-full py-2">
+                    <div className="overflow-hidden shadow-md rounded-lg border border-slate-700/50">
+                      <table className="min-w-full bg-slate-800/30 backdrop-blur-sm">
+                        <thead className="bg-slate-800/60">
+                          <tr>
+                            <th className="py-4 px-6 text-left text-sm font-medium text-white">功能特性</th>
+                            <th className="py-4 px-6 text-center text-sm font-medium text-white">MLRide</th>
+                            <th className="py-4 px-6 text-center text-sm font-medium text-white">Kubeflow</th>
+                            <th className="py-4 px-6 text-center text-sm font-medium text-white">MLflow</th>
+                            <th className="py-4 px-6 text-center text-sm font-medium text-white">其他平台</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-700/50">
+                          {/* 容器化开发环境 */}
+                          <tr className="hover:bg-slate-700/20 transition-colors">
+                            <td className="py-4 px-6 text-sm text-white whitespace-nowrap">容器化开发环境</td>
+                            <td className="py-4 px-6 text-center">
+                              <span className="flex justify-center">
+                                <svg className="w-5 h-5 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                                </svg>
+                              </span>
+                            </td>
+                            <td className="py-4 px-6 text-center">
+                              <span className="flex justify-center">
+                                <svg className="w-5 h-5 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                                </svg>
+                              </span>
+                            </td>
+                            <td className="py-4 px-6 text-center">
+                              <span className="flex justify-center">
+                                <svg className="w-5 h-5 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                </svg>
+                              </span>
+                            </td>
+                            <td className="py-4 px-6 text-center">
+                              <span className="flex justify-center">
+                                <svg className="w-5 h-5 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                </svg>
+                              </span>
+                            </td>
+                          </tr>
+                          
+                          {/* 在线编程与调试 */}
+                          <tr className="hover:bg-slate-700/20 transition-colors">
+                            <td className="py-4 px-6 text-sm text-white whitespace-nowrap">在线编程与调试</td>
+                            <td className="py-4 px-6 text-center">
+                              <span className="flex justify-center">
+                                <svg className="w-5 h-5 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                                </svg>
+                              </span>
+                            </td>
+                            <td className="py-4 px-6 text-center">
+                              <span className="flex justify-center">
+                                <svg className="w-5 h-5 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                                </svg>
+                              </span>
+                            </td>
+                            <td className="py-4 px-6 text-center">
+                              <span className="flex justify-center">
+                                <svg className="w-5 h-5 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                </svg>
+                              </span>
+                            </td>
+                            <td className="py-4 px-6 text-center">
+                              <span className="flex justify-center">
+                                <svg className="w-5 h-5 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                </svg>
+                              </span>
+                            </td>
+                          </tr>
+                          
+                          {/* 版本控制追踪 */}
+                          <tr className="hover:bg-slate-700/20 transition-colors">
+                            <td className="py-4 px-6 text-sm text-white whitespace-nowrap">版本控制追踪</td>
+                            <td className="py-4 px-6 text-center">
+                              <span className="flex justify-center">
+                                <svg className="w-5 h-5 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                                </svg>
+                              </span>
+                            </td>
+                            <td className="py-4 px-6 text-center">
+                              <span className="flex justify-center">
+                                <svg className="w-5 h-5 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                                </svg>
+                              </span>
+                            </td>
+                            <td className="py-4 px-6 text-center">
+                              <span className="flex justify-center">
+                                <svg className="w-5 h-5 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                                </svg>
+                              </span>
+                            </td>
+                            <td className="py-4 px-6 text-center">
+                              <span className="flex justify-center">
+                                <svg className="w-5 h-5 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                </svg>
+                              </span>
+                            </td>
+                          </tr>
+                          
+                          {/* 可视化拖拽编程 */}
+                          <tr className="hover:bg-slate-700/20 transition-colors">
+                            <td className="py-4 px-6 text-sm text-white whitespace-nowrap">可视化拖拽编程</td>
+                            <td className="py-4 px-6 text-center">
+                              <span className="flex justify-center">
+                                <svg className="w-5 h-5 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                                </svg>
+                              </span>
+                            </td>
+                            <td className="py-4 px-6 text-center">
+                              <span className="flex justify-center">
+                                <svg className="w-5 h-5 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                </svg>
+                              </span>
+                            </td>
+                            <td className="py-4 px-6 text-center">
+                              <span className="flex justify-center">
+                                <svg className="w-5 h-5 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                </svg>
+                              </span>
+                            </td>
+                            <td className="py-4 px-6 text-center">
+                              <span className="flex justify-center">
+                                <svg className="w-5 h-5 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                </svg>
+                              </span>
+                            </td>
+                          </tr>
+                          
+                          {/* 用户友好界面 */}
+                          <tr className="hover:bg-slate-700/20 transition-colors">
+                            <td className="py-4 px-6 text-sm text-white whitespace-nowrap">用户友好界面</td>
+                            <td className="py-4 px-6 text-center">
+                              <span className="flex justify-center">
+                                <svg className="w-5 h-5 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                                </svg>
+                              </span>
+                            </td>
+                            <td className="py-4 px-6 text-center">
+                              <span className="flex justify-center">
+                                <svg className="w-5 h-5 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                </svg>
+                              </span>
+                            </td>
+                            <td className="py-4 px-6 text-center">
+                              <span className="flex justify-center">
+                                <svg className="w-5 h-5 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                </svg>
+                              </span>
+                            </td>
+                            <td className="py-4 px-6 text-center">
+                              <span className="flex justify-center">
+                                <svg className="w-5 h-5 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                </svg>
+                              </span>
+                            </td>
+                          </tr>
+                          
+                          {/* 一键部署 */}
+                          <tr className="hover:bg-slate-700/20 transition-colors">
+                            <td className="py-4 px-6 text-sm text-white whitespace-nowrap">一键部署模型</td>
+                            <td className="py-4 px-6 text-center">
+                              <span className="flex justify-center">
+                                <svg className="w-5 h-5 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                                </svg>
+                              </span>
+                            </td>
+                            <td className="py-4 px-6 text-center">
+                              <span className="flex justify-center">
+                                <svg className="w-5 h-5 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                </svg>
+                              </span>
+                            </td>
+                            <td className="py-4 px-6 text-center">
+                              <span className="flex justify-center">
+                                <svg className="w-5 h-5 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                </svg>
+                              </span>
+                            </td>
+                            <td className="py-4 px-6 text-center">
+                              <span className="flex justify-center">
+                                <svg className="w-5 h-5 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                                </svg>
+                              </span>
+                            </td>
+                          </tr>
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+                
+                {/* 表格下方附加说明 */}
+                <div className="mt-6 text-center text-sm text-gray-400 max-w-3xl mx-auto">
+                  <p>MLRide不仅提供全面的功能集，更注重于简化机器学习工作流程。特别是在可视化拖拽编程和用户友好界面方面，我们显著领先于竞争对手。</p>
+                </div>
+              </div>
+            </section>
             
             <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
               <div className="flex flex-col p-6 bg-slate-800/30 backdrop-blur-sm rounded-xl border border-slate-700/50 hover:border-blue-500/30 transition-all duration-300 hover:shadow-md hover:shadow-blue-500/5">
@@ -110,7 +334,7 @@ const LandingPage: React.FC = () => {
                   <h3 className="text-xl font-bold text-white">容器化开发环境</h3>
                 </div>
                 <p className="text-gray-400 leading-relaxed">
-                  提供隔离、一致且可定制的开发环境，支持 CPU 和 GPU 资源动态分配。确保您的项目在任何环境中都能稳定运行。
+                  提供隔离、一致且可定制的开发环境。确保您的项目在任何环境中都能稳定运行。
                 </p>
               </div>
               
@@ -128,14 +352,14 @@ const LandingPage: React.FC = () => {
                         strokeLinecap="round"
                         strokeLinejoin="round"
                         strokeWidth={2}
-                        d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"
+                        d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"
                       />
                     </svg>
                   </div>
                   <h3 className="text-xl font-bold text-white">在线编程与调试</h3>
                 </div>
                 <p className="text-gray-400 leading-relaxed">
-                  集成 Jupyter Notebook，支持实时代码编写、运行和调试，提供资源监控和日志查看。随时随地进行开发工作。
+                  集成 Jupyter Notebook，支持实时代码编写、运行和调试。
                 </p>
               </div>
               
@@ -160,7 +384,7 @@ const LandingPage: React.FC = () => {
                   <h3 className="text-xl font-bold text-white">版本控制追踪</h3>
                 </div>
                 <p className="text-gray-400 leading-relaxed">
-                  提供代码和项目的版本控制，确保开发过程的可追溯性。轻松比较不同版本的代码和项目。
+                  提供代码和项目的版本控制与版本比较，确保开发过程的可追溯性。
                 </p>
               </div>
               
@@ -185,7 +409,7 @@ const LandingPage: React.FC = () => {
                   <h3 className="text-xl font-bold text-white">可视化拖拽编程</h3>
                 </div>
                 <p className="text-gray-400 leading-relaxed">
-                  通过图形化界面简化机器学习管道的构建，支持算法模块的拖拽组合。无需编写复杂代码即可构建完整工作流。
+                  通过图形化界面简化机器学习管道的构建，支持算法模块的拖拽组合。
                 </p>
               </div>
             </div>
@@ -235,23 +459,36 @@ const LandingPage: React.FC = () => {
                     </div>
                     <span className="text-sm text-gray-400">Jupyter</span>
                   </div>
+
+                  {/* React Flow */}
+                  <div className="flex flex-col items-center">
+                    <div className="w-16 h-16 bg-slate-800/50 rounded-lg flex items-center justify-center mb-2 border border-slate-700/50">
+                      <svg className="w-10 h-10 text-emerald-400" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <rect x="3" y="4" width="6" height="6" rx="1" stroke="currentColor" strokeWidth="1.5"/>
+                        <rect x="15" y="14" width="6" height="6" rx="1" stroke="currentColor" strokeWidth="1.5"/>
+                        <path d="M6 10V17C6 17.5523 6.44772 18 7 18H15" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                        <path d="M18 14V7C18 6.44772 17.5523 6 17 6H9" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                      </svg>
+                    </div>
+                    <span className="text-sm text-gray-400">React Flow</span>
+                  </div>
                 </div>
               </div>
               
               {/* 平台数据统计 */}
               <div className="mt-12 grid grid-cols-2 md:grid-cols-4 gap-4">
                 <div className="bg-slate-800/30 backdrop-blur-sm border border-slate-700/50 rounded-xl p-4 text-center">
-                  <div className="text-3xl font-bold text-white mb-1">99.9%</div>
+                  <div className="text-3xl font-bold text-white mb-1">容器支持</div>
                   <div className="text-sm text-gray-400">运行稳定性</div>
                 </div>
                 
                 <div className="bg-slate-800/30 backdrop-blur-sm border border-slate-700/50 rounded-xl p-4 text-center">
-                  <div className="text-3xl font-bold text-white mb-1">50+</div>
-                  <div className="text-sm text-gray-400">预置算法模型</div>
+                  <div className="text-3xl font-bold text-white mb-1">算法组件</div>
+                  <div className="text-sm text-gray-400">预置丰富算法模型</div>
                 </div>
                 
                 <div className="bg-slate-800/30 backdrop-blur-sm border border-slate-700/50 rounded-xl p-4 text-center">
-                  <div className="text-3xl font-bold text-white mb-1">10x</div>
+                  <div className="text-3xl font-bold text-white mb-1">简单易用</div>
                   <div className="text-sm text-gray-400">开发效率提升</div>
                 </div>
                 
@@ -275,7 +512,7 @@ const LandingPage: React.FC = () => {
                 准备开始您的 AI 之旅了吗？
               </h2>
               <p className="mx-auto max-w-[700px] text-gray-400 md:text-xl mb-8 leading-relaxed">
-                加入 MLRide，让我们一起探索 AI 的无限可能。从今天开始，构建未来的智能应用。
+                加入 MLRide，让我们一起探索 AI 的无限可能。
               </p>
               <div className="flex flex-wrap gap-4 justify-center">
                 <Link to="/register">
@@ -302,72 +539,6 @@ const LandingPage: React.FC = () => {
                 <p className="text-gray-400 max-w-xs">
                   一站式机器学习生产平台，让AI开发更简单
                 </p>
-              </div>
-              
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-8">
-                <div className="space-y-4">
-                  <h4 className="text-sm font-medium text-white">平台</h4>
-                  <ul className="space-y-3">
-                    <li>
-                      <Link className="text-sm text-gray-400 hover:text-white transition-colors duration-200" to="/features">
-                        功能
-                      </Link>
-                    </li>
-                    <li>
-                      <Link className="text-sm text-gray-400 hover:text-white transition-colors duration-200" to="/pricing">
-                        价格
-                      </Link>
-                    </li>
-                  </ul>
-                </div>
-                
-                <div className="space-y-4">
-                  <h4 className="text-sm font-medium text-white">资源</h4>
-                  <ul className="space-y-3">
-                    <li>
-                      <Link className="text-sm text-gray-400 hover:text-white transition-colors duration-200" to="/docs">
-                        文档
-                      </Link>
-                    </li>
-                    <li>
-                      <Link className="text-sm text-gray-400 hover:text-white transition-colors duration-200" to="/tutorials">
-                        教程
-                      </Link>
-                    </li>
-                  </ul>
-                </div>
-                
-                <div className="space-y-4">
-                  <h4 className="text-sm font-medium text-white">公司</h4>
-                  <ul className="space-y-3">
-                    <li>
-                      <Link className="text-sm text-gray-400 hover:text-white transition-colors duration-200" to="/about">
-                        关于我们
-                      </Link>
-                    </li>
-                    <li>
-                      <Link className="text-sm text-gray-400 hover:text-white transition-colors duration-200" to="/contact">
-                        联系我们
-                      </Link>
-                    </li>
-                  </ul>
-                </div>
-                
-                <div className="space-y-4">
-                  <h4 className="text-sm font-medium text-white">法律</h4>
-                  <ul className="space-y-3">
-                    <li>
-                      <Link className="text-sm text-gray-400 hover:text-white transition-colors duration-200" to="/privacy">
-                        隐私政策
-                      </Link>
-                    </li>
-                    <li>
-                      <Link className="text-sm text-gray-400 hover:text-white transition-colors duration-200" to="/terms">
-                        服务条款
-                      </Link>
-                    </li>
-                  </ul>
-                </div>
               </div>
             </div>
             

@@ -7,6 +7,7 @@
 import logging
 import json
 import traceback
+import io
 from typing import Dict, Any, List
 from .executors import BaseComponentExecutor, ExecutionResult
 
@@ -285,111 +286,123 @@ class DataSplitter(BaseComponentExecutor):
         Args:
             inputs: 输入数据，包括:
                 - dataset: 输入数据集
+                - input: 输入数据集（兼容旧端口名）
             parameters: 参数，包括:
                 - test_size: 测试集比例
                 - random_state: 随机种子
                 - stratify: 是否使用分层抽样
-                - target: 目标变量（用于分层抽样）
+                - stratify_column: 用于分层抽样的列名
                 
         Returns:
             ExecutionResult: 执行结果，包含拆分后的训练集和测试集
         """
         try:
-            # 获取输入数据
-            if 'dataset' not in inputs:
+            # 导入必要库
+            import pandas as pd
+            import numpy as np
+            import io
+            from sklearn.model_selection import train_test_split
+            
+            # 获取输入数据 - 支持新旧端口名称
+            dataset = None
+            if 'dataset' in inputs:
+                dataset = inputs['dataset']
+            elif 'input' in inputs:
+                dataset = inputs['input']
+            else:
                 return ExecutionResult(
                     success=False,
-                    error_message="缺少输入数据集"
+                    error_message="缺少输入数据集，请检查端口连接"
                 )
-            
-            dataset = inputs['dataset']
             
             # 获取参数
             test_size = float(parameters.get('test_size', 0.2))
             random_state = int(parameters.get('random_state', 42))
-            stratify = parameters.get('stratify', 'false') == 'true'
-            target = parameters.get('target', '')
+            stratify_param = parameters.get('stratify', False)
+            stratify = stratify_param if isinstance(stratify_param, bool) else stratify_param in ['true', 'True', True]
+            stratify_column = parameters.get('stratify_column', '')
             
-            # 转换为Python代码
-            code = f"""
-try:
-    import numpy as np
-    import pandas as pd
-    from sklearn.model_selection import train_test_split
-    
-    # 解析输入数据集
-    df = pd.read_json('''{json.dumps(dataset.get('data', '{}'))}''', orient='split')
-    
-    # 设置分层抽样
-    stratify_col = None
-    if {stratify} and '{target}' and '{target}' in df.columns:
-        stratify_col = df['{target}']
-    
-    # 拆分数据集
-    train_df, test_df = train_test_split(
-        df, 
-        test_size={test_size}, 
-        random_state={random_state},
-        stratify=stratify_col
-    )
-    
-    # 获取训练集信息
-    train_info = {{
-        'columns': train_df.columns.tolist(),
-        'shape': train_df.shape,
-        'dtypes': {{col: str(dtype) for col, dtype in zip(train_df.columns, train_df.dtypes)}},
-        'head': train_df.head(5).to_dict(orient='records')
-    }}
-    
-    # 获取测试集信息
-    test_info = {{
-        'columns': test_df.columns.tolist(),
-        'shape': test_df.shape,
-        'dtypes': {{col: str(dtype) for col, dtype in zip(test_df.columns, test_df.dtypes)}},
-        'head': test_df.head(5).to_dict(orient='records')
-    }}
-    
-    # 设置结果
-    result = {{
-        'train_data': {{
-            'data': train_df.to_json(orient='split'),
-            'info': train_info
-        }},
-        'test_data': {{
-            'data': test_df.to_json(orient='split'),
-            'info': test_info
-        }}
-    }}
-except Exception as e:
-    raise Exception(f"数据集拆分失败: {{str(e)}}")
-"""
-            
-            # 在容器中执行
-            result = self.execute_in_container(code)
-            
-            if result.get('success', False):
-                data_result = result.get('result', {})
-                return ExecutionResult(
-                    success=True,
-                    outputs={
-                        'train_dataset': data_result.get('train_data', {}),
-                        'test_dataset': data_result.get('test_data', {})
-                    },
-                    logs=[f"成功拆分数据集: 训练集{1-test_size:.0%}, 测试集{test_size:.0%}"]
-                )
-            else:
+            # 首先尝试提取完整数据（full_data），如果不存在，再使用预览数据（data）
+            data_to_process = dataset.get('full_data', dataset.get('data', None))
+            if not data_to_process:
                 return ExecutionResult(
                     success=False,
-                    error_message=result.get('error', '数据集拆分失败'),
-                    logs=[result.get('traceback', '')]
+                    error_message="输入数据集不包含有效数据"
                 )
+            
+            # 解析输入数据集
+            try:
+                df = pd.read_json(io.StringIO(data_to_process), orient='split')
+            except Exception as e:
+                logger.error(f"解析输入数据失败: {str(e)}")
+                return ExecutionResult(
+                    success=False,
+                    error_message=f"解析输入JSON数据失败: {str(e)}"
+                )
+            
+            # 设置分层抽样
+            stratify_col = None
+            if stratify and stratify_column and stratify_column in df.columns:
+                stratify_col = df[stratify_column]
+                logger.info(f"使用分层抽样，基于列: {stratify_column}")
+            
+            # 拆分数据集
+            train_df, test_df = train_test_split(
+                df, 
+                test_size=test_size, 
+                random_state=random_state,
+                stratify=stratify_col
+            )
+            
+            # 获取训练集信息
+            train_info = {
+                'columns': train_df.columns.tolist(),
+                'shape': train_df.shape,
+                'dtypes': {str(col): str(dtype) for col, dtype in train_df.dtypes.items()},
+                'head_dict': train_df.head(5).to_dict(orient='records')
+            }
+            
+            # 获取测试集信息
+            test_info = {
+                'columns': test_df.columns.tolist(),
+                'shape': test_df.shape,
+                'dtypes': {str(col): str(dtype) for col, dtype in test_df.dtypes.items()},
+                'head_dict': test_df.head(5).to_dict(orient='records')
+            }
+            
+            # 创建预览数据（仅取部分行）
+            preview_rows = min(50, train_df.shape[0])
+            train_preview_df = train_df.head(preview_rows)
+            test_preview_df = test_df.head(preview_rows)
+            
+            # 准备输出
+            train_output = {
+                'data': train_preview_df.to_json(orient='split'),  # 预览数据
+                'info': train_info,
+                'full_data': train_df.to_json(orient='split')  # 完整数据
+            }
+            
+            test_output = {
+                'data': test_preview_df.to_json(orient='split'),  # 预览数据
+                'info': test_info,
+                'full_data': test_df.to_json(orient='split')  # 完整数据
+            }
+            return ExecutionResult(
+                success=True,
+                outputs={
+                    'train_dataset': train_output,
+                    'test_dataset': test_output
+                },
+                logs=[f"成功拆分数据集: 训练集{1-test_size:.0%} ({train_df.shape[0]}行), 测试集{test_size:.0%} ({test_df.shape[0]}行)"]
+            )
                 
         except Exception as e:
             logger.error(f"执行数据集拆分器时出错: {str(e)}")
-            traceback.print_exc()
+            logger.error(traceback.format_exc())
             return ExecutionResult(
                 success=False,
-                error_message=str(e)
+                error_message=str(e),
+                logs=[traceback.format_exc()]
             )
 
 
@@ -648,103 +661,142 @@ class LabelEncoder(BaseComponentExecutor):
         
         Args:
             inputs: 输入数据，包括:
-                - input: 输入数据集
+                - input: 输入数据集（旧端口名称）
+                - dataset: 输入数据集（新端口名称）
             parameters: 参数，包括:
-                - columns: 要编码的列（为空则自动检测类别特征）
+                - column: 要编码的列
+                - output_column: 输出列名（可选）
+                - store_mapping: 是否保存映射关系
                 
         Returns:
-            ExecutionResult: 执行结果，包含编码后的数据集
+            ExecutionResult: 执行结果，包含编码后的数据集和映射关系
         """
         try:
-            # 获取输入数据
-            if 'input' not in inputs:
+            # 获取输入数据 - 支持新旧端口名称
+            dataset = None
+            if 'dataset' in inputs:
+                dataset = inputs['dataset']
+            elif 'input' in inputs:
+                dataset = inputs['input']
+            else:
                 return ExecutionResult(
                     success=False,
-                    error_message="缺少输入数据集"
+                    error_message="缺少输入数据集，请检查端口连接"
                 )
             
-            dataset = inputs['input']
-            
-            # 获取参数
-            columns = parameters.get('columns', '')
-            if columns and isinstance(columns, str):
-                columns = [col.strip() for col in columns.split(',')]
-            
-            # 转换为Python代码
-            code = """
-import pandas as pd
-import numpy as np
-from sklearn.preprocessing import LabelEncoder
-
-# 加载数据
-data = pd.read_json(r'''{}''')
-
-# 确定要编码的列
-columns = {}
-if not columns:
-    # 自动检测类别特征
-    columns = data.select_dtypes(include=['object', 'category']).columns.tolist()
-
-# 创建编码后的数据集副本
-encoded_data = data.copy()
-
-# 保存编码器和类别映射
-encoders = {{}}
-label_mappings = {{}}
-
-# 对每个指定列进行标签编码
-for col in columns:
-    if col in data.columns:
-        le = LabelEncoder()
-        encoded_data[col] = le.fit_transform(data[col].astype(str))
-        
-        # 保存类别映射
-        label_mappings[col] = {{str(v): int(i) for i, v in enumerate(le.classes_)}}
-        
-# 保存编码器配置
-encoder_config = {{
-    'type': 'label_encoder',
-    'columns': columns,
-    'label_mappings': label_mappings
-}}
-
-# 将结果转换为JSON
-result = {{
-    'data': encoded_data.to_json(orient='records'),
-    'encoder_config': encoder_config
-}}
-
-print(json.dumps(result))
-""".format(json.dumps(dataset), columns)
-            
-            # 执行代码并获取结果
-            success, output = self.execute_in_container(code)
-            
-            if not success:
+            # 1. 从输入解析DataFrame
+            try:
+                import pandas as pd
+                from sklearn.preprocessing import LabelEncoder as SKLabelEncoder
+                import numpy as np
+                import io
+                
+                if isinstance(dataset, dict) and ('full_data' in dataset or 'data' in dataset):
+                    # 优先使用full_data，如果不存在则回退到data
+                    data_to_process = dataset.get('full_data', dataset.get('data', None))
+                    if data_to_process:
+                        if isinstance(data_to_process, str):
+                            # 使用StringIO处理JSON字符串，解决FutureWarning
+                            df = pd.read_json(io.StringIO(data_to_process), orient='split')
+                        else:
+                            df = pd.DataFrame(data_to_process)
+                    else:
+                        return ExecutionResult(
+                            success=False,
+                            error_message="输入数据集不包含有效数据"
+                        )
+                elif isinstance(dataset, list):
+                    # 如果输入是列表，直接转换为DataFrame
+                    df = pd.DataFrame(dataset)
+                else:
+                    return ExecutionResult(
+                        success=False,
+                        error_message=f"无法解析的输入数据格式: {type(dataset)}"
+                    )
+                
+                # 2. 获取参数
+                column = parameters.get('column', '')
+                output_column = parameters.get('output_column', '')
+                store_mapping = parameters.get('store_mapping', True)
+                
+                if not column or column not in df.columns:
+                    return ExecutionResult(
+                        success=False,
+                        error_message=f"无效的列名: {column}"
+                    )
+                
+                # 如果未提供输出列名，则使用原列名
+                if not output_column:
+                    output_column = f"{column}"
+                
+                # 3. 执行标签编码
+                encoder = SKLabelEncoder()
+                
+                # 处理可能的缺失值
+                # 首先获取非空值的索引
+                non_null_mask = df[column].notna()
+                # 仅对非空值进行编码
+                if non_null_mask.any():
+                    df.loc[non_null_mask, output_column] = encoder.fit_transform(df.loc[non_null_mask, column].astype(str))
+                    # 缺失值将保持为NaN
+                
+                # 4. 创建映射关系
+                label_mapping = {}
+                if store_mapping:
+                    label_mapping = {str(cls): int(idx) for idx, cls in enumerate(encoder.classes_)}
+                
+                # 5. 准备输出信息
+                # 生成数据预览
+                preview_rows = min(50, len(df))
+                preview_df = df.head(preview_rows)
+                
+                # 提取元数据
+                info = {
+                    'columns': df.columns.tolist(),
+                    'shape': df.shape,
+                    'dtypes': {col: str(dtype) for col, dtype in zip(df.columns, df.dtypes)},
+                    'head': df.head(5).to_dict(orient='records'),
+                    'mapping': label_mapping
+                }
+                
+                # 6. 输出结果 - 使用与其他组件一致的输出结构
+                output_data = {
+                    'data': preview_df.to_json(orient='split'),  # 预览数据
+                    'info': info,
+                    'full_data': df.to_json(orient='split')  # 完整数据
+                }
+                
                 return ExecutionResult(
-                    success=False,
-                    error_message=f"标签编码执行失败: {output}"
+                    success=True,
+                    outputs={
+                        'dataset': output_data,  # 保留原有的dataset输出端口
+                        'output': output_data,   # 添加新的output输出端口
+                        'mapping': label_mapping
+                    },
+                    logs=[
+                        f"成功对列 '{column}' 进行标签编码",
+                        f"生成编码列 '{output_column}'"
+                    ]
                 )
                 
-            # 解析输出
-            result = json.loads(output)
-            encoded_dataset = json.loads(result['data'])
-            encoder_config = result['encoder_config']
-            
-            return ExecutionResult(
-                success=True,
-                output={
-                    'output': encoded_dataset,
-                    'encoder_config': encoder_config
-                }
-            )
+            except Exception as e:
+                error_msg = f"处理数据过程中出错: {str(e)}"
+                logger.error(error_msg)
+                logger.error(traceback.format_exc())
+                return ExecutionResult(
+                    success=False,
+                    error_message=error_msg,
+                    logs=[traceback.format_exc()]
+                )
             
         except Exception as e:
-            error_message = f"标签编码执行出错: {str(e)}\n{traceback.format_exc()}"
+            error_message = f"标签编码执行出错: {str(e)}"
             logger.error(error_message)
+            logger.error(traceback.format_exc())
             return ExecutionResult(
                 success=False,
-                error_message=error_message
+                error_message=error_message,
+                logs=[traceback.format_exc()]
             )
 
 
@@ -1360,4 +1412,450 @@ print(json.dumps(output))
             return ExecutionResult(
                 success=False,
                 error_message=error_message
+            )
+
+
+class TextFeatureEngineering(BaseComponentExecutor):
+    """文本特征工程
+    
+    将文本数据转换为特征向量，支持TF-IDF和Count向量化两种方法。
+    """
+    
+    def execute(self, inputs: Dict[str, Any], parameters: Dict[str, Any]) -> ExecutionResult:
+        """
+        对文本数据进行特征工程
+        
+        Args:
+            inputs: 输入数据，包括:
+                - dataset: 输入数据集，包含要处理的文本列
+            parameters: 参数，包括:
+                - method: 向量化方法 ('tfidf' 或 'count')
+                - text_column: 要处理的文本列
+                - max_features: 最大特征数量
+                - min_df: 最小文档频率
+                - max_df: 最大文档频率
+                - ngram_range: n-gram范围
+                - stop_words: 是否使用停用词
+                - output_format: 输出格式 ('dense' 或 'sparse')
+                
+        Returns:
+            ExecutionResult: 执行结果，包含特征工程后的数据集
+        """
+        try:
+            # 导入必要库
+            import pandas as pd
+            import numpy as np
+            import io
+            import json
+            from sklearn.feature_extraction.text import TfidfVectorizer, CountVectorizer
+            import scipy.sparse as sp
+            
+            # 获取输入数据
+            if 'dataset' not in inputs:
+                return ExecutionResult(
+                    success=False,
+                    error_message="缺少输入数据集"
+                )
+            
+            dataset = inputs['dataset']
+            
+            # 首先尝试提取完整数据（full_data），如果不存在，再使用预览数据（data）
+            data_to_process = dataset.get('full_data', dataset.get('data', None))
+            if not data_to_process:
+                return ExecutionResult(
+                    success=False,
+                    error_message="输入数据集不包含有效数据"
+                )
+
+            # 获取参数
+            method = parameters.get('method', 'tfidf')
+            text_column = parameters.get('text_column', '')
+            max_features = parameters.get('max_features', 100)
+            min_df = parameters.get('min_df', 2)
+            max_df = parameters.get('max_df', 0.8)
+            ngram_range_str = parameters.get('ngram_range', '1,1')
+            stop_words = parameters.get('stop_words', 'english')
+            output_format = parameters.get('output_format', 'dense')
+            
+            # 参数处理和验证
+            if not text_column:
+                return ExecutionResult(
+                    success=False,
+                    error_message="请指定要处理的文本列"
+                )
+                
+            try:
+                max_features = int(max_features)
+            except (ValueError, TypeError):
+                max_features = 100
+                
+            try:
+                if isinstance(min_df, str) and '.' in min_df:
+                    min_df = float(min_df)
+                else:
+                    min_df = int(min_df)
+            except (ValueError, TypeError):
+                min_df = 2
+                
+            try:
+                if isinstance(max_df, str) and '.' in max_df:
+                    max_df = float(max_df)
+                else:
+                    max_df = int(max_df)
+                # 确保max_df值在有效范围内
+                if isinstance(max_df, float) and (max_df <= 0.0 or max_df > 1.0):
+                    logger.warning(f"max_df值{max_df}超出有效浮点数范围[0.0, 1.0]，将使用默认值0.8")
+                    max_df = 0.8
+                elif isinstance(max_df, int) and max_df < 1:
+                    logger.warning(f"max_df值{max_df}超出有效整数范围[1, inf)，将使用默认值0.8")
+                    max_df = 0.8
+            except (ValueError, TypeError):
+                max_df = 0.8
+                
+            # 解析n-gram范围
+            try:
+                if isinstance(ngram_range_str, str):
+                    parts = ngram_range_str.split(',')
+                    if len(parts) == 2:
+                        ngram_min = int(parts[0].strip())
+                        ngram_max = int(parts[1].strip())
+                        ngram_range = (ngram_min, ngram_max)
+                    else:
+                        ngram_range = (1, 1)
+                else:
+                    ngram_range = (1, 1)
+            except (ValueError, TypeError):
+                ngram_range = (1, 1)
+                
+            # 验证stop_words
+            if stop_words not in ['english', 'none']:
+                stop_words = 'english' if stop_words else None
+            elif stop_words == 'none':
+                stop_words = None
+            
+            # 解析输入数据集
+            try:
+                df = pd.read_json(io.StringIO(data_to_process), orient='split')
+            except Exception as e:
+                logger.error(f"解析输入数据失败: {str(e)}")
+                return ExecutionResult(
+                    success=False,
+                    error_message=f"解析输入JSON数据失败: {str(e)}"
+                )
+            
+            # 验证文本列是否存在
+            if text_column not in df.columns:
+                return ExecutionResult(
+                    success=False,
+                    error_message=f"文本列 '{text_column}' 不存在于数据集中"
+                )
+            
+            # 检查文本列是否包含缺失值，并处理
+            if df[text_column].isna().any():
+                df[text_column] = df[text_column].fillna('')
+            
+            # 设置向量化器参数
+            vectorizer_params = {
+                'max_features': max_features,
+                'min_df': min_df,
+                'max_df': max_df,
+                'ngram_range': ngram_range,
+                'stop_words': stop_words
+            }
+            
+            # 初始化向量化器
+            if method == 'tfidf':
+                vectorizer = TfidfVectorizer(**vectorizer_params)
+            else:  # 'count'
+                vectorizer = CountVectorizer(**vectorizer_params)
+            
+            # 对文本列进行向量化
+            X = vectorizer.fit_transform(df[text_column])
+            
+            # 获取特征名称
+            feature_names = vectorizer.get_feature_names_out()
+            
+            # 创建特征矩阵的DataFrame
+            if output_format == 'dense':
+                # 转换为密集矩阵
+                X_dense = X.toarray()
+                # 创建特征列名
+                feature_columns = [f'{text_column}_{feat}' for feat in feature_names]
+                # 创建特征DataFrame
+                feature_df = pd.DataFrame(X_dense, columns=feature_columns)
+            else:  # 'sparse'
+                # 保持为稀疏矩阵，只创建最重要的几个特征列
+                X_dense = X.toarray()
+                # 为每一行找出最重要的N个特征索引
+                top_n = min(10, X.shape[1])  # 最多取10个特征
+                feature_columns = []
+                feature_data = []
+                
+                for i in range(X.shape[0]):
+                    row_data = {}
+                    # 获取这一行中值最大的top_n个特征索引
+                    row = X[i].toarray().flatten() if sp.issparse(X[i]) else X[i]
+                    top_indices = row.argsort()[-top_n:][::-1]
+                    
+                    for idx in top_indices:
+                        if row[idx] > 0:  # 只记录非零特征
+                            feat_name = f'{text_column}_{feature_names[idx]}'
+                            if feat_name not in feature_columns:
+                                feature_columns.append(feat_name)
+                            row_data[feat_name] = row[idx]
+                    
+                    feature_data.append(row_data)
+                
+                # 创建特征DataFrame
+                feature_df = pd.DataFrame(feature_data)
+            
+            # 获取向量化器的词汇表大小
+            vocab_size = len(vectorizer.vocabulary_)
+            
+            # 合并原始DataFrame和特征DataFrame
+            result_df = pd.concat([df.reset_index(drop=True), feature_df.reset_index(drop=True)], axis=1)
+            
+            # 获取数据信息
+            info = {
+                'columns': result_df.columns.tolist(),
+                'shape': result_df.shape,
+                'dtypes': {col: str(dtype) for col, dtype in zip(result_df.columns, result_df.dtypes)},
+                'vectorizer_info': {
+                    'method': method,
+                    'vocab_size': vocab_size,
+                    'n_features': X.shape[1],
+                    'feature_names': feature_names[:20].tolist() + (['...'] if len(feature_names) > 20 else [])
+                }
+            }
+            
+            # 创建预览数据（仅取部分列和行）
+            preview_cols = df.columns.tolist() + feature_columns[:10]
+            preview_rows = min(50, result_df.shape[0])
+            preview_df = result_df[preview_cols].head(preview_rows)
+            
+            # 准备输出
+            output_data = {
+                'data': preview_df.to_json(orient='split'),  # 预览数据
+                'info': info,
+                'full_data': result_df.to_json(orient='split')  # 完整数据
+            }
+            
+            return ExecutionResult(
+                success=True,
+                outputs={'output': output_data},
+                logs=[f"成功应用{method}向量化方法处理文本特征"]
+            )
+                
+        except Exception as e:
+            logger.error(f"执行文本特征工程时出错: {str(e)}")
+            traceback.print_exc()
+            return ExecutionResult(
+                success=False,
+                error_message=str(e),
+                logs=[traceback.format_exc()]
+            )
+
+
+class NumericFeatureEngineering(BaseComponentExecutor):
+    """数值特征工程
+    
+    对数值数据进行特征工程，包括多项式特征、交互特征等。
+    """
+    
+    def execute(self, inputs: Dict[str, Any], parameters: Dict[str, Any]) -> ExecutionResult:
+        """
+        对数值数据进行特征工程
+        
+        Args:
+            inputs: 输入数据，包括:
+                - dataset: 输入数据集，包含要处理的数值列
+            parameters: 参数，包括:
+                - method: 特征工程方法 ('polynomial', 'interaction', 'binning')
+                - columns: 要处理的数值列
+                - degree: 多项式阶数（用于polynomial方法）
+                - bins: 分箱数量（用于binning方法）
+                
+        Returns:
+            ExecutionResult: 执行结果，包含特征工程后的数据集
+        """
+        try:
+            # 导入必要库
+            import pandas as pd
+            import numpy as np
+            import io
+            from sklearn.preprocessing import PolynomialFeatures
+            
+            # 获取输入数据
+            if 'dataset' not in inputs:
+                return ExecutionResult(
+                    success=False,
+                    error_message="缺少输入数据集"
+                )
+            
+            dataset = inputs['dataset']
+            
+            # 首先尝试提取完整数据（full_data），如果不存在，再使用预览数据（data）
+            data_to_process = dataset.get('full_data', dataset.get('data', None))
+            if not data_to_process:
+                return ExecutionResult(
+                    success=False,
+                    error_message="输入数据集不包含有效数据"
+                )
+
+            # 获取参数
+            method = parameters.get('method', 'polynomial')
+            columns = parameters.get('columns', [])
+            degree = parameters.get('degree', 2)
+            bins = parameters.get('bins', 5)
+            
+            # 处理列参数
+            if isinstance(columns, str):
+                columns = [col.strip() for col in columns.split(',') if col.strip()]
+            
+            # 参数处理和验证
+            try:
+                degree = int(degree)
+                if degree < 1:
+                    degree = 2
+            except (ValueError, TypeError):
+                degree = 2
+                
+            try:
+                bins = int(bins)
+                if bins < 2:
+                    bins = 5
+            except (ValueError, TypeError):
+                bins = 5
+            
+            # 解析输入数据集
+            try:
+                df = pd.read_json(io.StringIO(data_to_process), orient='split')
+            except Exception as e:
+                logger.error(f"解析输入数据失败: {str(e)}")
+                return ExecutionResult(
+                    success=False,
+                    error_message=f"解析输入JSON数据失败: {str(e)}"
+                )
+            
+            # 确定要处理的列
+            columns_to_process = columns if columns else df.select_dtypes(include=np.number).columns.tolist()
+            columns_to_process = [col for col in columns_to_process if col in df.columns]
+            
+            if not columns_to_process:
+                return ExecutionResult(
+                    success=False,
+                    error_message="数据集中没有可处理的数值列"
+                )
+            
+            # 提取要处理的特征
+            X = df[columns_to_process]
+            
+            # 应用特征工程方法
+            if method == 'polynomial':
+                # 多项式特征
+                poly = PolynomialFeatures(degree=degree, include_bias=False)
+                X_poly = poly.fit_transform(X)
+                
+                # 创建特征名称
+                feature_names = poly.get_feature_names_out(columns_to_process)
+                
+                # 创建特征DataFrame
+                poly_df = pd.DataFrame(X_poly, columns=feature_names)
+                
+                # 从poly_df中排除已经在原始数据中存在的列
+                new_features_df = poly_df.loc[:, ~poly_df.columns.isin(columns_to_process)]
+                
+                # 合并原始DataFrame和新特征DataFrame
+                result_df = pd.concat([df.reset_index(drop=True), new_features_df.reset_index(drop=True)], axis=1)
+                
+                method_info = {
+                    'type': 'polynomial',
+                    'degree': degree,
+                    'n_original_features': len(columns_to_process),
+                    'n_generated_features': new_features_df.shape[1]
+                }
+                
+            elif method == 'interaction':
+                # 交互特征（只考虑二阶交互）
+                n_features = len(columns_to_process)
+                result_df = df.copy()
+                
+                # 创建所有可能的二阶交互特征
+                interaction_features = []
+                for i in range(n_features):
+                    for j in range(i+1, n_features):
+                        col1 = columns_to_process[i]
+                        col2 = columns_to_process[j]
+                        new_col = f"{col1}_x_{col2}"
+                        result_df[new_col] = df[col1] * df[col2]
+                        interaction_features.append(new_col)
+                
+                method_info = {
+                    'type': 'interaction',
+                    'n_original_features': n_features,
+                    'n_generated_features': len(interaction_features),
+                    'generated_features': interaction_features[:10] + (['...'] if len(interaction_features) > 10 else [])
+                }
+                
+            elif method == 'binning':
+                # 分箱特征
+                result_df = df.copy()
+                binned_features = []
+                
+                for col in columns_to_process:
+                    # 创建等宽分箱
+                    bins_array = np.linspace(df[col].min(), df[col].max(), bins + 1)
+                    # 创建分箱特征
+                    binned_col = f"{col}_binned"
+                    result_df[binned_col] = pd.cut(df[col], bins=bins_array, labels=False, include_lowest=True)
+                    # 将分箱结果转换为字符串类别
+                    result_df[binned_col] = 'bin_' + result_df[binned_col].astype(str)
+                    binned_features.append(binned_col)
+                
+                method_info = {
+                    'type': 'binning',
+                    'n_bins': bins,
+                    'n_original_features': len(columns_to_process),
+                    'n_generated_features': len(binned_features),
+                    'generated_features': binned_features
+                }
+            
+            else:
+                return ExecutionResult(
+                    success=False,
+                    error_message=f"不支持的特征工程方法: {method}"
+                )
+            
+            # 获取数据信息
+            info = {
+                'columns': result_df.columns.tolist(),
+                'shape': result_df.shape,
+                'dtypes': {col: str(dtype) for col, dtype in zip(result_df.columns, result_df.dtypes)},
+                'method_info': method_info
+            }
+            
+            # 创建预览数据
+            preview_rows = min(50, result_df.shape[0])
+            preview_df = result_df.head(preview_rows)
+            
+            # 准备输出
+            output_data = {
+                'data': preview_df.to_json(orient='split'),  # 预览数据
+                'info': info,
+                'full_data': result_df.to_json(orient='split')  # 完整数据
+            }
+            
+            return ExecutionResult(
+                success=True,
+                outputs={'output': output_data},
+                logs=[f"成功应用{method}方法处理数值特征"]
+            )
+                
+        except Exception as e:
+            logger.error(f"执行数值特征工程时出错: {str(e)}")
+            traceback.print_exc()
+            return ExecutionResult(
+                success=False,
+                error_message=str(e),
+                logs=[traceback.format_exc()]
             )

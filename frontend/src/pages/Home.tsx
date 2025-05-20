@@ -184,7 +184,7 @@ const Home: React.FC = () => {
             <strong className="text-blue-400">💾数据集管理:</strong> 上传并管理您的项目数据集。
           </li>
           <li>
-            <strong className="text-blue-400">🔍统计面板:</strong> 监控资源使用和任务执行情况。
+            <strong className="text-blue-400">🖌️可视化拖拽编程:</strong> 在画布上设计并执行工作流。
           </li>
         </ul>
         <p className="pt-2">

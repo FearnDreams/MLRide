@@ -15,22 +15,17 @@ from .data_components import (
 from .feature_components import (
     FeatureTransformer, FeatureSelector, DataSplitter,
     LabelEncoder, OneHotEncoder, StandardScaler, MinMaxScaler,
-    CategoricalEncoder, FeatureEngineer
+    CategoricalEncoder, FeatureEngineer, TextFeatureEngineering, NumericFeatureEngineering
 )
 from .model_components import (
-    LinearRegressionTrainer, LogisticRegressionTrainer, 
-    SVMTrainer, GradientBoostingTrainer, KMeansTrainer
+    LogisticRegressionTrainer, RandomForestTrainer
 )
-from .tree_models import (
-    DecisionTreeTrainer, RandomForestTrainer
-)
+
 from .evaluation_components import (
-    ClassificationMetrics, RegressionMetrics, ConfusionMatrix, 
-    ROCCurveGenerator, LearningCurveGenerator
+    ROCCurveGenerator, ConfusionMatrixGenerator
 )
 from .visualization_components import (
-    BarChartGenerator, LineChartGenerator, ScatterPlotGenerator,
-    HistogramGenerator, HeatmapGenerator, PieChartGenerator
+    BarChartGenerator, LineChartGenerator, HeatmapGenerator
 )
 
 logger = logging.getLogger(__name__)
@@ -54,30 +49,21 @@ COMPONENT_REGISTRY = {
     'min-max-scaler': {'type': 'data_preprocessing', 'executor': MinMaxScaler},
     'encoding-categorical': {'type': 'data_preprocessing', 'executor': CategoricalEncoder},
     'feature-engineering': {'type': 'data_preprocessing', 'executor': FeatureEngineer},
+    'text-feature-engineering': {'type': 'data_preprocessing', 'executor': TextFeatureEngineering},
+    'numeric-feature-engineering': {'type': 'data_preprocessing', 'executor': NumericFeatureEngineering},
     
     # 模型训练组件
-    'linear-regression': {'type': 'model_training', 'executor': LinearRegressionTrainer},
     'logistic-regression': {'type': 'model_training', 'executor': LogisticRegressionTrainer},
-    'decision-tree': {'type': 'model_training', 'executor': DecisionTreeTrainer},
     'random-forest': {'type': 'model_training', 'executor': RandomForestTrainer},
-    'svm': {'type': 'model_training', 'executor': SVMTrainer},
-    'gradient-boosting': {'type': 'model_training', 'executor': GradientBoostingTrainer},
-    'kmeans': {'type': 'model_training', 'executor': KMeansTrainer},
     
     # 模型评估组件
-    'classification-metrics': {'type': 'model_evaluation', 'executor': ClassificationMetrics},
-    'regression-metrics': {'type': 'model_evaluation', 'executor': RegressionMetrics},
-    'confusion-matrix': {'type': 'model_evaluation', 'executor': ConfusionMatrix},
+    'confusion-matrix': {'type': 'model_evaluation', 'executor': ConfusionMatrixGenerator},
     'roc-curve': {'type': 'model_evaluation', 'executor': ROCCurveGenerator},
-    'learning-curve': {'type': 'model_evaluation', 'executor': LearningCurveGenerator},
     
     # 可视化组件
     'bar-chart': {'type': 'visualization', 'executor': BarChartGenerator},
     'line-chart': {'type': 'visualization', 'executor': LineChartGenerator},
-    'scatter-plot': {'type': 'visualization', 'executor': ScatterPlotGenerator},
-    'histogram': {'type': 'visualization', 'executor': HistogramGenerator},
     'heatmap': {'type': 'visualization', 'executor': HeatmapGenerator},
-    'pie-chart': {'type': 'visualization', 'executor': PieChartGenerator},
     
     # 自定义组件
     'python-script': {'type': 'custom', 'executor': PythonScriptExecutor},

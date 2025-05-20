@@ -48,16 +48,28 @@ const LoginForm: React.FC = () => {
             if (result.status === 'success') {
                 // 弹出登录成功的消息提示
                 message.success({
-                    content: '登录成功！正在跳转到主页...',
+                    content: '登录成功！正在跳转...',
                     duration: 2,
                     key: 'login_success',
                     style: {
                         marginTop: '20vh',
                     },
                 });
-                // 延迟1秒后跳转到主页
+                
+                // 获取上次保存的路径
+                const lastPath = localStorage.getItem('lastPath');
+                
+                // 延迟1秒后跳转
                 setTimeout(() => {
-                    navigate('/dashboard');
+                    if (lastPath && lastPath !== '/' && !lastPath.includes('/login') && !lastPath.includes('/register')) {
+                        // 如果有保存的上次路径，跳转到该路径
+                        console.log('登录成功，跳转到上次路径:', lastPath);
+                        navigate(lastPath);
+                    } else {
+                        // 否则跳转到仪表盘
+                        console.log('登录成功，跳转到仪表盘');
+                        navigate('/dashboard/recent'); // 确保跳转到/dashboard/recent而不是/dashboard
+                    }
                 }, 1000);
             } else {
                 // 如果登录状态不是 'success'，抛出错误

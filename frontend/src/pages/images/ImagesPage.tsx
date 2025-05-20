@@ -6,63 +6,10 @@ import { imagesService, DockerImage } from '@/services/images';
 import { message, Spin, Empty, Modal, Tooltip, Badge, Form, Input } from 'antd';
 import _ from 'lodash'; // 引入 lodash 用于 debounce
 
-// 将 officialImages 定义移到组件顶部
-const officialImages = [
-  {
-    id: "official-1",
-    name: "气象分析镜像 Python 3.7",
-    title: "气象分析镜像 Python 3.7",
-    description: "气象专用，使用conda安装可能存在较多冲突, Python 3.7.8",
-    python_version: "3.7.8",
-    pythonVersion: "3.7.8",
-    version: "Python 3.7.8",
-    created: new Date().toISOString(),
-    status: "ready",
-    creator: 0,
-    creator_name: "官方团队",
-    type: ["官方", "CPU"],
-    packages: "numpy,pandas,matplotlib,scipy,sklearn"
-  },
-  {
-    id: "official-2",
-    name: "TF2.4 Torch1.7 推断",
-    title: "TF2.4 Torch1.7 推断",
-    description: "tf2.4.2-torch1.7.1-py3.7.10",
-    python_version: "3.7.10",
-    pythonVersion: "3.7.10",
-    version: "Python 3.7.10",
-    created: new Date().toISOString(),
-    status: "ready",
-    creator: 0,
-    creator_name: "官方团队",
-    type: ["官方", "CPU"],
-    packages: "tensorflow==2.4.2,torch==1.7.1,numpy,pandas",
-    pytorch_version: "1.7.1"
-  },
-  {
-    id: "official-3",
-    name: "Python 3.7 数据科学镜像",
-    title: "Python 3.7 数据科学镜像",
-    description: "兼容 ModelWhale IDE，Python 3.7.12",
-    python_version: "3.7.12",
-    pythonVersion: "3.7.12",
-    version: "Python 3.7.12",
-    created: new Date().toISOString(),
-    status: "ready",
-    creator: 0,
-    creator_name: "官方团队",
-    type: ["官方", "CPU"],
-    packages: "numpy,pandas,matplotlib,scipy,sklearn,jupyterlab"
-  }
-];
-
 const ImagesPage: React.FC = () => {
   const navigate = useNavigate();
-  const [selectedTab, setSelectedTab] = useState("我的镜像");
   const [userImages, setUserImages] = useState<DockerImage[]>([]);
   const [filteredUserImages, setFilteredUserImages] = useState<DockerImage[]>([]); // 过滤后的用户镜像
-  // 官方镜像列表是静态的，如果也需要过滤，则添加对应状态
-  const [filteredOfficialImages, setFilteredOfficialImages] = useState<any[]>(officialImages); // 初始化过滤后的官方镜像
   const [loading, setLoading] = useState(false);
   const [deleteLoading, setDeleteLoading] = useState(false);
   const [detailModalVisible, setDetailModalVisible] = useState(false);
@@ -90,7 +37,7 @@ const ImagesPage: React.FC = () => {
         });
         setUserImages(processedImages);
         // 获取数据后立即应用当前搜索词进行过滤
-        applyFilter(searchTerm, selectedTab, processedImages, officialImages);
+        applyFilter(searchTerm, processedImages);
       } else {
         message.error(response.message || '获取镜像失败');
         setUserImages([]); // 清空数据
@@ -108,17 +55,17 @@ const ImagesPage: React.FC = () => {
   
   useEffect(() => {
     fetchUserImages(); // 初始加载
-  }, []); // 移除 selectedTab 依赖，因为 fetchUserImages 只获取用户镜像
+  }, []); // 简化依赖
   
   // 过滤函数 (提取出来方便复用和 debounce)
-  const applyFilter = (term: string, tab: string, currentUsers: DockerImage[], currentOfficials: any[]) => {
+  const applyFilter = (term: string, currentUsers: DockerImage[]) => {
       const terms = term
         .toLowerCase()
         .split(',')
         .map(t => t.trim())
         .filter(t => t !== '');
 
-      const filterImage = (image: DockerImage | any) => { // 使用 any 兼容官方镜像结构
+      const filterImage = (image: DockerImage) => { 
         if (terms.length === 0) return true;
 
         const name = (image.name || '').toLowerCase();
@@ -133,17 +80,13 @@ const ImagesPage: React.FC = () => {
         );
       };
 
-      if (tab === "我的镜像") {
-        setFilteredUserImages(currentUsers.filter(filterImage));
-      } else {
-        setFilteredOfficialImages(currentOfficials.filter(filterImage));
-      }
+      setFilteredUserImages(currentUsers.filter(filterImage));
   };
   
-  // 使用 useEffect 监听搜索词和 Tab 变化以触发过滤
+  // 使用 useEffect 监听搜索词变化以触发过滤
   useEffect(() => {
     const debouncedFilter = _.debounce(() => {
-       applyFilter(searchTerm, selectedTab, userImages, officialImages);
+       applyFilter(searchTerm, userImages);
     }, 300);
     
     debouncedFilter();
@@ -151,7 +94,7 @@ const ImagesPage: React.FC = () => {
     return () => {
       debouncedFilter.cancel();
     };
-  }, [searchTerm, selectedTab, userImages, officialImages]); // 依赖项包含原始列表
+  }, [searchTerm, userImages]); // 依赖项简化
   
   // 处理搜索输入变化
   const handleSearchChange = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -202,7 +145,7 @@ const ImagesPage: React.FC = () => {
   };
 
   // 查看镜像详情
-  const handleViewImageDetail = (image: DockerImage | any) => { // 允许 any 类型
+  const handleViewImageDetail = (image: DockerImage) => {
     setSelectedImage(image);
     setDetailModalVisible(true);
   };
@@ -442,76 +385,6 @@ const ImagesPage: React.FC = () => {
     );
   };
 
-  // 渲染官方镜像列表 (使用过滤后数据)
-  const renderOfficialImages = () => {
-    // 修改：使用 filteredOfficialImages
-    if (filteredOfficialImages.length === 0) {
-        return (
-         <Empty 
-            image={Empty.PRESENTED_IMAGE_SIMPLE}
-            description={
-                <div className="flex items-center text-gray-300">
-                    <AlertCircle className="w-5 h-5 mr-2" />
-                    <span>{searchTerm ? '未找到匹配的镜像' : '暂无官方镜像'}</span>
-                </div>
-            }
-        />
-       );
-    }
-    return (
-      <div className="space-y-4">
-        {/* 修改：使用 filteredOfficialImages */} 
-        {filteredOfficialImages.map((image: any, index: number) => (
-          <div key={index} className="bg-slate-800/30 backdrop-blur-sm p-5 rounded-xl border border-slate-700/50 hover:border-purple-500/30 transition-all duration-300 hover:shadow-md hover:shadow-purple-500/5">
-             {/* 卡片内部结构不变 */}
-              <div className="flex justify-between items-start">
-              <div>
-                <div className="flex items-center gap-2 mb-2">
-                  <h3 className="font-medium text-white">{image.title}</h3>
-                  <Tooltip title="查看详情">
-                    <Info 
-                      className="w-4 h-4 text-gray-400 hover:text-purple-400 cursor-pointer transition-colors"
-                      aria-label="查看官方镜像详情"
-                      onClick={() => handleViewImageDetail(image as unknown as DockerImage)}
-                    />
-                  </Tooltip>
-                </div>
-                <p className="text-gray-400 text-sm mb-3">{image.description}</p>
-                <div className="flex items-center gap-2">
-                  <div className="w-5 h-5 rounded-full bg-purple-500/20 flex items-center justify-center">
-                    <span className="text-xs text-purple-400">Py</span>
-                  </div>
-                  <span className="text-sm text-gray-300">{image.version}</span>
-                </div>
-                
-                {/* 显示pytorch版本信息 (如果有) */}
-                {image.pytorch_version && (
-                  <div className="flex items-center gap-2 mt-2">
-                    <div className="w-5 h-5 rounded-full bg-orange-500/20 flex items-center justify-center">
-                      <span className="text-xs text-orange-400">Pt</span>
-                    </div>
-                    <span className="text-sm text-gray-300">PyTorch {image.pytorch_version}</span>
-                  </div>
-                )}
-              </div>
-              <div className="flex items-center gap-3">
-                {image.type.map((type: string, i: number) => (
-                  <span key={i} className={`text-sm px-2 py-1 rounded-full ${
-                    type === "官方" 
-                      ? "bg-purple-500/20 text-purple-400 border border-purple-500/30" 
-                      : "bg-blue-500/20 text-blue-400 border border-blue-500/30"
-                  }`}>
-                    {type}
-                  </span>
-                ))}
-              </div>
-            </div>
-          </div>
-        ))}
-      </div>
-    );
-  };
-
   // 渲染镜像详情模态框
   const renderImageDetailModal = () => {
     if (!selectedImage) return null;
@@ -741,28 +614,8 @@ const ImagesPage: React.FC = () => {
           </Button>
         </div>
 
-        {/* Filters */}
-        <div className="mb-6">
-          <div className="border-b border-slate-700/50 mb-6">
-            <div className="flex gap-6">
-              <button 
-                className={`pb-2 text-gray-300 hover:text-white transition-colors duration-200 ${selectedTab === "我的镜像" ? "border-b-2 border-blue-500 text-blue-400" : ""}`}
-                onClick={() => setSelectedTab("我的镜像")}
-              >
-                我的镜像
-              </button>
-              <button 
-                className={`pb-2 text-gray-300 hover:text-white transition-colors duration-200 ${selectedTab === "官方镜像" ? "border-b-2 border-purple-500 text-purple-400" : ""}`}
-                onClick={() => setSelectedTab("官方镜像")}
-              >
-                官方镜像
-              </button>
-            </div>
-          </div>
-        </div>
-
-        {/* Images List */}
-        {selectedTab === "我的镜像" ? renderUserImages() : renderOfficialImages()}
+        {/* 直接渲染用户镜像，无需分栏 */}
+        {renderUserImages()}
       </div>
       
       {/* 镜像详情模态框 */}

@@ -18,11 +18,8 @@ interface PreviewData {
 
 const DatasetsPage: React.FC = () => {
   const navigate = useNavigate();
-  const [selectedTab, setSelectedTab] = useState("我的数据集");
   const [userDatasets, setUserDatasets] = useState<Dataset[]>([]);
-  const [officialDatasets, setOfficialDatasets] = useState<Dataset[]>([]);
   const [filteredUserDatasets, setFilteredUserDatasets] = useState<Dataset[]>([]);
-  const [filteredOfficialDatasets, setFilteredOfficialDatasets] = useState<Dataset[]>([]);
   const [loading, setLoading] = useState(true);
   const [deleteLoading, setDeleteLoading] = useState(false);
   const [editModalVisible, setEditModalVisible] = useState(false);
@@ -43,11 +40,12 @@ const DatasetsPage: React.FC = () => {
   const [previewDatasetName, setPreviewDatasetName] = useState<string>('');
 
   const fetchUserDatasets = useCallback(async () => {
+    setLoading(true);
     try {
       const response = await datasetsService.getUserDatasets();
       if (response.status === 'success') {
         setUserDatasets(response.data as Dataset[]);
-        setFilteredUserDatasets(response.data as Dataset[]);
+        applyFilter(searchTerm, response.data as Dataset[]);
       } else {
         message.error(response.message || '获取用户数据集失败');
         setUserDatasets([]);
@@ -57,69 +55,39 @@ const DatasetsPage: React.FC = () => {
       message.error(error.message || '获取用户数据集失败');
       setUserDatasets([]);
       setFilteredUserDatasets([]);
-    }
-  }, []);
-
-  const fetchOfficialDatasets = useCallback(async () => {
-    try {
-      const response = await datasetsService.getPublicDatasets();
-      if (response.status === 'success') {
-        setOfficialDatasets(response.data as Dataset[]);
-        setFilteredOfficialDatasets(response.data as Dataset[]);
-      } else {
-        message.error(response.message || '获取官方数据集失败');
-        setOfficialDatasets([]);
-        setFilteredOfficialDatasets([]);
-      }
-    } catch (error: any) {
-      message.error(error.message || '获取官方数据集失败');
-      setOfficialDatasets([]);
-      setFilteredOfficialDatasets([]);
-    }
-  }, []);
-
-  useEffect(() => {
-    const loadData = async () => {
-      setLoading(true);
-      await Promise.allSettled([
-        fetchUserDatasets(),
-        fetchOfficialDatasets()
-      ]);
+    } finally {
       setLoading(false);
-    };
-    loadData();
-  }, [fetchUserDatasets, fetchOfficialDatasets]);
+    }
+  }, [searchTerm]);
 
   useEffect(() => {
-    const handleFilter = () => {
-      const terms = searchTerm
-        .toLowerCase()
-        .split(',')
-        .map(t => t.trim())
-        .filter(t => t !== '');
+    fetchUserDatasets();
+  }, [fetchUserDatasets]);
 
-      const filterDataset = (dataset: Dataset) => {
-        if (terms.length === 0) return true;
-        return terms.every(term =>
-            dataset.name.toLowerCase().includes(term) ||
-            (dataset.tags && dataset.tags.some(tag => tag.toLowerCase().includes(term)))
-        );
-      };
+  const applyFilter = (term: string, datasets: Dataset[]) => {
+    const terms = term
+      .toLowerCase()
+      .split(',')
+      .map(t => t.trim())
+      .filter(t => t !== '');
 
-      if (selectedTab === "我的数据集") {
-        setFilteredUserDatasets(userDatasets.filter(filterDataset));
-      } else {
-        setFilteredOfficialDatasets(officialDatasets.filter(filterDataset));
-      }
+    const filterDataset = (dataset: Dataset) => {
+      if (terms.length === 0) return true;
+      return terms.every(term =>
+          dataset.name.toLowerCase().includes(term) ||
+          (dataset.tags && dataset.tags.some(tag => tag.toLowerCase().includes(term)))
+      );
     };
+    setFilteredUserDatasets(datasets.filter(filterDataset));
+  };
 
-    const debouncedFilter = _.debounce(handleFilter, 300);
+  useEffect(() => {
+    const debouncedFilter = _.debounce(() => applyFilter(searchTerm, userDatasets), 300);
     debouncedFilter();
-
     return () => {
       debouncedFilter.cancel();
     };
-  }, [searchTerm, selectedTab, userDatasets, officialDatasets]);
+  }, [searchTerm, userDatasets]);
 
   const handleSearchChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     setSearchTerm(event.target.value);
@@ -157,8 +125,8 @@ const DatasetsPage: React.FC = () => {
     return 'N/A';
   };
 
-  const renderDatasetCard = (dataset: Dataset, isOfficial: boolean) => (
-    <div key={dataset.id} className={`bg-slate-800/30 backdrop-blur-sm p-5 rounded-xl border border-slate-700/50 hover:border-${isOfficial ? 'purple' : 'blue'}-500/30 transition-all duration-300 hover:shadow-md hover:shadow-${isOfficial ? 'purple' : 'blue'}-500/5`}>
+  const renderDatasetCard = (dataset: Dataset) => (
+    <div key={dataset.id} className={`bg-slate-800/30 backdrop-blur-sm p-5 rounded-xl border border-slate-700/50 hover:border-blue-500/30 transition-all duration-300 hover:shadow-md hover:shadow-blue-500/5`}>
       <div className="flex justify-between items-start">
         <div className="flex-1 mr-4 min-w-0">
           <div className="flex items-center gap-2 mb-2 flex-wrap">
@@ -173,24 +141,20 @@ const DatasetsPage: React.FC = () => {
               </div>
             )}
             <div className="flex items-center gap-1 flex-shrink-0 ml-auto">
-              {!isOfficial && (
-                <>
-                  <Tooltip title="编辑数据集">
-                    <Edit2
-                      className="w-4 h-4 text-gray-400 hover:text-amber-400 cursor-pointer transition-colors"
-                      aria-label="编辑数据集"
-                      onClick={(e) => handleEditDataset(dataset, e)}
-                    />
-                  </Tooltip>
-                  <Tooltip title="删除数据集">
-                    <Trash2
-                      className="w-4 h-4 text-gray-400 hover:text-red-400 cursor-pointer transition-colors ml-1"
-                      aria-label="删除数据集"
-                      onClick={(e) => handleDeleteDataset(dataset.id, e)}
-                    />
-                  </Tooltip>
-                </>
-              )}
+              <Tooltip title="编辑数据集">
+                <Edit2
+                  className="w-4 h-4 text-gray-400 hover:text-amber-400 cursor-pointer transition-colors"
+                  aria-label="编辑数据集"
+                  onClick={(e) => handleEditDataset(dataset, e)}
+                />
+              </Tooltip>
+              <Tooltip title="删除数据集">
+                <Trash2
+                  className="w-4 h-4 text-gray-400 hover:text-red-400 cursor-pointer transition-colors ml-1"
+                  aria-label="删除数据集"
+                  onClick={(e) => handleDeleteDataset(dataset.id, e)}
+                />
+              </Tooltip>
             </div>
           </div>
           <p className="text-gray-400 text-sm mb-3 break-words">{dataset.description || '暂无描述'}</p>
@@ -212,11 +176,6 @@ const DatasetsPage: React.FC = () => {
             <div className="flex items-center gap-1.5 text-gray-300">
               <AlertCircle className="w-4 h-4 text-gray-400" /> 创建于: {new Date(dataset.created).toLocaleString()}
             </div>
-            {isOfficial && dataset.downloads !== undefined && (
-              <div className="flex items-center gap-1.5 text-gray-300 col-span-2">
-                <Download className="w-4 h-4 text-blue-400" /> 下载: {(dataset.downloads || 0).toLocaleString()}
-              </div>
-            )}
           </div>
         </div>
 
@@ -280,29 +239,7 @@ const DatasetsPage: React.FC = () => {
         </div>
       );
     }
-    return <div className="space-y-4">{filteredUserDatasets.map(ds => renderDatasetCard(ds, false))}</div>;
-  };
-
-  const renderOfficialDatasets = () => {
-    if (loading) {
-      return <div className="flex justify-center items-center py-12"><Spin size="large" tip="加载官方数据集中..." /></div>;
-    }
-    if (!loading && filteredOfficialDatasets.length === 0) {
-       return (
-         <div className="flex justify-center items-center py-12"> 
-           <Empty
-              image={Empty.PRESENTED_IMAGE_SIMPLE}
-              description={
-                  <div className="flex items-center text-gray-300">
-                      <AlertCircle className="w-5 h-5 mr-2" />
-                      <span>{searchTerm ? '未找到匹配的数据集' : '暂无官方数据集'}</span>
-                  </div>
-              }
-          />
-         </div>
-       );
-    }
-    return <div className="space-y-4">{filteredOfficialDatasets.map(ds => renderDatasetCard(ds, true))}</div>;
+    return <div className="space-y-4">{filteredUserDatasets.map(ds => renderDatasetCard(ds))}</div>;
   };
 
   const handleEditDataset = (dataset: Dataset, e?: React.MouseEvent) => {
@@ -385,27 +322,21 @@ const DatasetsPage: React.FC = () => {
 
     try {
       const response = await datasetsService.previewDataset(dataset.id);
-      console.log('Preview response:', response); // 添加调试日志
+      console.log('Preview response:', response);
       
       if (response.status === 'success') {
         if (response.data && typeof response.data === 'object') {
-          // 先获取返回数据，确保一致的格式处理
           const responseData = response.data;
           
-          // 创建预览数据对象
           let previewData: PreviewData;
           
-          // 根据文件类型构建适当的预览数据
           const fileType = responseData.file_type || '';
           
           if (fileType === 'csv') {
-            // 增强CSV数据处理的容错性
             const columns = responseData.columns || [];
             const rows = responseData.rows || [];
             
-            // 检查是否有有效数据
             if (columns.length === 0 && rows.length > 0 && Array.isArray(rows[0])) {
-              // 如果没有列名但有行数据，为列创建默认名称
               const columnCount = rows[0].length;
               const defaultColumns = Array.from({ length: columnCount }, (_, i) => `列 ${i + 1}`);
               
@@ -425,7 +356,6 @@ const DatasetsPage: React.FC = () => {
               };
             }
           } else if (fileType === 'xlsx' || fileType === 'xls') {
-            // 获取第一个sheet的数据来显示
             const sheetNames = responseData.sheet_names || [];
             const sheetsPreview = responseData.sheets_preview || {};
             const firstSheet = sheetNames.length > 0 ? sheetsPreview[sheetNames[0]] || {} : {};
@@ -460,7 +390,6 @@ const DatasetsPage: React.FC = () => {
             };
           }
           
-          // 调试信息
           console.log('Processed preview data:', previewData);
           
           setPreviewData(previewData);
@@ -472,7 +401,7 @@ const DatasetsPage: React.FC = () => {
         setPreviewData({ type: 'error', message: response.message || '获取预览数据失败' });
       }
     } catch (error: any) {
-      console.error('Preview error:', error); // 添加错误日志
+      console.error('Preview error:', error);
       setPreviewData({ type: 'error', message: error.message || '获取预览数据时发生错误' });
     } finally {
       setPreviewLoading(false);
@@ -857,27 +786,8 @@ const DatasetsPage: React.FC = () => {
         </Button>
       </div>
 
-      <div className="mb-6">
-        <div className="border-b border-slate-700/50">
-          <div className="flex gap-6">
-            <button
-              className={`pb-2 text-gray-300 hover:text-white transition-colors duration-200 ${selectedTab === "我的数据集" ? "border-b-2 border-blue-500 text-blue-400 font-medium" : ""}`}
-              onClick={() => setSelectedTab("我的数据集")}
-            >
-              我的数据集
-            </button>
-            <button
-              className={`pb-2 text-gray-300 hover:text-white transition-colors duration-200 ${selectedTab === "官方数据集" ? "border-b-2 border-purple-500 text-purple-400 font-medium" : ""}`}
-              onClick={() => setSelectedTab("官方数据集")}
-            >
-              官方数据集
-            </button>
-          </div>
-        </div>
-      </div>
-
       <div className="flex-1 overflow-y-auto pb-6 pr-1 -mr-1">
-        {selectedTab === "我的数据集" ? renderUserDatasets() : renderOfficialDatasets()}
+        {renderUserDatasets()}
       </div>
 
       {renderUploadModal()}

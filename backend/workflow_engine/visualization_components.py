@@ -7,10 +7,94 @@
 import logging
 import json
 import traceback
+import os
 from typing import Dict, Any, List
 from .executors import BaseComponentExecutor, ExecutionResult
 
 logger = logging.getLogger(__name__)
+
+# 定义通用的中文字体设置函数
+def setup_chinese_font():
+    """配置matplotlib支持中文字体"""
+    import matplotlib.pyplot as plt
+    import matplotlib
+    import platform
+    
+    # 尝试多种中文字体，提高兼容性
+    chinese_fonts = ['SimHei', 'Microsoft YaHei', 'STHeiti', 'WenQuanYi Micro Hei', 'NSimSun', 
+                    'FangSong', 'KaiTi', 'PingFang SC', 'Heiti SC', 'Source Han Sans CN', 
+                    'Noto Sans CJK SC', 'Noto Sans SC', 'DejaVu Sans', 'Arial Unicode MS', 'sans-serif']
+    
+    plt.rcParams['font.sans-serif'] = chinese_fonts
+    plt.rcParams['axes.unicode_minus'] = False  # 正确显示负号
+    
+    # PDF和PS支持
+    matplotlib.rcParams['pdf.fonttype'] = 42
+    matplotlib.rcParams['ps.fonttype'] = 42
+    
+    # 检测操作系统以选择合适的字体路径
+    system = platform.system()
+    font_paths = []
+    
+    if system == 'Linux':
+        # Linux系统字体路径
+        font_paths = [
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",  # Debian/Ubuntu
+            "/usr/share/fonts/dejavu/DejaVuSans.ttf",           # CentOS/RHEL
+            "/usr/share/fonts/TTF/DejaVuSans.ttf",              # Arch Linux
+            "/usr/share/fonts/truetype/wqy/wqy-microhei.ttc",   # 文泉驿微米黑
+            "/usr/share/fonts/chinese/TrueType/SimHei.ttf",     # 黑体
+            "/usr/share/fonts/chinese/TrueType/SimSun.ttc"      # 宋体
+        ]
+    elif system == 'Windows':
+        # Windows系统字体路径
+        font_paths = [
+            "C:\\Windows\\Fonts\\simhei.ttf",        # 黑体
+            "C:\\Windows\\Fonts\\simsun.ttc",        # 宋体
+            "C:\\Windows\\Fonts\\msyh.ttc",          # 微软雅黑
+            "C:\\Windows\\Fonts\\simfang.ttf"        # 仿宋
+        ]
+    elif system == 'Darwin':  # macOS
+        # macOS系统字体路径
+        font_paths = [
+            "/System/Library/Fonts/PingFang.ttc",     # 苹方
+            "/Library/Fonts/Arial Unicode.ttf",       # Arial Unicode
+            "/System/Library/Fonts/STHeiti Light.ttc" # 黑体
+        ]
+    
+    # 尝试添加各个字体
+    added_font = False
+    for font_path in font_paths:
+        try:
+            if os.path.exists(font_path):
+                matplotlib.font_manager.fontManager.addfont(font_path)
+                logger.info(f"成功添加字体: {font_path}")
+                added_font = True
+        except Exception as e:
+            logger.warning(f"添加字体失败 {font_path}: {e}")
+    
+    # 尝试刷新字体缓存
+    try:
+        matplotlib.font_manager._load_fontmanager(try_read_cache=False)
+        logger.info("已刷新字体缓存")
+    except Exception as e:
+        logger.warning(f"刷新字体缓存失败: {e}")
+    
+    # 如果没有添加任何字体或需要额外设置
+    if not added_font:
+        try:
+            # 使用通用系统设置
+            import matplotlib.font_manager as fm
+            # 搜索所有可用字体
+            all_fonts = [f.name for f in fm.fontManager.ttflist]
+            # 查找任何中文字体
+            chinese_available = [f for f in all_fonts if any(cf in f for cf in ['Hei', 'Micro', 'SimSun', 'Song', 'YaHei', 'Ming'])]
+            
+            if chinese_available:
+                plt.rcParams['font.sans-serif'] = chinese_available + plt.rcParams['font.sans-serif']
+                logger.info(f"已设置系统中已有的中文字体: {chinese_available[:3]}")
+        except Exception as e:
+            logger.warning(f"中文字体回退设置失败: {e}")
 
 class BarChartGenerator(BaseComponentExecutor):
     """柱状图生成器
@@ -57,124 +141,148 @@ class BarChartGenerator(BaseComponentExecutor):
                     error_message="必须指定至少一个列作为X轴或Y轴"
                 )
             
-            # 转换为Python代码
-            code = f"""
+            # 直接在Python中执行
+            code = """
+import pandas as pd
+import matplotlib.pyplot as plt
+import numpy as np
+import seaborn as sns
+import io
+import base64
+import os
+
+# 应用中文字体设置
 try:
-    import pandas as pd
-    import matplotlib.pyplot as plt
-    import numpy as np
-    import seaborn as sns
-    import io
-    import base64
-    
-    # 设置中文支持
-    plt.rcParams['font.sans-serif'] = ['SimHei']  # 用来正常显示中文标签
-    plt.rcParams['axes.unicode_minus'] = False  # 用来正常显示负号
-    
-    # 解析输入数据集
-    df = pd.read_json('''{json.dumps(dataset.get('data', '{}'))}''', orient='split')
-    
-    # 处理列名参数
-    x_column = '{x_column}'
-    y_column = '{y_column}'
-    
-    # 如果没有指定y_column，则进行频次统计
-    if not y_column:
-        if x_column not in df.columns:
-            raise ValueError(f"找不到列: {{x_column}}")
-        # 获取分类频次
-        counts = df[x_column].value_counts().reset_index()
-        counts.columns = ['category', 'count']
-        x_data = counts['category']
-        y_data = counts['count']
-        if '{orientation}' == 'vertical':
-            plt.figure(figsize=(10, 6))
-            plt.bar(x_data, y_data, color='{color}')
-            plt.xlabel(x_column)
-            plt.ylabel('频次')
-        else:
-            plt.figure(figsize=(8, len(x_data) * 0.5 + 2))
-            plt.barh(x_data, y_data, color='{color}')
-            plt.xlabel('频次')
-            plt.ylabel(x_column)
-    
-    # 如果同时指定了x_column和y_column
-    elif x_column and y_column:
-        if x_column not in df.columns or y_column not in df.columns:
-            raise ValueError(f"找不到列: {{x_column if x_column not in df.columns else y_column}}")
-        
-        # 如果y_column是数值类型，直接绘制
-        if pd.api.types.is_numeric_dtype(df[y_column]):
-            if '{orientation}' == 'vertical':
-                plt.figure(figsize=(12, 6))
-                plt.bar(df[x_column], df[y_column], color='{color}')
-                plt.xlabel(x_column)
-                plt.ylabel(y_column)
-                # 如果x轴标签太多，旋转它们
-                if len(df[x_column].unique()) > 10:
-                    plt.xticks(rotation=45, ha='right')
-            else:
-                plt.figure(figsize=(8, len(df[x_column].unique()) * 0.5 + 2))
-                plt.barh(df[x_column], df[y_column], color='{color}')
-                plt.xlabel(y_column)
-                plt.ylabel(x_column)
-        # 如果y_column不是数值类型，做分组统计
-        else:
-            # 获取交叉表
-            cross_tab = pd.crosstab(df[x_column], df[y_column])
-            if '{orientation}' == 'vertical':
-                plt.figure(figsize=(12, 6))
-                cross_tab.plot(kind='bar', ax=plt.gca())
-                plt.xlabel(x_column)
-                plt.ylabel('计数')
-                plt.legend(title=y_column)
-                # 如果x轴标签太多，旋转它们
-                if len(cross_tab.index) > 10:
-                    plt.xticks(rotation=45, ha='right')
-            else:
-                plt.figure(figsize=(8, len(cross_tab.index) * 0.8 + 2))
-                cross_tab.plot(kind='barh', ax=plt.gca())
-                plt.xlabel('计数')
-                plt.ylabel(x_column)
-                plt.legend(title=y_column)
-    
-    plt.title('{title}')
-    plt.tight_layout()
-    
-    # 保存图像为base64
-    buf = io.BytesIO()
-    plt.savefig(buf, format='png', dpi=300)
-    buf.seek(0)
-    img_str = base64.b64encode(buf.read()).decode('utf-8')
-    plt.close()
-    
-    # 返回结果
-    result = {{
-        'chart_type': 'bar',
-        'title': '{title}',
-        'image': img_str,
-        'x_column': x_column,
-        'y_column': y_column
-    }}
+    setup_chinese_font()
 except Exception as e:
-    raise Exception(f"生成柱状图失败: {{str(e)}}")
+    logger.warning(f"设置中文字体失败: {str(e)}")
+    # 基本字体设置，确保有备选方案
+    plt.rcParams['font.sans-serif'] = ['SimHei', 'Microsoft YaHei', 'DejaVu Sans', 'sans-serif']
+    plt.rcParams['axes.unicode_minus'] = False
+
+# 解析输入数据集
+if isinstance(dataset, dict) and 'data' in dataset:
+    if isinstance(dataset['data'], str):
+        df = pd.read_json(dataset['data'], orient='split')
+    else:
+        df = pd.DataFrame(dataset['data'])
+else:
+    df = pd.DataFrame(dataset)
+
+# 如果没有指定y_column，则进行频次统计
+if not y_column:
+    if x_column not in df.columns:
+        return ExecutionResult(
+            success=False,
+            error_message=f"找不到列: {x_column}"
+        )
+    # 获取分类频次
+    counts = df[x_column].value_counts().reset_index()
+    counts.columns = ['category', 'count']
+    x_data = counts['category']
+    y_data = counts['count']
+    if orientation == 'vertical':
+        plt.figure(figsize=(10, 6))
+        plt.bar(x_data, y_data, color=color)
+        plt.xlabel(x_column)
+        plt.ylabel('频次')
+    else:
+        plt.figure(figsize=(8, len(x_data) * 0.5 + 2))
+        plt.barh(x_data, y_data, color=color)
+        plt.xlabel('频次')
+        plt.ylabel(x_column)
+
+# 如果同时指定了x_column和y_column
+elif x_column and y_column:
+    if x_column not in df.columns or y_column not in df.columns:
+        return ExecutionResult(
+            success=False,
+            error_message=f"找不到列: {x_column if x_column not in df.columns else y_column}"
+        )
+    
+    # 如果y_column是数值类型，直接绘制
+    if pd.api.types.is_numeric_dtype(df[y_column]):
+        if orientation == 'vertical':
+            plt.figure(figsize=(12, 6))
+            plt.bar(df[x_column], df[y_column], color=color)
+            plt.xlabel(x_column)
+            plt.ylabel(y_column)
+            # 如果x轴标签太多，旋转它们
+            if len(df[x_column].unique()) > 10:
+                plt.xticks(rotation=45, ha='right')
+        else:
+            plt.figure(figsize=(8, len(df[x_column].unique()) * 0.5 + 2))
+            plt.barh(df[x_column], df[y_column], color=color)
+            plt.xlabel(y_column)
+            plt.ylabel(x_column)
+    # 如果y_column不是数值类型，做分组统计
+    else:
+        # 获取交叉表
+        cross_tab = pd.crosstab(df[x_column], df[y_column])
+        if orientation == 'vertical':
+            plt.figure(figsize=(12, 6))
+            cross_tab.plot(kind='bar', ax=plt.gca())
+            plt.xlabel(x_column)
+            plt.ylabel('计数')
+            plt.legend(title=y_column)
+            # 如果x轴标签太多，旋转它们
+            if len(cross_tab.index) > 10:
+                plt.xticks(rotation=45, ha='right')
+        else:
+            plt.figure(figsize=(8, len(cross_tab.index) * 0.8 + 2))
+            cross_tab.plot(kind='barh', ax=plt.gca())
+            plt.xlabel('计数')
+            plt.ylabel(x_column)
+            plt.legend(title=y_column)
+
+plt.title(title)
+plt.tight_layout()
+
+# 保存图像为base64
+buf = io.BytesIO()
+plt.savefig(buf, format='png', dpi=300)
+buf.seek(0)
+img_str = base64.b64encode(buf.read()).decode('utf-8')
+plt.close()
+
+# 返回结果
+result = {
+    'chart_type': 'bar',
+    'title': title,
+    'image': img_str,
+    'x_column': x_column,
+    'y_column': y_column
+}
 """
             
-            # 在容器中执行
-            exec_result = self.execute_in_container(code)
+            # 创建一个本地变量字典，包含必要的变量
+            local_vars = {
+                'dataset': dataset,
+                'x_column': x_column,
+                'y_column': y_column,
+                'title': title,
+                'orientation': orientation,
+                'color': color,
+                'logger': logger,
+                'setup_chinese_font': setup_chinese_font,
+                'ExecutionResult': ExecutionResult
+            }
             
-            if exec_result.get('success', False):
-                result = exec_result.get('result', {})
+            # 执行代码
+            try:
+                exec(code, globals(), local_vars)
+                result = local_vars.get('result', {})
+                
                 return ExecutionResult(
                     success=True,
                     outputs=result,
                     logs=["柱状图生成完成"]
                 )
-            else:
+            except Exception as e:
                 return ExecutionResult(
                     success=False,
-                    error_message=exec_result.get('error', '生成柱状图失败'),
-                    logs=[exec_result.get('traceback', '')]
+                    error_message=f"生成柱状图失败: {str(e)}",
+                    logs=[traceback.format_exc()]
                 )
                 
         except Exception as e:
@@ -190,7 +298,115 @@ class LineChartGenerator(BaseComponentExecutor):
     """折线图生成器
     
     生成折线图，展示数据的趋势和变化。
+    能够接收普通数据集或ROC曲线数据并进行可视化。
     """
+    
+    def _fig_to_base64(self, plt, dpi=100, quality=90):
+        """将matplotlib图形转换为base64编码的字符串
+        
+        Args:
+            plt: matplotlib pyplot对象
+            dpi: 图像DPI（每英寸点数），影响图像质量和大小
+            quality: JPEG压缩质量（仅当format='jpg'时使用）
+            
+        Returns:
+            str: 图像的base64编码字符串
+        """
+        
+        import io
+        import base64
+        
+        # 确保中文正确显示
+        try:
+            # 尝试应用中文字体设置
+            setup_chinese_font()
+        except:
+            # 如果出现错误，使用基本设置
+            plt.rcParams['font.sans-serif'] = ['SimHei', 'Microsoft YaHei', 'DejaVu Sans', 'sans-serif']
+            plt.rcParams['axes.unicode_minus'] = False
+        
+        # 确保图形尺寸合适，避免模态框内需要滚动条
+        figsize = plt.gcf().get_size_inches()
+        if figsize[0] > 12 or figsize[1] > 8:
+            # 重新设置图形尺寸，保持原比例但最大化在12x8范围内
+            scale = min(12/figsize[0], 8/figsize[1])
+            new_figsize = (figsize[0] * scale, figsize[1] * scale)
+            plt.gcf().set_size_inches(new_figsize)
+        
+        buf = io.BytesIO()
+        plt.savefig(buf, format='png', dpi=dpi, bbox_inches='tight')
+        buf.seek(0)
+        return base64.b64encode(buf.read()).decode('utf-8')
+    
+    def _compress_image_data(self, base64_str, target_size=500000):
+        """压缩base64编码的图像数据
+        
+        Args:
+            base64_str: 原始base64编码字符串
+            target_size: 目标大小（字节数）
+            
+        Returns:
+            str: 压缩后的base64编码字符串，如果失败则返回None
+        """
+        try:
+            import base64
+            import io
+            from PIL import Image
+            
+            # 解码base64字符串
+            img_data = base64.b64decode(base64_str)
+            img_buf = io.BytesIO(img_data)
+            img = Image.open(img_buf)
+            
+            # 计算当前大小
+            current_size = len(base64_str)
+            
+            # 如果已经小于目标大小，直接返回
+            if current_size <= target_size:
+                return base64_str
+                
+            # 确定压缩质量和尺寸缩放因子
+            quality = 85
+            scale_factor = 1.0
+            
+            # 尝试不同的压缩参数，直到满足大小要求
+            for attempt in range(5):  # 最多尝试5次
+                # 缩放图像
+                if scale_factor < 1.0:
+                    new_width = int(img.width * scale_factor)
+                    new_height = int(img.height * scale_factor)
+                    resized_img = img.resize((new_width, new_height), Image.LANCZOS)
+                else:
+                    resized_img = img
+                
+                # 保存为JPEG格式（有损压缩）
+                output_buf = io.BytesIO()
+                resized_img.convert('RGB').save(output_buf, format='JPEG', quality=quality)
+                output_buf.seek(0)
+                
+                # 编码为base64
+                compressed_data = base64.b64encode(output_buf.getvalue()).decode('utf-8')
+                
+                # 检查是否达到目标大小
+                if len(compressed_data) <= target_size:
+                    return compressed_data
+                
+                # 调整参数用于下一次尝试
+                if quality > 40:
+                    quality -= 10  # 降低质量
+                else:
+                    scale_factor *= 0.8  # 缩小图像
+            
+            # 最后尝试：极端压缩
+            output_buf = io.BytesIO()
+            img.resize((img.width // 2, img.height // 2), Image.LANCZOS).convert('RGB').save(
+                output_buf, format='JPEG', quality=30)
+            output_buf.seek(0)
+            return base64.b64encode(output_buf.getvalue()).decode('utf-8')
+            
+        except Exception as e:
+            logger.warning(f"压缩图像失败: {str(e)}")
+            return None
     
     def execute(self, inputs: Dict[str, Any], parameters: Dict[str, Any]) -> ExecutionResult:
         """
@@ -198,43 +414,157 @@ class LineChartGenerator(BaseComponentExecutor):
         
         Args:
             inputs: 输入数据，包括:
-                - dataset: 输入数据集
+                - dataset: 输入数据集（常规数据）
+                - roc_data: ROC曲线数据（来自ROCCurveGenerator）
             parameters: 参数，包括:
-                - x_column: X轴列名
-                - y_columns: Y轴列名（可以是多个，用逗号分隔）
+                - x_column: X轴列名（使用dataset时）
+                - y_columns: Y轴列名（使用dataset时，可以是多个，用逗号分隔）
                 - title: 图表标题
                 - show_markers: 是否显示标记点
+                - source_type: 数据源类型（'dataset' 或 'roc'）
                 
         Returns:
             ExecutionResult: 执行结果，包含生成的折线图
         """
+        import matplotlib.pyplot as plt
+        
         try:
-            # 获取输入数据
-            if 'dataset' not in inputs:
-                return ExecutionResult(
-                    success=False,
-                    error_message="缺少输入数据集"
-                )
-            
-            dataset = inputs['dataset']
-            
             # 获取参数
-            x_column = parameters.get('x_column', '')
-            y_columns = parameters.get('y_columns', '')
-            if isinstance(y_columns, str):
-                y_columns = [col.strip() for col in y_columns.split(',') if col.strip()]
-            
+            source_type = parameters.get('source_type', 'dataset')
             title = parameters.get('title', '折线图')
-            show_markers = parameters.get('show_markers', 'true') == 'true'
+            show_markers = parameters.get('show_markers', True)
             
-            if not x_column or not y_columns:
-                return ExecutionResult(
-                    success=False,
-                    error_message="必须指定X轴和至少一个Y轴列"
-                )
+            # 初始化日志列表
+            logs = []
             
-            # 转换为Python代码
-            code = f"""
+            # 引入必要的库
+            
+            
+            # 设置中文支持
+            plt.rcParams['font.sans-serif'] = ['SimHei', 'DejaVu Sans', 'Arial Unicode MS', 'sans-serif']  # 尝试多种字体
+            plt.rcParams['axes.unicode_minus'] = False  # 用来正常显示负号
+
+            # 加载数据后添加额外的字体处理
+            # 确保即使在容器环境中也能正确显示中文
+            import matplotlib
+            matplotlib.rcParams['pdf.fonttype'] = 42
+            matplotlib.rcParams['ps.fonttype'] = 42
+            # 尝试使用通用字体
+            try:
+                matplotlib.font_manager.fontManager.addfont("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf")
+            except:
+                pass
+
+            # 处理ROC数据
+            if source_type == 'roc':
+                if 'roc_data' not in inputs or not inputs['roc_data']:
+                    return ExecutionResult(
+                        success=False,
+                        error_message="缺少ROC曲线数据输入"
+                    )
+                
+                roc_data = inputs['roc_data']
+                # 使用ROC数据创建折线图
+                try:
+                    # 准备绘图
+                    plt.figure(figsize=(6, 4))
+                    
+                    # 使用中文字体
+                    setup_chinese_font()
+                    
+                    # 绘制ROC曲线
+                    if 'series' in roc_data and roc_data['series']:
+                        series = roc_data['series'][0]
+                        data_points = series['data']
+                        plt.plot([point['x'] for point in data_points], 
+                                [point['y'] for point in data_points], 
+                                'b-', lw=2, label=f'ROC曲线')
+                    elif 'fpr' in roc_data and 'tpr' in roc_data:
+                        plt.plot(roc_data['fpr'], roc_data['tpr'], 'b-', lw=2)
+                    
+                    # 绘制随机猜测线
+                    plt.plot([0, 1], [0, 1], 'k--', lw=1)
+                    
+                    # 获取AUC值
+                    auc_value = None
+                    if 'auc' in roc_data:
+                        if isinstance(roc_data['auc'], list) and roc_data['auc']:
+                            auc_value = roc_data['auc'][0]
+                        else:
+                            auc_value = roc_data['auc']
+                    
+                    # 设置标题和标签
+                    title = parameters.get('title', 'ROC曲线')
+                    if auc_value is not None:
+                        plt.title(f"{title} (AUC = {auc_value:.4f})")
+                    else:
+                        plt.title(title)
+                    
+                    plt.xlabel('假阳性率 (False Positive Rate)')
+                    plt.ylabel('真阳性率 (True Positive Rate)')
+                    plt.grid(True)
+                    
+                    # 保存为图片，添加图像压缩
+                    img_data = self._fig_to_base64(plt)
+                    plt.close()
+                    
+                    # 限制图像大小，防止数据库保存失败
+                    if len(img_data) > 500000:  # 约500KB
+                        # 进一步压缩图像
+                        img_data_compressed = self._compress_image_data(img_data, target_size=500000)
+                        # 检查是否压缩成功
+                        if img_data_compressed:
+                            img_data = img_data_compressed
+                            logs.append("图像已压缩以适应数据库存储限制")
+                    
+                    # 构建输出
+                    result = {
+                        'chart': img_data,
+                        'chart_type': 'line',
+                        'title': title,
+                        'auc': auc_value
+                    }
+                    
+                    return ExecutionResult(
+                        success=True,
+                        outputs=result,
+                        logs=["ROC曲线绘制成功"]
+                    )
+                    
+                except Exception as e:
+                    logger.error(f"绘制ROC曲线时出错: {str(e)}")
+                    logger.error(traceback.format_exc())
+                    return ExecutionResult(
+                        success=False,
+                        error_message=f"绘制ROC曲线失败: {str(e)}",
+                        logs=[traceback.format_exc()]
+                    )
+            
+            else:
+                # 处理标准数据集
+                if 'dataset' not in inputs:
+                    return ExecutionResult(
+                        success=False,
+                        error_message="缺少输入数据集",
+                        logs=["请连接数据集"]
+                    )
+                
+                dataset = inputs['dataset']
+                x_column = parameters.get('x_column', '')
+                y_columns = parameters.get('y_columns', '')
+                
+                if isinstance(y_columns, str):
+                    y_columns = [col.strip() for col in y_columns.split(',') if col.strip()]
+                
+                if not x_column or not y_columns:
+                    return ExecutionResult(
+                        success=False,
+                        error_message="必须指定X轴和至少一个Y轴列",
+                        logs=["请指定X轴和Y轴列"]
+                    )
+                
+                # 转换为Python代码
+                code = f"""
 try:
     import pandas as pd
     import matplotlib.pyplot as plt
@@ -244,8 +574,33 @@ try:
     import base64
     
     # 设置中文支持
-    plt.rcParams['font.sans-serif'] = ['SimHei']  # 用来正常显示中文标签
-    plt.rcParams['axes.unicode_minus'] = False  # 用来正常显示负号
+    plt.rcParams['font.sans-serif'] = ['SimHei', 'Microsoft YaHei', 'DejaVu Sans', 'Arial Unicode MS', 'sans-serif']
+    plt.rcParams['axes.unicode_minus'] = False
+    
+    # 额外的字体处理
+    import matplotlib
+    matplotlib.rcParams['pdf.fonttype'] = 42
+    matplotlib.rcParams['ps.fonttype'] = 42
+    
+    # 尝试加载系统中的字体
+    try:
+        import os
+        font_paths = [
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+            "/usr/share/fonts/dejavu/DejaVuSans.ttf", 
+            "/usr/share/fonts/TTF/DejaVuSans.ttf"
+        ]
+        for font_path in font_paths:
+            if os.path.exists(font_path):
+                matplotlib.font_manager.fontManager.addfont(font_path)
+    except Exception as e:
+        print(f"字体加载警告: {e}")
+    
+    # 刷新字体缓存
+    try:
+        matplotlib.font_manager._load_fontmanager(try_read_cache=False)
+    except:
+        pass
     
     # 解析输入数据集
     df = pd.read_json('''{json.dumps(dataset.get('data', '{}'))}''', orient='split')
@@ -304,23 +659,23 @@ try:
 except Exception as e:
     raise Exception(f"生成折线图失败: {{str(e)}}")
 """
-            
-            # 在容器中执行
-            exec_result = self.execute_in_container(code)
-            
-            if exec_result.get('success', False):
-                result = exec_result.get('result', {})
-                return ExecutionResult(
-                    success=True,
-                    outputs=result,
-                    logs=["折线图生成完成"]
-                )
-            else:
-                return ExecutionResult(
-                    success=False,
-                    error_message=exec_result.get('error', '生成折线图失败'),
-                    logs=[exec_result.get('traceback', '')]
-                )
+                
+                # 在容器中执行
+                exec_result = self.execute_in_container(code)
+                
+                if exec_result.get('success', False):
+                    result = exec_result.get('result', {})
+                    return ExecutionResult(
+                        success=True,
+                        outputs=result,
+                        logs=["折线图生成完成"]
+                    )
+                else:
+                    return ExecutionResult(
+                        success=False,
+                        error_message=exec_result.get('error', '生成折线图失败'),
+                        logs=[exec_result.get('traceback', '')]
+                    )
                 
         except Exception as e:
             logger.error(f"执行折线图生成器时出错: {str(e)}")
@@ -331,350 +686,114 @@ except Exception as e:
             )
 
 
-class ScatterPlotGenerator(BaseComponentExecutor):
-    """散点图生成器
-    
-    生成散点图，展示两个数值变量之间的关系。
-    """
-    
-    def execute(self, inputs: Dict[str, Any], parameters: Dict[str, Any]) -> ExecutionResult:
-        """
-        生成散点图
-        
-        Args:
-            inputs: 输入数据，包括:
-                - dataset: 输入数据集
-            parameters: 参数，包括:
-                - x_column: X轴列名
-                - y_column: Y轴列名
-                - color_column: 着色列（可选）
-                - title: 图表标题
-                - show_regression: 是否显示回归线
-                
-        Returns:
-            ExecutionResult: 执行结果，包含生成的散点图
-        """
-        try:
-            # 获取输入数据
-            if 'dataset' not in inputs:
-                return ExecutionResult(
-                    success=False,
-                    error_message="缺少输入数据集"
-                )
-            
-            dataset = inputs['dataset']
-            
-            # 获取参数
-            x_column = parameters.get('x_column', '')
-            y_column = parameters.get('y_column', '')
-            color_column = parameters.get('color_column', '')
-            title = parameters.get('title', '散点图')
-            show_regression = parameters.get('show_regression', 'true') == 'true'
-            
-            if not x_column or not y_column:
-                return ExecutionResult(
-                    success=False,
-                    error_message="必须指定X轴和Y轴列"
-                )
-            
-            # 转换为Python代码
-            code = f"""
-try:
-    import pandas as pd
-    import matplotlib.pyplot as plt
-    import numpy as np
-    import seaborn as sns
-    import io
-    import base64
-    
-    # 设置中文支持
-    plt.rcParams['font.sans-serif'] = ['SimHei']  # 用来正常显示中文标签
-    plt.rcParams['axes.unicode_minus'] = False  # 用来正常显示负号
-    
-    # 解析输入数据集
-    df = pd.read_json('''{json.dumps(dataset.get('data', '{}'))}''', orient='split')
-    
-    # 处理列名参数
-    x_column = '{x_column}'
-    y_column = '{y_column}'
-    color_column = '{color_column}'
-    
-    # 检查列是否存在
-    if x_column not in df.columns or y_column not in df.columns:
-        raise ValueError(f"找不到列: {{x_column if x_column not in df.columns else y_column}}")
-    
-    if color_column and color_column not in df.columns:
-        raise ValueError(f"找不到颜色列: {{color_column}}")
-    
-    # 检查列类型
-    if not pd.api.types.is_numeric_dtype(df[x_column]) or not pd.api.types.is_numeric_dtype(df[y_column]):
-        raise ValueError(f"X轴和Y轴列必须是数值类型")
-    
-    # 创建图形
-    plt.figure(figsize=(10, 6))
-    
-    # 绘制散点图
-    if color_column:
-        scatter = plt.scatter(df[x_column], df[y_column], c=df[color_column] if pd.api.types.is_numeric_dtype(df[color_column]) else None, 
-                            alpha=0.6, cmap='viridis')
-        
-        # 如果颜色列是分类变量，添加图例
-        if not pd.api.types.is_numeric_dtype(df[color_column]):
-            # 获取唯一分类
-            categories = df[color_column].unique()
-            for category in categories:
-                mask = df[color_column] == category
-                plt.scatter(df.loc[mask, x_column], df.loc[mask, y_column], alpha=0.6, label=category)
-            plt.legend(title=color_column)
-        else:
-            # 添加颜色条
-            plt.colorbar(scatter, label=color_column)
-    else:
-        plt.scatter(df[x_column], df[y_column], alpha=0.6)
-    
-    # 添加回归线
-    if {show_regression}:
-        if not color_column or pd.api.types.is_numeric_dtype(df[color_column]):
-            # 简单线性回归
-            z = np.polyfit(df[x_column], df[y_column], 1)
-            p = np.poly1d(z)
-            plt.plot(df[x_column], p(df[x_column]), "r--", alpha=0.8, label=f"y = {{z[0]:.2f}}x + {{z[1]:.2f}}")
-            plt.legend()
-        else:
-            # 对每个分类绘制回归线
-            categories = df[color_column].unique()
-            for category in categories:
-                mask = df[color_column] == category
-                if sum(mask) > 1:  # 至少需要两个点才能拟合回归线
-                    z = np.polyfit(df.loc[mask, x_column], df.loc[mask, y_column], 1)
-                    p = np.poly1d(z)
-                    plt.plot(df.loc[mask, x_column], p(df.loc[mask, x_column]), "--", alpha=0.8)
-    
-    # 设置标题和标签
-    plt.title('{title}')
-    plt.xlabel(x_column)
-    plt.ylabel(y_column)
-    plt.grid(True, linestyle='--', alpha=0.7)
-    plt.tight_layout()
-    
-    # 保存图像为base64
-    buf = io.BytesIO()
-    plt.savefig(buf, format='png', dpi=300)
-    buf.seek(0)
-    img_str = base64.b64encode(buf.read()).decode('utf-8')
-    plt.close()
-    
-    # 计算相关系数
-    corr = df[[x_column, y_column]].corr().iloc[0, 1]
-    
-    # 返回结果
-    result = {{
-        'chart_type': 'scatter',
-        'title': '{title}',
-        'image': img_str,
-        'x_column': x_column,
-        'y_column': y_column,
-        'color_column': color_column if color_column else None,
-        'correlation': float(corr)
-    }}
-except Exception as e:
-    raise Exception(f"生成散点图失败: {{str(e)}}")
-"""
-            
-            # 在容器中执行
-            exec_result = self.execute_in_container(code)
-            
-            if exec_result.get('success', False):
-                result = exec_result.get('result', {})
-                return ExecutionResult(
-                    success=True,
-                    outputs=result,
-                    logs=["散点图生成完成"]
-                )
-            else:
-                return ExecutionResult(
-                    success=False,
-                    error_message=exec_result.get('error', '生成散点图失败'),
-                    logs=[exec_result.get('traceback', '')]
-                )
-                
-        except Exception as e:
-            logger.error(f"执行散点图生成器时出错: {str(e)}")
-            traceback.print_exc()
-            return ExecutionResult(
-                success=False,
-                error_message=str(e)
-            )
-
-
-class HistogramGenerator(BaseComponentExecutor):
-    """直方图生成器
-    
-    生成直方图，用于展示数值数据的分布。
-    对应前端组件ID: histogram
-    """
-    
-    def execute(self, inputs: Dict[str, Any], parameters: Dict[str, Any]) -> ExecutionResult:
-        """
-        生成直方图
-        
-        Args:
-            inputs: 输入数据，包括:
-                - data: 输入数据集
-            parameters: 参数，包括:
-                - column: 要绘制的列
-                - bins: 分箱数
-                - title: 图表标题
-                - xlabel: X轴标签
-                - ylabel: Y轴标签
-                - color: 颜色
-                - kde: 是否显示核密度估计
-                
-        Returns:
-            ExecutionResult: 执行结果，包含生成的直方图
-        """
-        try:
-            # 获取输入数据
-            if 'data' not in inputs:
-                return ExecutionResult(
-                    success=False,
-                    error_message="缺少输入数据集"
-                )
-            
-            dataset = inputs['data']
-            
-            # 获取参数
-            column = parameters.get('column', '')
-            bins = parameters.get('bins', 20)
-            title = parameters.get('title', '直方图')
-            xlabel = parameters.get('xlabel', '')
-            ylabel = parameters.get('ylabel', '频率')
-            color = parameters.get('color', '#9c27b0')
-            kde = parameters.get('kde', False)
-            
-            # 检查参数
-            if not column:
-                return ExecutionResult(
-                    success=False,
-                    error_message="需要指定要绘制的列"
-                )
-            
-            # 生成Python代码
-            code = """
-import pandas as pd
-import numpy as np
-import matplotlib.pyplot as plt
-import seaborn as sns
-import io
-import base64
-import json
-
-# 加载数据
-data = pd.read_json(r'''{}''')
-
-# 获取参数
-column = '{}'
-bins = {}
-title = '{}'
-xlabel = '{}'
-ylabel = '{}'
-color = '{}'
-kde = {}
-
-# 检查列是否存在
-if column not in data.columns:
-    raise ValueError(f"列 {column} 不存在于数据集中")
-
-# 设置样式
-sns.set_style('whitegrid')
-plt.figure(figsize=(10, 6))
-
-# 绘制直方图
-if kde:
-    # 使用seaborn绘制KDE曲线
-    ax = sns.histplot(data[column], bins=bins, kde=True, color=color)
-else:
-    # 使用matplotlib绘制普通直方图
-    ax = plt.hist(data[column], bins=bins, color=color, alpha=0.7, edgecolor='black')
-    
-# 设置标题和标签
-plt.title(title, fontsize=15)
-plt.xlabel(xlabel if xlabel else column, fontsize=12)
-plt.ylabel(ylabel, fontsize=12)
-plt.grid(True, alpha=0.3)
-
-# 添加数据统计信息
-mean_val = data[column].mean()
-median_val = data[column].median()
-std_val = data[column].std()
-
-stats_text = f"均值: {mean_val:.2f}\\n中位数: {median_val:.2f}\\n标准差: {std_val:.2f}"
-plt.annotate(stats_text, xy=(0.95, 0.95), xycoords='axes fraction', 
-             fontsize=10, bbox=dict(boxstyle="round,pad=0.3", fc="white", alpha=0.8),
-             ha='right', va='top')
-
-# 将图表转换为base64编码的图像
-buf = io.BytesIO()
-plt.savefig(buf, format='png', dpi=100, bbox_inches='tight')
-buf.seek(0)
-img_base64 = base64.b64encode(buf.read()).decode('utf-8')
-plt.close()
-
-# 准备统计信息
-statistics = {{
-    'mean': float(mean_val),
-    'median': float(median_val),
-    'std': float(std_val),
-    'min': float(data[column].min()),
-    'max': float(data[column].max()),
-    'count': int(data[column].count())
-}}
-
-# 准备结果
-result = {{
-    'image': img_base64,
-    'statistics': statistics
-}}
-
-# 输出结果
-print(json.dumps(result))
-""".format(json.dumps(dataset), column, bins, title, xlabel, ylabel, color, str(kde).lower())
-            
-            # 执行代码并获取结果
-            success, output = self.execute_in_container(code)
-            
-            if not success:
-                return ExecutionResult(
-                    success=False,
-                    error_message=f"直方图生成失败: {output}"
-                )
-                
-            # 解析输出
-            result = json.loads(output)
-            
-            return ExecutionResult(
-                success=True,
-                output={
-                    'chart': result['image'],
-                    'statistics': result['statistics']
-                }
-            )
-            
-        except Exception as e:
-            error_message = f"生成直方图时出错: {str(e)}\n{traceback.format_exc()}"
-            logger.error(error_message)
-            return ExecutionResult(
-                success=False,
-                error_message=error_message
-            )
-
-
 class HeatmapGenerator(BaseComponentExecutor):
     """热力图生成器
     
-    生成热力图，用于展示变量之间的相关性或数据矩阵。
+    生成热力图，用于展示变量之间的相关性、数据矩阵或混淆矩阵。
     对应前端组件ID: heatmap
     """
+    
+    def _fig_to_base64(self, plt, dpi=100, quality=90):
+        """将matplotlib图形转换为base64编码的字符串
+        
+        Args:
+            plt: matplotlib pyplot对象
+            dpi: 图像DPI（每英寸点数），影响图像质量和大小
+            quality: JPEG压缩质量（仅当format='jpg'时使用）
+            
+        Returns:
+            str: 图像的base64编码字符串
+        """
+        
+        import io
+        import base64
+        
+        # 确保图形尺寸合适，避免模态框内需要滚动条
+        figsize = plt.gcf().get_size_inches()
+        if figsize[0] > 12 or figsize[1] > 8:
+            # 重新设置图形尺寸，保持原比例但最大化在12x8范围内
+            scale = min(12/figsize[0], 8/figsize[1])
+            new_figsize = (figsize[0] * scale, figsize[1] * scale)
+            plt.gcf().set_size_inches(new_figsize)
+        
+        # 保存图像为base64
+        buf = io.BytesIO()
+        plt.savefig(buf, format='png', dpi=dpi, bbox_inches='tight')
+        buf.seek(0)
+        img_str = base64.b64encode(buf.read()).decode('utf-8')
+        plt.close()
+        
+        return img_str
+        
+    def _compress_image_data(self, base64_str, target_size=500000):
+        """压缩base64编码的图像数据
+        
+        Args:
+            base64_str: 原始base64编码字符串
+            target_size: 目标大小（字节数）
+            
+        Returns:
+            str: 压缩后的base64编码字符串，如果失败则返回None
+        """
+        try:
+            import base64
+            import io
+            from PIL import Image
+            
+            # 解码base64字符串
+            img_data = base64.b64decode(base64_str)
+            img_buf = io.BytesIO(img_data)
+            img = Image.open(img_buf)
+            
+            # 计算当前大小
+            current_size = len(base64_str)
+            
+            # 如果已经小于目标大小，直接返回
+            if current_size <= target_size:
+                return base64_str
+                
+            # 确定压缩质量和尺寸缩放因子
+            quality = 85
+            scale_factor = 1.0
+            
+            # 尝试不同的压缩参数，直到满足大小要求
+            for attempt in range(5):  # 最多尝试5次
+                # 缩放图像
+                if scale_factor < 1.0:
+                    new_width = int(img.width * scale_factor)
+                    new_height = int(img.height * scale_factor)
+                    resized_img = img.resize((new_width, new_height), Image.LANCZOS)
+                else:
+                    resized_img = img
+                
+                # 保存为JPEG格式（有损压缩）
+                output_buf = io.BytesIO()
+                resized_img.convert('RGB').save(output_buf, format='JPEG', quality=quality)
+                output_buf.seek(0)
+                
+                # 编码为base64
+                compressed_data = base64.b64encode(output_buf.getvalue()).decode('utf-8')
+                
+                # 检查是否达到目标大小
+                if len(compressed_data) <= target_size:
+                    return compressed_data
+                
+                # 调整参数用于下一次尝试
+                if quality > 40:
+                    quality -= 10  # 降低质量
+                else:
+                    scale_factor *= 0.8  # 缩小图像
+            
+            # 最后尝试：极端压缩
+            output_buf = io.BytesIO()
+            img.resize((img.width // 2, img.height // 2), Image.LANCZOS).convert('RGB').save(
+                output_buf, format='JPEG', quality=30)
+            output_buf.seek(0)
+            return base64.b64encode(output_buf.getvalue()).decode('utf-8')
+            
+        except Exception as e:
+            logger.warning(f"压缩图像失败: {str(e)}")
+            return None
     
     def execute(self, inputs: Dict[str, Any], parameters: Dict[str, Any]) -> ExecutionResult:
         """
@@ -683,20 +802,27 @@ class HeatmapGenerator(BaseComponentExecutor):
         Args:
             inputs: 输入数据，包括:
                 - data: 输入数据集
+                - confusion_matrix: 混淆矩阵数据（来自ConfusionMatrixGenerator）
             parameters: 参数，包括:
-                - columns: 要包含的列（为空则使用所有数值列）
-                - computation: 计算方式（correlation, covariance, raw）
+                - columns: 要绘制的列（可选，逗号分隔）
+                - computation: 计算方法（correlation、covariance）
                 - title: 图表标题
                 - cmap: 颜色映射
-                - show_values: 是否显示数值
-                - cluster: 是否聚类排序
+                - cluster: 是否聚类
                 
         Returns:
             ExecutionResult: 执行结果，包含生成的热力图
         """
         try:
             # 获取输入数据
-            if 'data' not in inputs:
+            if 'confusion_matrix' in inputs:
+                # 使用混淆矩阵数据
+                confusion_matrix_data = inputs['confusion_matrix']
+                
+                # 直接使用混淆矩阵数据绘制热力图
+                return self._generate_confusion_heatmap(confusion_matrix_data, parameters)
+                
+            elif 'data' not in inputs:
                 return ExecutionResult(
                     success=False,
                     error_message="缺少输入数据集"
@@ -708,9 +834,12 @@ class HeatmapGenerator(BaseComponentExecutor):
             columns = parameters.get('columns', '')
             computation = parameters.get('computation', 'correlation')
             title = parameters.get('title', '热力图')
-            cmap = parameters.get('cmap', 'coolwarm')
-            show_values = parameters.get('show_values', True)
+            cmap = parameters.get('cmap', 'viridis')
             cluster = parameters.get('cluster', False)
+            
+            # 兼容不同的布尔值表示方式
+            if isinstance(cluster, str):
+                cluster = cluster.lower() == 'true'
             
             # 处理列参数
             if isinstance(columns, str) and columns:
@@ -718,7 +847,7 @@ class HeatmapGenerator(BaseComponentExecutor):
             else:
                 columns = []
             
-            # 生成Python代码
+            # 直接在Python中执行
             code = """
 import pandas as pd
 import numpy as np
@@ -726,339 +855,271 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import io
 import base64
-import json
 from scipy.cluster import hierarchy
 from scipy.spatial import distance
 
+# 应用中文字体设置
+try:
+    setup_chinese_font()
+except Exception as e:
+    logger.warning(f"设置中文字体失败: {str(e)}")
+    # 基本字体设置，确保有备选方案
+    plt.rcParams['font.sans-serif'] = ['SimHei', 'Microsoft YaHei', 'DejaVu Sans', 'sans-serif']
+    plt.rcParams['axes.unicode_minus'] = False
+
 # 加载数据
-data = pd.read_json(r'''{}''')
-
-# 获取参数
-columns = {}
-computation = '{}'
-title = '{}'
-cmap = '{}'
-show_values = {}
-cluster = {}
-
-# 处理列选择
-if not columns:
-    # 如果没有指定列，使用所有数值列
-    numeric_cols = data.select_dtypes(include=[np.number]).columns.tolist()
-    columns = numeric_cols
+if isinstance(dataset, dict) and 'data' in dataset:
+    if isinstance(dataset['data'], str):
+        data = pd.read_json(dataset['data'], orient='split')
+    else:
+        data = pd.DataFrame(dataset['data'])
 else:
+    data = pd.DataFrame(dataset)
+
+# 检查列是否存在
+if columns:
     # 检查所有指定的列是否存在
     missing_cols = [col for col in columns if col not in data.columns]
     if missing_cols:
-        raise ValueError(f"以下列不存在于数据集中: {{missing_cols}}")
+        return ExecutionResult(
+            success=False,
+            error_message=f"以下列不存在于数据集中: {', '.join(missing_cols)}"
+        )
     
-    # 只保留数值列
-    non_numeric = [col for col in columns if col not in data.select_dtypes(include=[np.number]).columns]
-    if non_numeric:
-        raise ValueError(f"以下列不是数值类型: {{non_numeric}}")
+    # 只使用选定的列
+    data = data[columns]
 
-# 选择要处理的数据
-selected_data = data[columns]
-
-# 根据计算方式准备数据
-if computation == 'correlation':
-    # 计算相关性矩阵
-    matrix = selected_data.corr()
-    vmin, vmax = -1, 1
-    label = '相关系数'
-elif computation == 'covariance':
-    # 计算协方差矩阵
-    matrix = selected_data.cov()
-    vmin, vmax = None, None
-    label = '协方差'
-else:  # raw
-    # 使用原始数据
-    matrix = selected_data
-    vmin, vmax = None, None
-    label = '值'
-
-# 如果需要聚类排序
-if cluster and computation in ['correlation', 'covariance']:
-    # 计算距离矩阵
-    if computation == 'correlation':
-        # 对于相关性，距离是1-|相关系数|
-        distance_matrix = 1 - np.abs(matrix)
-    else:
-        # 对于协方差，使用标准化的距离
-        std_matrix = np.diag(1/np.sqrt(np.diag(matrix)))
-        normalized_cov = std_matrix @ matrix @ std_matrix
-        distance_matrix = 1 - np.abs(normalized_cov)
-    
-    # 执行层次聚类
-    linkage = hierarchy.linkage(distance.squareform(distance_matrix), method='average')
-    dendro = hierarchy.dendrogram(linkage, no_plot=True)
-    
-    # 重新排序矩阵
-    reordered_idx = dendro['leaves']
-    reordered_cols = [matrix.columns[i] for i in reordered_idx]
-    matrix = matrix.loc[reordered_cols, reordered_cols]
-
-# 创建图表
-plt.figure(figsize=(12, 10))
-
-# 调整面板大小，为标题留出空间
-plt.subplots_adjust(top=0.9)
-
-# 绘制热力图
-ax = sns.heatmap(matrix, annot=show_values, fmt='.2f', cmap=cmap, 
-                linewidths=0.5, vmin=vmin, vmax=vmax, square=True, 
-                cbar_kws={{'label': label}})
-
-# 设置标题
-plt.title(title, fontsize=15, pad=20)
-
-# 设置标签
-plt.tight_layout()
-
-# 将图表转换为base64编码的图像
-buf = io.BytesIO()
-plt.savefig(buf, format='png', dpi=100, bbox_inches='tight')
-buf.seek(0)
-img_base64 = base64.b64encode(buf.read()).decode('utf-8')
-plt.close()
-
-# 准备矩阵数据（用于可能的进一步分析）
-if isinstance(matrix, pd.DataFrame):
-    matrix_data = matrix.to_dict(orient='split')
-    columns = matrix.columns.tolist()
-    index = matrix.index.tolist()
-else:
-    matrix_data = matrix.tolist()
-    columns = list(range(matrix.shape[1]))
-    index = list(range(matrix.shape[0]))
-
-# 准备结果
-result = {{
-    'image': img_base64,
-    'matrix': {{
-        'data': matrix_data,
-        'columns': columns,
-        'index': index,
-        'computation': computation
-    }}
-}}
-
-# 输出结果
-print(json.dumps(result))
-""".format(json.dumps(dataset), columns, computation, title, cmap, str(show_values).lower(), str(cluster).lower())
-            
-            # 执行代码并获取结果
-            success, output = self.execute_in_container(code)
-            
-            if not success:
-                return ExecutionResult(
-                    success=False,
-                    error_message=f"热力图生成失败: {output}"
-                )
-                
-            # 解析输出
-            result = json.loads(output)
-            
-            return ExecutionResult(
-                success=True,
-                output={
-                    'chart': result['image'],
-                    'matrix': result['matrix']
-                }
-            )
-            
-        except Exception as e:
-            error_message = f"生成热力图时出错: {str(e)}\n{traceback.format_exc()}"
-            logger.error(error_message)
-            return ExecutionResult(
-                success=False,
-                error_message=error_message
-            )
-
-
-class PieChartGenerator(BaseComponentExecutor):
-    """饼图生成器
-    
-    生成饼图或环形图，用于展示数据各部分占整体的比例。
-    对应前端组件ID: pie-chart
-    """
-    
-    def execute(self, inputs: Dict[str, Any], parameters: Dict[str, Any]) -> ExecutionResult:
-        """
-        生成饼图
-        
-        Args:
-            inputs: 输入数据，包括:
-                - data: 输入数据集
-            parameters: 参数，包括:
-                - labels_column: 标签列
-                - values_column: 数值列
-                - title: 图表标题
-                - donut: 是否为环形图
-                - show_pct: 是否显示百分比
-                - start_angle: 起始角度
-                
-        Returns:
-            ExecutionResult: 执行结果，包含生成的饼图
-        """
-        try:
-            # 获取输入数据
-            if 'data' not in inputs:
-                return ExecutionResult(
-                    success=False,
-                    error_message="缺少输入数据集"
-                )
-            
-            dataset = inputs['data']
-            
-            # 获取参数
-            labels_column = parameters.get('labels_column', '')
-            values_column = parameters.get('values_column', '')
-            title = parameters.get('title', '饼图')
-            donut = parameters.get('donut', False)
-            show_pct = parameters.get('show_pct', True)
-            start_angle = parameters.get('start_angle', 0)
-            
-            # 检查必需参数
-            if not labels_column or not values_column:
-                return ExecutionResult(
-                    success=False,
-                    error_message="需要同时指定标签列和数值列"
-                )
-            
-            # 生成Python代码
-            code = """
-import pandas as pd
-import numpy as np
-import matplotlib.pyplot as plt
-import io
-import base64
-import json
-import matplotlib.colors as mcolors
-
-# 加载数据
-data = pd.read_json(r'''{}''')
-
-# 获取参数
-labels_column = '{}'
-values_column = '{}'
-title = '{}'
-donut = {}
-show_pct = {}
-start_angle = {}
-
-# 检查列是否存在
-if labels_column not in data.columns:
-    raise ValueError(f"标签列 {labels_column} 不存在于数据集中")
-
-if values_column not in data.columns:
-    raise ValueError(f"数值列 {values_column} 不存在于数据集中")
-
-# 准备数据
-labels = data[labels_column].tolist()
-values = data[values_column].tolist()
-
-# 如果值有负数，给出警告并取绝对值
-if any(v < 0 for v in values):
-    print("Warning: 饼图不能绘制负值，已自动取绝对值")
-    values = [abs(v) for v in values]
-
-# 创建饼图
-plt.figure(figsize=(10, 8))
-
-# 自动生成颜色
-colors = list(mcolors.TABLEAU_COLORS.values())
-if len(labels) > len(colors):
-    # 如果标签数超过预定义颜色数，则使用随机颜色
-    import random
-    random.seed(42)  # 使颜色生成可重现
-    colors = [mcolors.to_rgb(plt.cm.tab20(i)) for i in range(len(labels))]
-
-# 计算百分比
-percentages = [100. * v / sum(values) for v in values]
-
-# 绘制饼图
-patches, texts, autotexts = plt.pie(
-    values, 
-    labels=labels, 
-    colors=colors,
-    autopct='%1.1f%%' if show_pct else None,
-    startangle=start_angle,
-    wedgeprops=dict(width=0.3 if donut else 0, edgecolor='w')
-)
-
-# 设置百分比文本属性
-if show_pct:
-    for autotext in autotexts:
-        autotext.set_size(9)
-        autotext.set_weight('bold')
-
-# 设置标题
-plt.title(title, fontsize=15)
-
-# 使绘图区域成为一个圆
-plt.axis('equal')
-
-# 添加图例（如果有很多项）
-if len(labels) > 7:  # 只有在标签很多时才添加图例
-    plt.legend(
-        patches, 
-        labels, 
-        loc='center left',
-        bbox_to_anchor=(1, 0.5),
-        fontsize=9
+# 检查是否有数值列
+numeric_cols = data.select_dtypes(include=[np.number]).columns.tolist()
+if not numeric_cols:
+    return ExecutionResult(
+        success=False,
+        error_message="没有数值列可以用于生成热力图"
     )
 
-# 将图表转换为base64编码的图像
-buf = io.BytesIO()
-plt.savefig(buf, format='png', dpi=100, bbox_inches='tight')
-buf.seek(0)
-img_base64 = base64.b64encode(buf.read()).decode('utf-8')
-plt.close()
+# 如果指定的列中有非数值列，则过滤掉
+if columns:
+    non_numeric = [col for col in columns if col not in numeric_cols]
+    if non_numeric:
+        return ExecutionResult(
+            success=False,
+            error_message=f"以下列不是数值类型: {', '.join(non_numeric)}"
+        )
+else:
+    # 如果没有指定列，则使用所有数值列
+    data = data[numeric_cols]
 
-# 准备数据摘要
-data_summary = [
-    {{"label": str(label), "value": float(value), "percentage": float(pct)}}
-    for label, value, pct in zip(labels, values, percentages)
-]
+# 计算相关矩阵或协方差矩阵
+if computation == 'correlation':
+    matrix = data.corr()
+elif computation == 'covariance':
+    matrix = data.cov()
+else:
+    return ExecutionResult(
+        success=False,
+        error_message=f"不支持的计算方法: {computation}"
+    )
 
-# 准备结果
-result = {{
-    'image': img_base64,
-    'data': data_summary,
-    'total': float(sum(values))
-}}
+# 创建图形
+plt.figure(figsize=(10, 8))
 
-# 输出结果
-print(json.dumps(result))
-""".format(json.dumps(dataset), labels_column, values_column, title, 
-           str(donut).lower(), str(show_pct).lower(), start_angle)
+# 处理聚类
+if cluster and len(matrix) > 1:
+    # 计算距离矩阵
+    correlations_array = np.asarray(matrix)
+    row_linkage = hierarchy.linkage(distance.pdist(correlations_array), method='average')
+    col_linkage = hierarchy.linkage(distance.pdist(correlations_array.T), method='average')
+
+    # 创建聚类热力图
+    g = sns.clustermap(
+        matrix, 
+        figsize=(10, 8),
+        cmap=cmap,
+        row_linkage=row_linkage,
+        col_linkage=col_linkage
+    )
+    # 获取最后创建的图像
+    fig = plt.gcf()
+    plt.title(title)
+else:
+    # 创建普通热力图
+    sns.heatmap(
+        matrix, 
+        annot=True, 
+        cmap=cmap, 
+        linewidths=.5, 
+        fmt=".2f",
+        square=True
+    )
+    plt.title(title)
+
+# 保存为图片
+img_data = fig_to_base64(plt)
+
+# 构建输出结果
+result = {
+    'chart_type': 'heatmap',
+    'title': title,
+    'image': img_data,
+    'computation': computation
+}
+"""
             
-            # 执行代码并获取结果
-            success, output = self.execute_in_container(code)
+            # 创建一个本地变量字典，包含必要的变量
+            local_vars = {
+                'dataset': dataset,
+                'columns': columns,
+                'computation': computation,
+                'title': title,
+                'cmap': cmap,
+                'cluster': cluster,
+                'logger': logger,
+                'setup_chinese_font': setup_chinese_font,
+                'ExecutionResult': ExecutionResult,
+                'fig_to_base64': self._fig_to_base64
+            }
             
-            if not success:
+            # 执行代码
+            try:
+                exec(code, globals(), local_vars)
+                result = local_vars.get('result', {})
+                
+                return ExecutionResult(
+                    success=True,
+                    outputs=result,
+                    logs=[f"热力图生成成功: {computation} 方法"]
+                )
+            except Exception as e:
                 return ExecutionResult(
                     success=False,
-                    error_message=f"饼图生成失败: {output}"
+                    error_message=f"生成热力图失败: {str(e)}",
+                    logs=[traceback.format_exc()]
                 )
-                
-            # 解析输出
-            result = json.loads(output)
+        except Exception as e:
+            logger.error(f"执行热力图生成器时出错: {str(e)}")
+            return ExecutionResult(
+                success=False,
+                error_message=str(e)
+            )
+            
+    def _generate_confusion_heatmap(self, confusion_matrix_data: Dict[str, Any], parameters: Dict[str, Any]) -> ExecutionResult:
+        """生成基于混淆矩阵数据的热力图
+        
+        Args:
+            confusion_matrix_data: 混淆矩阵数据
+            parameters: 图表参数
+            
+        Returns:
+            ExecutionResult: 执行结果
+        """
+        try:
+            import matplotlib.pyplot as plt
+            import seaborn as sns
+            import numpy as np
+            
+            # 获取参数
+            title = parameters.get('title', '混淆矩阵')
+            cmap = parameters.get('cmap', 'Blues')
+            
+            # 应用中文字体设置
+            try:
+                setup_chinese_font()
+            except Exception as e:
+                logger.warning(f"设置中文字体失败: {str(e)}")
+                # 基本字体设置，确保有备选方案
+                plt.rcParams['font.sans-serif'] = ['SimHei', 'Microsoft YaHei', 'DejaVu Sans', 'sans-serif']
+                plt.rcParams['axes.unicode_minus'] = False
+            
+            # 提取混淆矩阵数据
+            if 'confusion_matrix' not in confusion_matrix_data:
+                return ExecutionResult(
+                    success=False,
+                    error_message="输入数据缺少混淆矩阵信息"
+                )
+            
+            cm_data = confusion_matrix_data['confusion_matrix']
+            heatmap_data = cm_data.get('data', [])
+            x_labels = cm_data.get('x_labels', [])
+            y_labels = cm_data.get('y_labels', [])
+            normalized = cm_data.get('normalized', False)
+            
+            # 将热力图数据转换为矩阵形式
+            # 确定矩阵大小
+            max_x = max([item.get('x', 0) for item in heatmap_data]) + 1 if heatmap_data else 0
+            max_y = max([item.get('y', 0) for item in heatmap_data]) + 1 if heatmap_data else 0
+            
+            # 创建矩阵并填充数据
+            matrix = np.zeros((max_y, max_x))
+            for item in heatmap_data:
+                x = item.get('x', 0)
+                y = item.get('y', 0)
+                value = item.get('value', 0)
+                matrix[y, x] = value
+            
+            # 创建热力图
+            plt.figure(figsize=(6, 4))
+            
+            # 修复格式化问题：无论是否归一化，都使用浮点数格式
+            # 对于归一化的值使用2位小数，对于原始值使用带有整数的格式
+            fmt = '.2f' if normalized else '.0f'
+            
+            ax = sns.heatmap(
+                matrix,
+                annot=True,
+                cmap=cmap,
+                fmt=fmt,
+                cbar=True,
+                square=True,
+                xticklabels=x_labels,
+                yticklabels=y_labels
+            )
+            
+            # 设置标题和标签
+            plt.title(title)
+            plt.xlabel('预测值')
+            plt.ylabel('真实值')
+            
+            # 调整标签位置
+            plt.tight_layout()
+            
+            # 将图形转换为base64编码的图像，使用较低的DPI以减小大小
+            img_data = self._fig_to_base64(plt, dpi=90)
+            
+            # 限制图像大小，防止数据库保存失败
+            if len(img_data) > 500000:  # 约500KB
+                # 进一步压缩图像
+                img_data_compressed = self._compress_image_data(img_data, target_size=500000)
+                # 检查是否压缩成功
+                if img_data_compressed:
+                    img_data = img_data_compressed
+                    logger.info("混淆矩阵图像已压缩以适应数据库存储限制")
+            
+            # 从输入中提取准确率
+            accuracy = None
+            if 'accuracy' in confusion_matrix_data:
+                accuracy = confusion_matrix_data['accuracy']
+            
+            # 构建输出结果
+            result = {
+                'chart_type': 'heatmap',
+                'title': title,
+                'image': img_data,
+                'computation': 'confusion_matrix',
+                'accuracy': accuracy  # 添加准确率
+            }
             
             return ExecutionResult(
                 success=True,
-                output={
-                    'chart': result['image'],
-                    'data': result['data'],
-                    'total': result['total']
-                }
+                outputs=result,
+                logs=["混淆矩阵热力图生成成功"]
             )
-            
         except Exception as e:
-            error_message = f"生成饼图时出错: {str(e)}\n{traceback.format_exc()}"
-            logger.error(error_message)
+            logger.error(f"生成混淆矩阵热力图失败: {str(e)}")
+            traceback.print_exc()
             return ExecutionResult(
                 success=False,
-                error_message=error_message
+                error_message=f"生成混淆矩阵热力图失败: {str(e)}",
+                logs=[traceback.format_exc()]
             )
+
+

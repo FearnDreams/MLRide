@@ -458,6 +458,41 @@ class WorkflowEngine:
                     # 获取输入数据
                     input_data[input_handle] = source_outputs[source_handle]
                 
+                    # 记录原始输入数据的结构，便于调试
+                    if isinstance(input_data[input_handle], dict):
+                        keys = list(input_data[input_handle].keys())
+                        self._log_info(f"DEBUG: 节点 {node_id} 的输入 {input_handle} 包含键: {keys}")
+                    else:
+                        self._log_info(f"DEBUG: 节点 {node_id} 的输入 {input_handle} 类型: {type(input_data[input_handle])}")
+                
+                    # 检查完整数据是否存在并处理
+                    if isinstance(input_data[input_handle], dict) and 'full_data' in input_data[input_handle]:
+                        # 记录调试信息
+                        self._log_info(f"DEBUG: 节点 {node_id} 的输入 {input_handle} 接收到包含full_data的数据")
+                        data_len = len(input_data[input_handle].get('data', '')) if isinstance(input_data[input_handle].get('data'), str) else 'NA'
+                        full_data_len = len(input_data[input_handle].get('full_data', '')) if isinstance(input_data[input_handle].get('full_data'), str) else 'NA'
+                        self._log_info(f"DEBUG: data大小: {data_len}字节, full_data大小: {full_data_len}字节")
+                        
+                        # 验证数据大小合理性
+                        if isinstance(data_len, int) and isinstance(full_data_len, int):
+                            if data_len > full_data_len:
+                                self._log_info(f"警告: 预览数据({data_len})大于完整数据({full_data_len})，这可能是一个问题")
+                            if full_data_len / max(data_len, 1) < 1.5 and input_data[input_handle].get('info', {}).get('shape', [0])[0] > 10:
+                                self._log_info(f"警告: 完整数据与预览数据大小比例较小({full_data_len/max(data_len, 1):.2f})，但数据行数较多({input_data[input_handle].get('info', {}).get('shape', [0])[0]})")
+                        
+                        # 使用 full_data 替换截断的数据
+                        full_data = input_data[input_handle]['full_data']
+                        display_data = input_data[input_handle]['data']
+                        info = input_data[input_handle].get('info', {})
+                        
+                        # 重构完整数据，保留原始格式但使用完整数据
+                        input_data[input_handle] = {
+                            'data': full_data,  # 使用完整数据
+                            'display_data': display_data,  # 保留显示数据
+                            'info': info  # 保留元数据
+                        }
+                        self._log_info(f"节点 {node_id} 的输入 {input_handle} 使用了完整数据替代截断版本")
+                
                 # 如果获取输入数据失败，标记该组件执行失败并继续下一个
                 if not success:
                     component_execution.status = 'failed'
@@ -496,6 +531,16 @@ class WorkflowEngine:
                     # 保存执行结果
                     self._component_results[node_id] = result
                     
+                    # 添加调试信息 - 记录组件输出中是否包含完整数据
+                    for key, value in result.outputs.items():
+                        if isinstance(value, dict):
+                            if 'data' in value and isinstance(value['data'], str):
+                                data_len = len(value['data'])
+                                self._log_info(f"DEBUG: 组件 {node_id} 输出端口 {key} 的data大小: {data_len}字节")
+                            if 'full_data' in value and isinstance(value['full_data'], str):
+                                full_data_len = len(value['full_data'])
+                                self._log_info(f"DEBUG: 组件 {node_id} 输出端口 {key} 的full_data大小: {full_data_len}字节")
+                    
                     # 更新组件执行记录
                     component_execution.status = 'completed' if result.success else 'failed'
                     component_execution.end_time = timezone.now()
@@ -515,11 +560,27 @@ class WorkflowEngine:
                                 'original_size': len(value['data']),
                                 'data': value['data'][:1000] + '... [数据已截断，共' + str(len(value['data'])) + '字节]'
                             }
+                            
+                            # 如果存在完整数据字段，保留它用于数据传递
+                            if 'full_data' in value:
+                                # 保存到内存中用于组件间传递，但不保存到数据库
+                                # 我们将在程序内存中为该组件的结果保留一个字段，而不是保存到数据库
+                                self._component_results[node_id].outputs[key]['full_data'] = value['full_data']
+                            else:
+                                # 将原始data保存为full_data以供数据传递使用，但仅保存在内存中
+                                self._component_results[node_id].outputs[key]['full_data'] = value['data']
+                                
                             data_too_large = True
                             # 记录日志
-                            self._log_info(f"数据集太大，已截断 {key} 字段 (原始大小: {len(value['data'])} 字节)")
+                            self._log_info(f"数据集太大，已截断 {key} 字段 (原始大小: {len(value['data'])} 字节)，但在内存中保留完整数据供后续组件使用")
                         else:
                             truncated_outputs[key] = value
+                            # 如果有full_data字段，从数据库保存版本中移除，但在内存中保留
+                            if isinstance(value, dict) and 'full_data' in value:
+                                # 保存在内存中
+                                self._component_results[node_id].outputs[key]['full_data'] = value['full_data']
+                                # 从数据库版本中移除
+                                truncated_outputs[key] = {k: v for k, v in value.items() if k != 'full_data'}
                     
                     # 使用截断后的输出
                     component_execution.outputs = truncated_outputs
@@ -545,11 +606,27 @@ class WorkflowEngine:
                     except Exception as save_err:
                         # 如果保存失败，尝试进一步截断数据
                         logger.error(f"保存组件执行结果失败: {str(save_err)}，尝试进一步截断数据")
-                        for key in truncated_outputs:
-                            if isinstance(truncated_outputs[key], dict):
-                                truncated_outputs[key] = {'truncated': True, 'message': '数据太大，无法保存到数据库'}
-                        component_execution.outputs = truncated_outputs
-                        component_execution.save()
+                        try:
+                            # 完全移除数据字段，只保留元数据
+                            for key in truncated_outputs:
+                                if isinstance(truncated_outputs[key], dict):
+                                    # 保留info字段，但移除所有数据
+                                    info = truncated_outputs[key].get('info', {})
+                                    truncated_outputs[key] = {
+                                        'truncated': True, 
+                                        'info': info,
+                                        'message': '数据太大，无法保存到数据库'
+                                    }
+                            component_execution.outputs = truncated_outputs
+                            try:
+                                component_execution.save()
+                            except Exception as second_save_err:
+                                logger.error(f"二次尝试保存组件执行结果也失败: {str(second_save_err)}，放弃保存到数据库")
+                                logger.error(f"该组件执行结果将仅存在于内存中，不会保存到数据库")
+                                # 不抛出异常，让工作流继续执行
+                        except Exception as truncate_err:
+                            logger.error(f"处理数据截断时出错: {str(truncate_err)}，放弃保存到数据库")
+                            # 不抛出异常，让工作流继续执行
                     
                     # 保留原来的成功/失败概览日志，但详细错误已通过 _log_error 记录
                     self._log_info(f"组件 {node_id} ({component_id}) 执行状态: {'成功' if result.success else '失败'}")
@@ -592,12 +669,21 @@ class WorkflowEngine:
                         # 创建结果摘要，避免复制大数据
                         result_summary = {}
                         for key, value in result.outputs.items():
+                            # 完全移除full_data字段
+                            if isinstance(value, dict) and 'full_data' in value:
+                                # 创建不包含full_data的副本
+                                filtered_value = {k: v for k, v in value.items() if k != 'full_data'}
+                                value = filtered_value
+                                
+                            # 处理大型数据集
                             if isinstance(value, dict) and 'data' in value and isinstance(value['data'], str) and len(value['data']) > 10000:
                                 # 只保留数据集元信息
                                 result_summary[key] = {
                                     'info': value.get('info', {}),
                                     'data_truncated': True,
-                                    'original_size': len(value['data'])
+                                    'original_size': len(value['data']),
+                                    # 只保留极小的数据预览
+                                    'data_preview': value['data'][:200] + '...' if len(value['data']) > 200 else value['data']
                                 }
                             else:
                                 result_summary[key] = value
@@ -651,9 +737,17 @@ class WorkflowEngine:
         Args:
             message: 日志消息
         """
-        self._execution.logs += f"[{timezone.now().isoformat()}] {message}\n"
-        self._execution.save(update_fields=['logs'])
-        logger.info(f"工作流执行 #{self.execution_id}: {message}")
+        try:
+            self._execution.logs += f"[{timezone.now().isoformat()}] {message}\n"
+            try:
+                self._execution.save(update_fields=['logs'])
+            except Exception as e:
+                # 如果数据库保存失败，只记录到控制台但不抛出异常
+                logger.warning(f"保存日志到数据库失败: {str(e)}")
+            logger.info(f"工作流执行 #{self.execution_id}: {message}")
+        except Exception as e:
+            # 确保即使日志记录失败也不影响工作流执行
+            logger.error(f"日志记录失败: {str(e)}")
     
     def _log_error(self, message: str) -> None:
         """
@@ -662,9 +756,17 @@ class WorkflowEngine:
         Args:
             message: 日志消息
         """
-        self._execution.logs += f"[{timezone.now().isoformat()}] 错误: {message}\n"
-        self._execution.save(update_fields=['logs'])
-        logger.error(f"工作流执行 #{self.execution_id}: {message}")
+        try:
+            self._execution.logs += f"[{timezone.now().isoformat()}] 错误: {message}\n"
+            try:
+                self._execution.save(update_fields=['logs'])
+            except Exception as e:
+                # 如果数据库保存失败，只记录到控制台但不抛出异常
+                logger.warning(f"保存错误日志到数据库失败: {str(e)}")
+            logger.error(f"工作流执行 #{self.execution_id}: {message}")
+        except Exception as e:
+            # 确保即使日志记录失败也不影响工作流执行
+            logger.error(f"错误日志记录失败: {str(e)}")
 
     def execute_workflow(self):
         """执行工作流

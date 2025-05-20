@@ -4,7 +4,7 @@ import { Provider } from 'react-redux';
 import { useDispatch } from 'react-redux';
 import { store } from './store';
 import { AppDispatch } from './store';
-import { checkAuth } from './store/authSlice';
+import { checkAuth, logout } from './store/authSlice';
 import { Toaster } from 'sonner';
 import LoginPage from './pages/auth/LoginPage';
 import RegisterPage from './pages/auth/RegisterPage';
@@ -21,6 +21,7 @@ import ProtectedRoute from './components/ProtectedRoute';
 import RecentPage from './pages/dashboard/RecentPage';
 import DatasetsPage from './pages/datasets/DatasetsPage';
 import StatisticsPage from './pages/dashboard/StatisticsPage';
+import CommunityPage from './pages/community/CommunityPage';
 import '@/styles/globals.css';
 import '@/styles/scrollbar.css';
 import './App.css'
@@ -33,6 +34,28 @@ const AppContent: React.FC = () => {
     useEffect(() => {
         console.log('App mounted, checking auth...');
         dispatch(checkAuth());
+    }, [dispatch]);
+
+    // 监听localStorage的变化，以处理多标签页认证冲突
+    useEffect(() => {
+        const handleStorageChange = (event: StorageEvent) => {
+            if (event.key === 'token') {
+                console.log('Token changed in another tab/window. Re-checking auth.');
+                // 如果新值为null（表示在其他标签页登出），则也登出当前标签页
+                if (event.newValue === null) {
+                    dispatch(logout());
+                } else {
+                    // 否则，重新验证当前token
+                    dispatch(checkAuth());
+                }
+            }
+        };
+
+        window.addEventListener('storage', handleStorageChange);
+
+        return () => {
+            window.removeEventListener('storage', handleStorageChange);
+        };
     }, [dispatch]);
 
     return (
@@ -55,6 +78,7 @@ const AppContent: React.FC = () => {
                         <Route path="projects/create-canvas" element={<Navigate to="/dashboard/projects/create?type=canvas" replace />} />
                         <Route path="projects/:id" element={<ProjectDetailPage />} />
                         <Route path="projects/:id/workflow" element={<WorkflowDesignerPage />} />
+                        <Route path="projects/:id/workflows/:workflowId" element={<WorkflowDesignerPage />} />
                         <Route path="images" element={<ImagesPage />} />
                         <Route path="images/create" element={<CreateImagePage />} />
                         <Route path="datasets" element={<DatasetsPage />} />
@@ -62,7 +86,7 @@ const AppContent: React.FC = () => {
                         <Route path="workflows" element={<WorkflowDesignerPage />} />
                         <Route path="tasks" element={<StatisticsPage />} />
                         <Route path="profile" element={<ProfilePage />} />
-                        <Route path="community" element={<RecentPage />} />
+                        <Route path="community" element={<CommunityPage />} />
                     </Route>
                 </Route>
                 

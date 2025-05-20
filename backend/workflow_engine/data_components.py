@@ -12,6 +12,7 @@ import numpy as np
 import os
 from typing import Dict, Any, List
 from .executors import BaseComponentExecutor, ExecutionResult
+import io
 
 logger = logging.getLogger(__name__)
 
@@ -247,22 +248,36 @@ try:
         'head_json': df.head(5).to_json(orient='records')
     }}
     
-    # 设置结果
-    result = {{
-        'data': df.to_json(orient='split'),
-        'info': info
+    # 生成预览数据 (例如，前N行)
+    # UI预览数据，可以适当调整行数，例如50行
+    preview_rows = min(50, df.shape[0]) 
+    display_df = df.head(preview_rows)
+    display_json = display_df.to_json(orient='split')
+    
+    # 生成完整的JSON数据
+    full_data_json = df.to_json(orient='split')
+
+    # 准备最终输出给引擎的JSON结构
+    # 这个结构将包含 'data' (预览), 'info', 和 'full_data' (完整)
+    output_payload = {{
+        'data': display_json,       # 截断后的预览数据 (JSON string)
+        'info': info,               # 元数据
+        'full_data': full_data_json # 完整的原始数据 (JSON string)
     }}
     
-    # 输出结果
+    # 打印标记，帮助后端解析
     print("\\n----数据集JSON开始----")
-    # 限制json输出大小，只保留前5行数据用于显示
-    display_df = df.head(5)
-    display_result = {{
-        'data': display_df.to_json(orient='split'),
-        'info': info
-    }}
-    print(json.dumps({{'dataset': display_result}}))
+    
+    # 直接打印包含 full_data 的 output_payload
+    # 'dataset' 是此组件输出端口的ID，需要与前端定义一致
+    print(json.dumps({{'dataset': output_payload}})) 
+                                                
     print("----数据集JSON结束----\\n")
+    
+    # 可以保留一些有用的调试信息，但避免打印完整数据内容
+    print(f"DEBUG: CSVDataLoader - 原始数据集: {{{{df.shape[0]}}}} 行 x {{{{df.shape[1]}}}} 列.")
+    print(f"DEBUG: CSVDataLoader - 预览数据JSON大小: {{{{len(display_json)}}}} 字节.")
+    print(f"DEBUG: CSVDataLoader - 完整数据JSON大小: {{{{len(full_data_json)}}}} 字节.")
     print(f"成功加载CSV数据: {{{{df.shape[0]}}}} 行, {{{{df.shape[1]}}}} 列")
 
 except FileNotFoundError as e:
@@ -663,6 +678,23 @@ try:
         'data': df.to_json(orient='split'),
         'info': info
     }}
+    
+    # 添加输出结果的代码
+    print("\\n----数据集JSON开始----")
+    # 限制json输出大小，只保留前5行数据用于显示
+    display_df = df.head(5)
+    display_result = {{
+        'data': display_df.to_json(orient='split'),
+        'info': info,
+        'full_data': result['data']  # 添加完整数据
+    }}
+    # 创建一个用于打印的字典，移除 'full_data'
+    printable_result = display_result.copy()
+    if 'full_data' in printable_result:
+        del printable_result['full_data']
+    print(json.dumps({{'dataset': printable_result}}))
+    print("----数据集JSON结束----\\n")
+    print(f"成功加载Excel数据: {{{{df.shape[0]}}}} 行, {{{{df.shape[1]}}}} 列")
 except Exception as e:
     raise Exception(f"加载Excel文件失败: {{str(e)}}")
 """
@@ -672,6 +704,10 @@ except Exception as e:
             
             if result.get('success', False):
                 data_result = result.get('result', {})
+                # 确保data_result有完整数据
+                if isinstance(data_result, dict) and 'data' in data_result:
+                    # 添加full_data保持与其他组件一致
+                    data_result['full_data'] = data_result['data']
                 return ExecutionResult(
                     success=True,
                     outputs={
@@ -744,6 +780,23 @@ try:
         'data': df.to_json(orient='split'),
         'info': info
     }}
+    
+    # 添加输出结果的代码
+    print("\\n----数据集JSON开始----")
+    # 限制json输出大小，只保留前5行数据用于显示
+    display_df = df.head(5)
+    display_result = {{
+        'data': display_df.to_json(orient='split'),
+        'info': info,
+        'full_data': result['data']  # 添加完整数据
+    }}
+    # 创建一个用于打印的字典，移除 'full_data'
+    printable_result = display_result.copy()
+    if 'full_data' in printable_result:
+        del printable_result['full_data']
+    print(json.dumps({{'dataset': printable_result}}))
+    print("----数据集JSON结束----\\n")
+    print(f"成功加载JSON数据: {{{{df.shape[0]}}}} 行, {{{{df.shape[1]}}}} 列")
 except Exception as e:
     raise Exception(f"加载JSON文件失败: {{str(e)}}")
 """
@@ -753,6 +806,10 @@ except Exception as e:
             
             if result.get('success', False):
                 data_result = result.get('result', {})
+                # 确保data_result有完整数据
+                if isinstance(data_result, dict) and 'data' in data_result:
+                    # 添加full_data保持与其他组件一致
+                    data_result['full_data'] = data_result['data']
                 return ExecutionResult(
                     success=True,
                     outputs={
@@ -869,6 +926,23 @@ try:
         'data': df.to_json(orient='split'),
         'info': info
     }}
+    
+    # 添加输出结果的代码
+    print("\\n----数据集JSON开始----")
+    # 限制json输出大小，只保留前5行数据用于显示
+    display_df = df.head(5)
+    display_result = {{
+        'data': display_df.to_json(orient='split'),
+        'info': info,
+        'full_data': result['data']  # 添加完整数据
+    }}
+    # 创建一个用于打印的字典，移除 'full_data'
+    printable_result = display_result.copy()
+    if 'full_data' in printable_result:
+        del printable_result['full_data']
+    print(json.dumps({{'dataset': printable_result}}))
+    print("----数据集JSON结束----\\n")
+    print(f"成功生成随机数据集: {{{{df.shape[0]}}}} 行, {{{{df.shape[1]}}}} 列")
 except Exception as e:
     raise Exception(f"生成随机数据失败: {{str(e)}}")
 """
@@ -878,6 +952,10 @@ except Exception as e:
             
             if result.get('success', False):
                 data_result = result.get('result', {})
+                # 确保data_result有完整数据
+                if isinstance(data_result, dict) and 'data' in data_result:
+                    # 添加full_data保持与其他组件一致
+                    data_result['full_data'] = data_result['data']
                 return ExecutionResult(
                     success=True,
                     outputs={
@@ -914,353 +992,280 @@ class DataCleaner(BaseComponentExecutor):
         
         Args:
             inputs: 输入数据，包括:
-                - dataset: 输入数据集
+                - dataset: 输入数据集 (期望 inputs['dataset']['data'] 是包含完整数据的JSON字符串)
             parameters: 参数，包括:
                 - data_type: 数据类型（'numeric' 或 'text'）
                 - handle_missing: 缺失值处理方式（删除、填充等）
                 - fill_value: 用于填充的值
                 - handle_outliers: 是否处理异常值
                 - columns: 要处理的列
-                - text_operations: 文本处理操作列表
-                - lowercase: 是否转换为小写
-                - remove_html: 是否移除HTML标签
-                - remove_special_chars: 是否移除特殊字符
-                - remove_extra_spaces: 是否移除多余空格
-                - remove_stopwords: 是否移除停用词
-                - stemming: 是否进行词干提取
-                - lemmatization: 是否进行词形还原
+                - text_operations: 文本处理操作列表 (用于 data_type='text')
                 
         Returns:
             ExecutionResult: 执行结果，包含清洗后的数据集
         """
         try:
-            # 获取输入数据
-            if 'dataset' not in inputs:
+            if 'dataset' not in inputs or not isinstance(inputs['dataset'], dict) or 'data' not in inputs['dataset']:
                 return ExecutionResult(
                     success=False,
-                    error_message="缺少输入数据集"
+                    error_message="输入数据集无效或缺少 'data' 键。"
                 )
             
-            dataset = inputs['dataset']
-            
-            # 检查数据集是否为空或无效
-            if not dataset or not isinstance(dataset, dict) or 'data' not in dataset:
-                return ExecutionResult(
-                    success=False,
-                    error_message="输入数据集无效或为空"
-                )
+            # 首先尝试从inputs['dataset']中提取full_data（如果存在）
+            data_to_process_json = inputs['dataset'].get('full_data', inputs['dataset'].get('data', None))
+            if not data_to_process_json:
+                return ExecutionResult(success=False, error_message="输入数据集不包含有效数据。")
                 
-            # 检查数据内容是否为空
-            data_json = dataset.get('data', '{"columns":[],"data":[]}')
+            original_info = inputs['dataset'].get('info', {}) # 保存原始信息以备后用
+
+            logger.info(f"DataCleaner: 开始处理数据. 输入数据长度: {len(data_to_process_json) if isinstance(data_to_process_json, str) else 'N/A'}")
+
+            if not isinstance(data_to_process_json, str) or len(data_to_process_json) < 2:
+                return ExecutionResult(success=False, error_message="输入数据为空或格式不正确。")
+
             try:
-                # 尝试解析数据JSON
-                data_obj = json.loads(data_json) if isinstance(data_json, str) else data_json
-                if (not data_obj.get('columns') or len(data_obj.get('columns', [])) == 0) and \
-                   (not data_obj.get('data') or len(data_obj.get('data', [])) == 0):
-                    return ExecutionResult(
-                        success=False,
-                        error_message="输入数据集为空，无法进行数据清洗。请确保CSV文件已正确上传并包含数据。"
-                    )
+                df = pd.read_json(io.StringIO(data_to_process_json), orient='split')
             except Exception as e:
+                logger.error(f"DataCleaner: pd.read_json 失败: {str(e)}. Data (初): {data_to_process_json[:200]}")
+                return ExecutionResult(success=False, error_message=f"解析输入JSON数据失败: {str(e)}")
+
+            if df.empty:
                 return ExecutionResult(
-                    success=False,
-                    error_message=f"数据格式错误: {str(e)}"
+                    success=True, # 或False如果空数据框被视为错误
+                    outputs={
+                        'output': {
+                            'data': df.to_json(orient='split'),
+                            'info': {'shape': df.shape, 'columns': df.columns.tolist(), 'message': '输入数据集为空，未进行清洗。'},
+                            'full_data': df.to_json(orient='split')
+                        }
+                    },
+                    logs=["输入数据集为空，跳过清洗。"]
                 )
             
             # 获取参数
             data_type = parameters.get('data_type', 'numeric')
-            columns = parameters.get('columns', [])
-            if columns and isinstance(columns, str):
-                columns = columns.split(',')
+            columns_param = parameters.get('columns', [])
             
-            # 根据数据类型选择清洗策略
-            if data_type == 'numeric':
-                # 数值型数据清洗
-                handle_missing = parameters.get('handle_missing', 'drop')
-                fill_value = parameters.get('fill_value', '')
-                handle_outliers = parameters.get('handle_outliers', False)
-                if isinstance(handle_outliers, str):
-                    handle_outliers = handle_outliers.lower() == 'true'
-                
-                # 转换为Python代码
-                code = f"""
-try:
-    # 设置静默模式，减少输出
-    silent_mode = True
-    
-    # 解析输入数据集
-    df = pd.read_json('''{json.dumps(dataset.get('data', '{}'))}''', orient='split')
-    
-    # 选择要处理的列
-    columns_to_process = {repr(columns)} if {repr(columns)} else df.columns.tolist()
-    
-    # 处理缺失值
-    if '{handle_missing}' == 'drop':
-        # 删除缺失值
-        df = df.dropna(subset=columns_to_process)
-    elif '{handle_missing}' == 'fill_mean':
-        # 用均值填充数值型列的缺失值
-        for col in columns_to_process:
-            if pd.api.types.is_numeric_dtype(df[col]):
-                df[col] = df[col].fillna(df[col].mean())
-    elif '{handle_missing}' == 'fill_median':
-        # 用中位数填充数值型列的缺失值
-        for col in columns_to_process:
-            if pd.api.types.is_numeric_dtype(df[col]):
-                df[col] = df[col].fillna(df[col].median())
-    elif '{handle_missing}' == 'fill_mode':
-        # 用众数填充缺失值
-        for col in columns_to_process:
-            df[col] = df[col].fillna(df[col].mode()[0] if not df[col].mode().empty else None)
-    elif '{handle_missing}' == 'fill_value':
-        # 用指定值填充缺失值
-        fill_value = '{fill_value}'
-        for col in columns_to_process:
-            # 根据列类型转换填充值
-            if pd.api.types.is_numeric_dtype(df[col]):
-                try:
-                    val = float(fill_value)
-                except:
-                    val = 0
-                df[col] = df[col].fillna(val)
-            else:
-                df[col] = df[col].fillna(fill_value)
-    
-    # 处理异常值
-    if {handle_outliers}:
-        for col in columns_to_process:
-            if pd.api.types.is_numeric_dtype(df[col]):
-                # 使用IQR方法检测和处理异常值
-                Q1 = df[col].quantile(0.25)
-                Q3 = df[col].quantile(0.75)
-                IQR = Q3 - Q1
-                lower_bound = Q1 - 1.5 * IQR
-                upper_bound = Q3 + 1.5 * IQR
-                
-                # 异常值替换为边界值
-                df[col] = df[col].apply(lambda x: lower_bound if x < lower_bound else (upper_bound if x > upper_bound else x))
-    
-    # 获取数据信息
-    info = {{
-        'columns': df.columns.tolist(),
-        'shape': df.shape,
-        'dtypes': {{col: str(dtype) for col, dtype in zip(df.columns, df.dtypes)}},
-        'head': df.head(5).to_dict(orient='records'),
-        'cleaned_records': len(df)
-    }}
-    
-    # 设置结果
-    result = {{
-        'data': df.to_json(orient='split'),
-        'info': info
-    }}
+            selected_columns = []
+            if isinstance(columns_param, str) and columns_param.strip():
+                selected_columns = [col.strip() for col in columns_param.split(',') if col.strip()]
+            elif isinstance(columns_param, list):
+                selected_columns = [str(col).strip() for col in columns_param if str(col).strip()]
 
-    # 只输出最终结果的JSON，减少终端输出
-    print("----数据集JSON开始----")
-    # 限制json输出大小，只保留前5行数据用于显示
-    display_df = df.head(5)
-    display_result = {{
-        'data': display_df.to_json(orient='split'),
-        'info': info
-    }}
-    print(json.dumps({{'dataset': display_result}}))
-    print("----数据集JSON结束----")
-except Exception as e:
-    raise Exception(f"清洗数据失败: {{str(e)}}")
-"""
-            else:  # data_type == 'text'
-                # 文本数据清洗参数
-                lowercase = parameters.get('lowercase', True)
-                if isinstance(lowercase, str):
-                    lowercase = lowercase.lower() == 'true'
-                    
-                remove_html = parameters.get('remove_html', True)
-                if isinstance(remove_html, str):
-                    remove_html = remove_html.lower() == 'true'
-                    
-                remove_special_chars = parameters.get('remove_special_chars', True)
-                if isinstance(remove_special_chars, str):
-                    remove_special_chars = remove_special_chars.lower() == 'true'
-                    
-                remove_extra_spaces = parameters.get('remove_extra_spaces', True)
-                if isinstance(remove_extra_spaces, str):
-                    remove_extra_spaces = remove_extra_spaces.lower() == 'true'
-                    
-                remove_stopwords = parameters.get('remove_stopwords', False)
-                if isinstance(remove_stopwords, str):
-                    remove_stopwords = remove_stopwords.lower() == 'true'
-                    
-                stemming = parameters.get('stemming', False)
-                if isinstance(stemming, str):
-                    stemming = stemming.lower() == 'true'
-                    
-                lemmatization = parameters.get('lemmatization', False)
-                if isinstance(lemmatization, str):
-                    lemmatization = lemmatization.lower() == 'true'
-                
-                # 构建文本清洗代码
-                code = f"""
-import re
-import pandas as pd
-import json
-try:
-    # 设置静默模式，减少输出
-    silent_mode = True
-    
-    # 解析输入数据集
-    df = pd.read_json('''{json.dumps(dataset.get('data', '{}'))}''', orient='split')
-    
-    # 选择要处理的列
-    columns_to_process = {repr(columns)} if {repr(columns)} else df.columns.tolist()
-    
-    # 文本清洗函数
-    def clean_text(text):
-        if not isinstance(text, str):
-            return text
-            
-        # 转换为小写
-        if {lowercase}:
-            text = text.lower()
-            
-        # 移除HTML标签
-        if {remove_html}:
-            text = re.sub(r'<.*?>', '', text)
-            
-        # 移除特殊字符
-        if {remove_special_chars}:
-            text = re.sub(r'[^\\w\\s]', '', text)
-            
-        # 移除多余空格
-        if {remove_extra_spaces}:
-            text = re.sub(r'\\s+', ' ', text).strip()
-            
-        # 移除停用词
-        if {remove_stopwords}:
-            try:
-                import nltk
-                from nltk.corpus import stopwords
-                try:
-                    nltk.data.find('corpora/stopwords')
-                except LookupError:
-                    nltk.download('stopwords', quiet=True)
-                stop_words = set(stopwords.words('english'))
-                words = text.split()
-                text = ' '.join([word for word in words if word.lower() not in stop_words])
-            except Exception as e:
-                if not silent_mode:
-                    print("Warning: Could not remove stopwords: " + str(e))
-                
-        # 词干提取
-        if {stemming}:
-            try:
-                import nltk
-                from nltk.stem import PorterStemmer
-                stemmer = PorterStemmer()
-                words = text.split()
-                text = ' '.join([stemmer.stem(word) for word in words])
-            except Exception as e:
-                if not silent_mode:
-                    print("Warning: Could not perform stemming: " + str(e))
-                
-        # 词形还原
-        if {lemmatization}:
-            try:
-                import nltk
-                from nltk.stem import WordNetLemmatizer
-                try:
-                    nltk.data.find('corpora/wordnet')
-                except LookupError:
-                    nltk.download('wordnet', quiet=True)
-                    nltk.download('omw-1.4', quiet=True)
-                lemmatizer = WordNetLemmatizer()
-                words = text.split()
-                text = ' '.join([lemmatizer.lemmatize(word) for word in words])
-            except Exception as e:
-                if not silent_mode:
-                    print("Warning: Could not perform lemmatization: " + str(e))
-                
-        return text
-    
-    # 应用文本清洗函数到选定的列
-    original_shapes = {{}}
-    for col in columns_to_process:
-        if df[col].dtype == 'object':  # 只处理可能是文本的列
-            original_shapes[col] = (
-                df[col].str.len().mean() if df[col].str.len().mean() > 0 else 0, 
-                df[col].str.len().max() if df[col].str.len().max() > 0 else 0
-            )
-            df[col] = df[col].apply(clean_text)
-    
-    # 获取数据信息
-    text_stats = {{}}
-    for col in original_shapes.keys():
-        new_mean = df[col].str.len().mean() if df[col].str.len().mean() > 0 else 0
-        new_max = df[col].str.len().max() if df[col].str.len().max() > 0 else 0
-        reduction = (1 - new_mean / original_shapes[col][0]) * 100 if original_shapes[col][0] > 0 else 0
-        text_stats[col] = {{
-            'original_mean_length': original_shapes[col][0],
-            'original_max_length': original_shapes[col][1],
-            'new_mean_length': new_mean,
-            'new_max_length': new_max,
-            'length_reduction_percent': reduction
-        }}
-    
-    info = {{
-        'columns': df.columns.tolist(),
-        'shape': df.shape,
-        'dtypes': {{col: str(dtype) for col, dtype in zip(df.columns, df.dtypes)}},
-        'head': df.head(5).to_dict(orient='records'),
-        'text_stats': text_stats,
-        'cleaned_records': len(df)
-    }}
-    
-    # 设置结果
-    result = {{
-        'data': df.to_json(orient='split'),
-        'info': info
-    }}
-    
-    # 只输出最终结果JSON
-    print("----数据集JSON开始----")
-    # 限制json输出大小，只保留前5行数据用于显示
-    display_df = df.head(5)
-    display_result = {{
-        'data': display_df.to_json(orient='split'),
-        'info': info
-    }}
-    print(json.dumps({{'dataset': display_result}}))
-    print("----数据集JSON结束----")
-except Exception as e:
-    import traceback
-    error_details = traceback.format_exc()
-    print("----数据集JSON开始----")
-    print(json.dumps({{'error': "清洗文本数据失败: " + str(e), 'traceback': error_details}}))
-    print("----数据集JSON结束----")
-"""
-            
-            # 在容器中执行
-            result = self.execute_in_container(code)
-            
-            if result.get('success', False):
-                data_result = result.get('result', {})
-                return ExecutionResult(
-                    success=True,
-                    outputs={
-                        'dataset': data_result
-                    },
-                    logs=[f"数据清洗完成 (类型: {data_type})"]
-                )
+            # 如果未指定列，则根据数据类型选择合适的列
+            if not selected_columns:
+                if data_type == 'numeric':
+                    columns_to_process = df.select_dtypes(include=np.number).columns.tolist()
+                elif data_type == 'text':
+                    columns_to_process = df.select_dtypes(include=['object', 'string']).columns.tolist()
+                else:
+                    columns_to_process = df.columns.tolist() # 默认处理所有列
             else:
+                columns_to_process = [col for col in selected_columns if col in df.columns]
+
+            if not columns_to_process:
+                logger.warning("DataCleaner: 没有有效的列可供处理。")
+                # 返回原始数据或错误/警告消息
+                info = {
+                    'columns': df.columns.tolist(), 'shape': df.shape, 
+                    'dtypes': {str(col): str(dtype) for col, dtype in df.dtypes.items()},
+                    'message': '没有符合条件的列被选中进行清洗，数据未改变。'
+                }
+                preview_df = df.head(min(50, df.shape[0]))
                 return ExecutionResult(
-                    success=False,
-                    error_message=result.get('error', '数据清洗失败'),
-                    logs=[result.get('traceback', '')]
+                    success=True, 
+                    outputs={
+                        'output': {
+                            'data': preview_df.to_json(orient='split'), 
+                            'info': info, 
+                            'full_data': df.to_json(orient='split')
+                        }
+                    },
+                    logs=["没有列被选中或符合清洗条件，数据未改变。"]
                 )
+            
+            logs = [f"开始 {data_type} 数据清洗，处理列: {columns_to_process}"]
+
+            if data_type == 'numeric':
+                handle_missing = parameters.get('handle_missing', 'drop')
+                fill_value_param = parameters.get('fill_value', '')
+                handle_outliers_param = parameters.get('handle_outliers', False)
+                handle_outliers = handle_outliers_param.lower() == 'true' if isinstance(handle_outliers_param, str) else bool(handle_outliers_param)
+
+                for col in columns_to_process:
+                    if col not in df.columns or not pd.api.types.is_numeric_dtype(df[col]):
+                        logs.append(f"跳过非数值列或不存在的列: {col}")
+                        continue
+                    
+                    # 处理缺失值
+                    if handle_missing == 'drop':
+                        # 在循环结束后应用到整个数据框
+                        pass
+                    elif handle_missing == 'fill_mean':
+                        df[col] = df[col].fillna(df[col].mean())
+                    elif handle_missing == 'fill_median':
+                        df[col] = df[col].fillna(df[col].median())
+                    elif handle_missing == 'fill_mode':
+                        mode_val = df[col].mode()
+                        if not mode_val.empty:
+                            df[col] = df[col].fillna(mode_val[0])
+                        else:
+                            df[col] = df[col].fillna(np.nan)
+                    elif handle_missing == 'fill_value':
+                        try:
+                            actual_fill_value = float(fill_value_param)
+                            df[col] = df[col].fillna(actual_fill_value)
+                        except ValueError:
+                            df[col] = df[col].fillna(np.nan) # 无法转换时默认使用NaN填充
+                            logs.append(f"警告: 列 '{col}' 数值型填充值 '{fill_value_param}' 无效，使用NaN填充。")
+    
+                    # 处理异常值
+                    if handle_outliers:
+                        Q1 = df[col].quantile(0.25)
+                        Q3 = df[col].quantile(0.75)
+                        IQR = Q3 - Q1
+                        if IQR > 1e-9:
+                            lower_bound = Q1 - 1.5 * IQR
+                            upper_bound = Q3 + 1.5 * IQR
+                            df[col] = np.clip(df[col], lower_bound, upper_bound)
+                        else:
+                            logs.append(f"警告: 列 '{col}' IQR过小({IQR})，跳过异常值处理。")
+                
+                # 如果选择删除含有缺失值的行，在所有列处理完后应用
+                if handle_missing == 'drop':
+                    original_rows = len(df)
+                    df = df.dropna(subset=columns_to_process)
+                    logs.append(f"处理缺失值（删除行）: {original_rows - len(df)} 行被删除。")
+
+            elif data_type == 'text':
+                # 直接从参数中获取布尔值
+                do_lowercase = parameters.get('lowercase', True)
+                do_remove_html = parameters.get('remove_html', True)
+                do_remove_special_chars = parameters.get('remove_special_chars', True)
+                do_remove_extra_spaces = parameters.get('remove_extra_spaces', True)
+                do_remove_stopwords = parameters.get('remove_stopwords', False)
+                do_stemming = parameters.get('stemming', False)
+                do_lemmatization = parameters.get('lemmatization', False)
+                
+                # 获取特殊字符处理级别参数
+                special_chars_level = parameters.get('special_chars_level', 'aggressive')
+                # 获取是否保留标点符号
+                keep_punctuation = parameters.get('keep_punctuation', False)
+                if isinstance(keep_punctuation, str):
+                    keep_punctuation = keep_punctuation.lower() == 'true'
+
+                for col in columns_to_process:
+                    if col not in df.columns:
+                        logs.append(f"跳过不存在的列: {col}")
+                        continue
+                    
+                    # 尝试将列转换为字符串类型
+                    try:
+                        df[col] = df[col].astype(str).fillna('')
+                    except Exception as e:
+                        logs.append(f"警告: 将列 '{col}' 转换为字符串类型时出错: {str(e)}，跳过此列")
+                        continue
+                    
+                    # 应用文本处理操作
+                    if do_lowercase:
+                        df[col] = df[col].str.lower()
+                        logs.append(f"将列 '{col}' 转换为小写")
+                        
+                    if do_remove_html:
+                        # 替换HTML转义字符
+                        html_escape_table = {
+                            "&amp;": "&", 
+                            "&lt;": "<", 
+                            "&gt;": ">", 
+                            "&quot;": "\"", 
+                            "&#39;": "'",
+                            "&nbsp;": " "
+                        }
+                        for escape, char in html_escape_table.items():
+                            df[col] = df[col].str.replace(escape, char, regex=False)
+                            
+                        # 移除<br>标签并替换为空格
+                        df[col] = df[col].str.replace(r'<\s*br\s*/?\s*>', ' ', regex=True)
+                        
+                        # 移除HTML标签
+                        df[col] = df[col].str.replace(r'<[^>]*?(/?)>', '', regex=True)
+                        
+                        # 移除成对的HTML标签及其内容
+                        df[col] = df[col].str.replace(r'<[^>]*?>.*?</[^>]*?>', '', regex=True)
+                        
+                        logs.append(f"移除列 '{col}' 中的HTML标签")
+                        
+                    if do_remove_special_chars:
+                        # 根据特殊字符处理级别和保留标点设置选择不同的正则表达式
+                        if special_chars_level == 'aggressive' and not keep_punctuation:
+                            # 移除所有非字母数字字符
+                            df[col] = df[col].str.replace(r'[^a-zA-Z0-9\s]', '', regex=True)
+                            logs.append(f"对列 '{col}' 应用严格特殊字符移除")
+                        elif special_chars_level == 'moderate' or keep_punctuation:
+                            # 保留基本标点符号，但移除其他特殊字符
+                            # 保留的标点: 句号, 逗号, 感叹号, 问号, 冒号, 分号, 引号, 括号, 连字符
+                            df[col] = df[col].str.replace(r'[^a-zA-Z0-9\s.,!?:;\'"\(\)\-]', '', regex=True)
+                            logs.append(f"对列 '{col}' 应用中等特殊字符移除，保留基本标点")
+                        elif special_chars_level == 'minimal':
+                            # 只移除极少数危险字符
+                            df[col] = df[col].str.replace(r'[\\<>/|*@#$%^&]', '', regex=True)
+                            logs.append(f"对列 '{col}' 应用最小特殊字符移除")
+                    
+                    if do_remove_extra_spaces:
+                        # 移除多余空格
+                        df[col] = df[col].str.replace(r'\s+', ' ', regex=True).str.strip()
+                        logs.append(f"移除列 '{col}' 中的多余空格")
+                    
+                    if do_remove_stopwords:
+                        try:
+                            # 此功能需要NLTK支持，如果需要，需要在容器中安装
+                            # 这里只是一个示例，实际应用时可能需要修改
+                            logs.append(f"警告: 停用词移除功能尚未完全实现")
+                        except Exception as e:
+                            logs.append(f"停用词移除失败: {str(e)}")
+                    
+                    if do_stemming or do_lemmatization:
+                        logs.append(f"警告: 词干提取和词形还原功能尚未完全实现")
+
+                logs.append(f"所有文本清洗操作已完成，处理了以下列: {columns_to_process}")
+            
+            else:
+                return ExecutionResult(success=False, error_message=f"未知的数据清洗类型: {data_type}")
+
+            # 准备最终输出
+            cleaned_info = {
+                'columns': df.columns.tolist(),
+                'shape': df.shape,
+                'dtypes': {str(col): str(dtype) for col, dtype in df.dtypes.items()},
+                'head_dict': df.head(5).to_dict(orient='records'), # 统一头部表示
+                'cleaned_records': len(df),
+                'original_shape_info': original_info.get('shape', 'N/A') # 保留一些原始信息
+            }
+            
+            preview_rows_count = min(50, df.shape[0])
+            cleaned_display_df = df.head(preview_rows_count)
+            cleaned_display_json = cleaned_display_df.to_json(orient='split')
+            cleaned_full_data_json = df.to_json(orient='split')
+
+            logs.append("数据清洗成功完成。")
+
+            return ExecutionResult(
+                success=True,
+                outputs={
+                    'output': {
+                        'data': cleaned_display_json,
+                        'info': cleaned_info,
+                        'full_data': cleaned_full_data_json
+                    }
+                },
+                logs=logs
+            )
                 
         except Exception as e:
-            logger.error(f"执行数据清洗器时出错: {str(e)}")
-            traceback.print_exc()
+            logger.error(f"DataCleaner组件执行时发生意外错误: {str(e)}")
+            logger.error(traceback.format_exc())
             return ExecutionResult(
                 success=False,
-                error_message=str(e)
+                error_message=f"DataCleaner组件执行时发生意外错误: {str(e)}",
+                logs=[traceback.format_exc()]
             )

@@ -1,0 +1,5 @@
+{
+  "docker_host": "tcp://localhost:2375",
+  "os": "Windows",
+  "last_update": "2025-05-18 16:19:37.744585"
+}

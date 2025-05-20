@@ -9,6 +9,7 @@ import json
 import traceback
 from typing import Dict, Any, List
 from .executors import BaseComponentExecutor, ExecutionResult
+import pandas as pd
 
 logger = logging.getLogger(__name__)
 
@@ -17,6 +18,192 @@ class BaseModelTrainer(BaseComponentExecutor):
     
     所有模型训练器的基类，提供通用方法。
     """
+    
+    def _ensure_serializable(self, obj):
+        """确保对象可以被序列化为JSON
+        
+        Args:
+            obj: 需要检查的对象
+            
+        Returns:
+            可序列化的对象
+        """
+        import numpy as np
+        import pandas as pd
+        
+        if isinstance(obj, dict):
+            return {k: self._ensure_serializable(v) for k, v in obj.items()}
+        elif isinstance(obj, list):
+            return [self._ensure_serializable(item) for item in obj]
+        elif isinstance(obj, tuple):
+            return [self._ensure_serializable(item) for item in obj]
+        elif isinstance(obj, (np.int32, np.int64)):
+            return int(obj)
+        elif isinstance(obj, (np.float32, np.float64)):
+            return float(obj)
+        elif isinstance(obj, np.ndarray):
+            return self._ensure_serializable(obj.tolist())
+        elif obj is None or isinstance(obj, (str, int, float, bool)):
+            return obj
+        elif hasattr(obj, '__class__') and obj.__class__.__module__ != 'builtins':
+            # 对于scikit-learn模型和其他复杂对象，创建一个详细表示
+            try:
+                obj_type = type(obj).__name__
+                obj_module = type(obj).__module__
+                
+                # 检查是否为scikit-learn模型对象
+                if obj_module.startswith('sklearn'):
+                    # 创建一个包含关键信息的模型表示
+                    model_info = {
+                        "type": obj_type,
+                        "module": obj_module,
+                        "model": obj  # 保留原始模型对象
+                    }
+                    
+                    # 如果有get_params方法，添加模型参数
+                    if hasattr(obj, 'get_params'):
+                        model_info['params'] = self._ensure_serializable(obj.get_params())
+                    
+                    # 特别处理常见的模型属性
+                    if hasattr(obj, 'feature_importances_'):
+                        model_info['feature_importances'] = self._ensure_serializable(obj.feature_importances_)
+                    
+                    if hasattr(obj, 'classes_'):
+                        model_info['classes'] = self._ensure_serializable(obj.classes_)
+                    
+                    if hasattr(obj, 'coef_'):
+                        model_info['coefficients'] = self._ensure_serializable(obj.coef_)
+                    
+                    if hasattr(obj, 'intercept_'):
+                        model_info['intercept'] = self._ensure_serializable(obj.intercept_)
+                    
+                    # 检查是否有预测方法
+                    model_info['has_predict'] = hasattr(obj, 'predict')
+                    model_info['has_predict_proba'] = hasattr(obj, 'predict_proba')
+                    
+                    # 特别处理随机森林模型
+                    if obj_type in ['RandomForestClassifier', 'RandomForestRegressor']:
+                        # 保存树数量
+                        if hasattr(obj, 'n_estimators'):
+                            model_info['n_estimators'] = obj.n_estimators
+                        if hasattr(obj, 'criterion'):
+                            model_info['criterion'] = obj.criterion
+                        if hasattr(obj, 'max_depth'):
+                            model_info['max_depth'] = obj.max_depth
+                        if hasattr(obj, 'max_features'):
+                            model_info['max_features'] = self._ensure_serializable(obj.max_features)
+                        if hasattr(obj, 'bootstrap'):
+                            model_info['bootstrap'] = obj.bootstrap
+                    
+                    return model_info
+                else:
+                    # 返回对象的简要描述
+                    return {
+                        "info": {
+                            "type": obj_type,
+                            "module": obj_module
+                        },
+                        "message": "数据太大，无法保存到数据库",
+                        "truncated": True
+                    }
+            except Exception as e:
+                return {
+                    "message": "序列化对象失败",
+                    "error": str(e),
+                    "type": str(type(obj))
+                }
+        else:
+            # 对于不可序列化的对象，返回其字符串表示
+            try:
+                return str(obj)
+            except:
+                return "不可序列化对象"
+    
+    def select_features(self, train_df, parameters):
+        """根据参数选择特征列
+        
+        Args:
+            train_df: 训练数据DataFrame
+            parameters: 参数字典
+            
+        Returns:
+            list: 选择的特征列列表
+            str: 错误信息（如果有）
+        """
+        import pandas as pd
+        
+        target = parameters.get('target', '')
+        if not target:
+            return [], "未指定目标变量，请在参数中设置'target'"
+        
+        # 检查目标变量是否存在
+        if target not in train_df.columns:
+            return [], f"目标变量 '{target}' 不在数据集中"
+        
+        # 获取特征选择模式
+        feature_selection_mode = parameters.get('feature_selection_mode', 'all_numeric')
+        
+        # 解析特征列参数
+        features = parameters.get('features', '')
+        if isinstance(features, str) and features:
+            features = [f.strip() for f in features.split(',') if f.strip()]
+        
+        if feature_selection_mode == 'specified':
+            # 使用指定的特征列
+            if features:
+                feature_cols = [col for col in features if col in train_df.columns and col != target]
+            else:
+                feature_cols = []
+            
+            if not feature_cols:
+                return [], "特征选择模式为'specified'，但未指定有效的特征列"
+                
+        elif feature_selection_mode == 'exclude_specified':
+            # 排除指定的列
+            exclude_columns = parameters.get('exclude_columns', '')
+            if isinstance(exclude_columns, str) and exclude_columns:
+                exclude_cols = [col.strip() for col in exclude_columns.split(',') if col.strip()]
+            else:
+                exclude_cols = []
+            
+            # 使用所有数值列，但排除指定的列和目标列
+            feature_cols = [col for col in train_df.columns 
+                           if col != target 
+                           and col not in exclude_cols 
+                           and pd.api.types.is_numeric_dtype(train_df[col])]
+                           
+        elif feature_selection_mode == 'auto_vectorized':
+            # 自动选择向量化后的特征列
+            vectorized_prefix = parameters.get('vectorized_prefix', 'feature_')
+            
+            # 获取所有以指定前缀开头的列
+            feature_cols = [col for col in train_df.columns 
+                           if col.startswith(vectorized_prefix) 
+                           and pd.api.types.is_numeric_dtype(train_df[col])]
+                           
+            if not feature_cols:
+                # 如果没有找到以指定前缀开头的列，尝试智能识别可能的向量化特征
+                # 策略1：排除非数值列（通常是原始文本）和目标列
+                text_cols = []
+                for col in train_df.columns:
+                    if col != target and not pd.api.types.is_numeric_dtype(train_df[col]):
+                        text_cols.append(col)
+                
+                # 排除文本列和目标列
+                feature_cols = [col for col in train_df.columns 
+                               if col != target 
+                               and col not in text_cols 
+                               and pd.api.types.is_numeric_dtype(train_df[col])]
+        else:
+            # 默认：使用所有数值列作为特征
+            feature_cols = [col for col in train_df.columns 
+                           if col != target 
+                           and pd.api.types.is_numeric_dtype(train_df[col])]
+        
+        if not feature_cols:
+            return [], "没有找到有效的特征列，请检查数据或特征选择参数"
+            
+        return feature_cols, None
     
     def _prepare_data(self, train_dataset, features, target):
         """准备数据处理通用功能"""
@@ -33,11 +220,63 @@ try:
         raise ValueError(f"目标变量 '{target}' 不在数据集中")
     
     # 确定特征列
-    if {repr(features)}:
-        feature_cols = [col for col in {repr(features)} if col in train_df.columns and col != '{target}']
+    feature_selection_mode = parameters.get('feature_selection_mode', 'all_numeric')
+    
+    if feature_selection_mode == 'specified':
+        # 使用指定的特征列
+        if features:
+            feature_cols = [col for col in features if col in train_df.columns and col != target]
     else:
-        # 使用除目标变量外的所有列作为特征
-        feature_cols = [col for col in train_df.columns if col != '{target}' and pd.api.types.is_numeric_dtype(train_df[col])]
+            feature_cols = []
+        
+        if not feature_cols:
+            return ExecutionResult(
+                success=False,
+                error_message="特征选择模式为'specified'，但未指定有效的特征列"
+            )
+            
+    elif feature_selection_mode == 'exclude_specified':
+        # 排除指定的列
+        exclude_columns = parameters.get('exclude_columns', '')
+        if isinstance(exclude_columns, str) and exclude_columns:
+            exclude_cols = [col.strip() for col in exclude_columns.split(',') if col.strip()]
+        else:
+            exclude_cols = []
+        
+        # 使用所有数值列，但排除指定的列和目标列
+        feature_cols = [col for col in train_df.columns 
+                       if col != target 
+                       and col not in exclude_cols 
+                       and pd.api.types.is_numeric_dtype(train_df[col])]
+                       
+    elif feature_selection_mode == 'auto_vectorized':
+        # 自动选择向量化后的特征列
+        vectorized_prefix = parameters.get('vectorized_prefix', 'feature_')
+        
+        # 获取所有以指定前缀开头的列
+        feature_cols = [col for col in train_df.columns 
+                       if col.startswith(vectorized_prefix) 
+                       and pd.api.types.is_numeric_dtype(train_df[col])]
+                       
+        if not feature_cols:
+            # 如果没有找到以指定前缀开头的列，尝试智能识别可能的向量化特征
+            # 策略1：排除第一列（通常是原始文本）和目标列
+            if len(train_df.columns) > 2:
+                text_cols = []
+                for col in train_df.columns:
+                    if col != target and not pd.api.types.is_numeric_dtype(train_df[col]):
+                        text_cols.append(col)
+                
+                # 排除文本列和目标列
+                feature_cols = [col for col in train_df.columns 
+                               if col != target 
+                               and col not in text_cols 
+                               and pd.api.types.is_numeric_dtype(train_df[col])]
+    else:
+        # 默认：使用所有数值列作为特征
+        feature_cols = [col for col in train_df.columns 
+                       if col != target 
+                       and pd.api.types.is_numeric_dtype(train_df[col])]
     
     if not feature_cols:
         raise ValueError("没有有效的特征列")
@@ -88,10 +327,10 @@ if 'test_df' in locals():
     X_test = test_df[feature_cols].values
     
     # 检查测试数据是否有目标变量
-    has_target = '{target}' in test_df.columns
+    has_target = '{{target}}' in test_df.columns
     
     if has_target:
-        y_test = test_df['{target}'].values
+        y_test = test_df['{{target}}'].values
         if problem_type == 'classification' and 'le' in locals():
             # 对分类目标进行标签编码
             y_test = le.transform(y_test)
@@ -160,7 +399,7 @@ if 'test_df' in locals():
             predictions_df['probability'] = y_pred_proba[:, 1]
         else:
             for i, class_name in enumerate(class_names if 'class_names' in locals() else range(y_pred_proba.shape[1])):
-                predictions_df[f'prob_{class_name}'] = y_pred_proba[:, i]
+                predictions_df[f'prob_{{class_name}}'] = y_pred_proba[:, i]
     
     # 设置预测结果
     test_results = {{
@@ -173,146 +412,15 @@ else:
     test_results = None
 """
 
-
-class LinearRegressionTrainer(BaseModelTrainer):
-    """线性回归训练器
-    
-    训练线性回归模型，用于预测连续型目标变量。
-    """
-    
-    def execute(self, inputs: Dict[str, Any], parameters: Dict[str, Any]) -> ExecutionResult:
-        """
-        训练线性回归模型
-        
-        Args:
-            inputs: 输入数据，包括:
-                - train_dataset: 训练数据集
-                - test_dataset: 测试数据集（可选）
-            parameters: 参数，包括:
-                - features: 特征列
-                - target: 目标变量
-                - fit_intercept: 是否拟合截距
-                
-        Returns:
-            ExecutionResult: 执行结果，包含训练好的模型和预测结果
-        """
-        try:
-            # 获取输入数据
-            if 'train_dataset' not in inputs:
-                return ExecutionResult(
-                    success=False,
-                    error_message="缺少训练数据集"
-                )
+    def _prepare_test_data(self, test_dataset, features, target):
+        """准备测试数据处理代码"""
+        if not test_dataset:
+            return ""
             
-            train_dataset = inputs['train_dataset']
-            test_dataset = inputs.get('test_dataset')
-            
-            # 获取参数
-            features = parameters.get('features', [])
-            if features and isinstance(features, str):
-                features = features.split(',')
-            
-            target = parameters.get('target', '')
-            if not target:
-                return ExecutionResult(
-                    success=False,
-                    error_message="未指定目标变量"
-                )
-            
-            fit_intercept = parameters.get('fit_intercept', 'true') == 'true'
-            
-            # 准备数据处理和模型训练代码
-            data_prep_code = self._prepare_data(train_dataset, features, target)
-            
-            # 添加测试数据处理
-            test_data_code = ""
-            if test_dataset:
-                test_data_code = f"""
+        return f"""
 # 解析测试数据集
 test_df = pd.read_json('''{json.dumps(test_dataset.get('data', '{}'))}''', orient='split')
 """
-            
-            # 模型训练代码
-            model_code = f"""
-# 训练线性回归模型
-from sklearn.linear_model import LinearRegression
-
-model = LinearRegression(fit_intercept={fit_intercept})
-model.fit(X_train, y_train)
-
-# 获取模型参数
-coefficients = model.coef_.tolist()
-intercept = float(model.intercept_)
-
-# 计算训练集预测值和指标
-y_train_pred = model.predict(X_train)
-from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
-
-train_metrics = {{
-    'mse': float(mean_squared_error(y_train, y_train_pred)),
-    'rmse': float(np.sqrt(mean_squared_error(y_train, y_train_pred))),
-    'mae': float(mean_absolute_error(y_train, y_train_pred)),
-    'r2': float(r2_score(y_train, y_train_pred))
-}}
-
-# 模型对象信息
-model_info = {{
-    'type': 'linear_regression',
-    'coefficients': coefficients,
-    'intercept': intercept,
-    'feature_names': feature_cols,
-    'target': '{target}'
-}}
-"""
-            
-            # 添加预测代码
-            prediction_code = self._generate_prediction_code('linear_regression')
-            
-            # 组合所有代码
-            code = f"""
-{data_prep_code}
-{test_data_code}
-{model_code}
-{prediction_code}
-
-# 返回结果
-result = {{
-    'model_info': model_info,
-    'train_metrics': train_metrics,
-    'test_results': test_results,
-    'feature_importance': {{feat: abs(coef) for feat, coef in zip(feature_cols, coefficients)}}
-}}
-"""
-            
-            # 在容器中执行
-            result = self.execute_in_container(code)
-            
-            if result.get('success', False):
-                model_result = result.get('result', {})
-                return ExecutionResult(
-                    success=True,
-                    outputs={
-                        'model': model_result.get('model_info'),
-                        'train_metrics': model_result.get('train_metrics'),
-                        'test_results': model_result.get('test_results'),
-                        'feature_importance': model_result.get('feature_importance')
-                    },
-                    logs=["线性回归模型训练完成"]
-                )
-            else:
-                return ExecutionResult(
-                    success=False,
-                    error_message=result.get('error', '线性回归模型训练失败'),
-                    logs=[result.get('traceback', '')]
-                )
-                
-        except Exception as e:
-            logger.error(f"执行线性回归训练器时出错: {str(e)}")
-            traceback.print_exc()
-            return ExecutionResult(
-                success=False,
-                error_message=str(e)
-            )
 
 
 class LogisticRegressionTrainer(BaseModelTrainer):
@@ -327,1022 +435,492 @@ class LogisticRegressionTrainer(BaseModelTrainer):
         
         Args:
             inputs: 输入数据，包括:
-                - train_dataset: 训练数据集
-                - test_dataset: 测试数据集（可选）
+                - train/train_dataset: 训练数据集
             parameters: 参数，包括:
                 - features: 特征列
                 - target: 目标变量
                 - C: 正则化强度的倒数
                 - max_iter: 最大迭代次数
-                
-        Returns:
-            ExecutionResult: 执行结果，包含训练好的模型和预测结果
-        """
-        try:
-            # 获取输入数据
-            if 'train_dataset' not in inputs:
-                return ExecutionResult(
-                    success=False,
-                    error_message="缺少训练数据集"
-                )
-            
-            train_dataset = inputs['train_dataset']
-            test_dataset = inputs.get('test_dataset')
-            
-            # 获取参数
-            features = parameters.get('features', [])
-            if features and isinstance(features, str):
-                features = features.split(',')
-            
-            target = parameters.get('target', '')
-            if not target:
-                return ExecutionResult(
-                    success=False,
-                    error_message="未指定目标变量"
-                )
-            
-            C = float(parameters.get('C', 1.0))
-            max_iter = int(parameters.get('max_iter', 100))
-            
-            # 准备数据处理和模型训练代码
-            data_prep_code = self._prepare_data(train_dataset, features, target)
-            
-            # 添加测试数据处理
-            test_data_code = ""
-            if test_dataset:
-                test_data_code = f"""
-# 解析测试数据集
-test_df = pd.read_json('''{json.dumps(test_dataset.get('data', '{}'))}''', orient='split')
-"""
-            
-            # 模型训练代码
-            model_code = f"""
-# 训练逻辑回归模型
-from sklearn.linear_model import LogisticRegression
-
-model = LogisticRegression(C={C}, max_iter={max_iter}, random_state=42)
-model.fit(X_train, y_train)
-
-# 获取模型参数
-if model.coef_.shape[0] == 1:
-    # 二分类问题
-    coefficients = model.coef_[0].tolist()
-else:
-    # 多分类问题
-    coefficients = model.coef_.tolist()
-    
-intercept = model.intercept_.tolist()
-
-# 计算训练集预测值和指标
-y_train_pred = model.predict(X_train)
-from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
-
-train_metrics = {{
-    'accuracy': float(accuracy_score(y_train, y_train_pred)),
-    'precision': float(precision_score(y_train, y_train_pred, average='weighted', zero_division=0)),
-    'recall': float(recall_score(y_train, y_train_pred, average='weighted', zero_division=0)),
-    'f1': float(f1_score(y_train, y_train_pred, average='weighted', zero_division=0))
-}}
-
-# 模型对象信息
-model_info = {{
-    'type': 'logistic_regression',
-    'coefficients': coefficients,
-    'intercept': intercept,
-    'feature_names': feature_cols,
-    'target': '{target}',
-    'classes': model.classes_.tolist()
-}}
-"""
-            
-            # 添加预测代码
-            prediction_code = self._generate_prediction_code('logistic_regression')
-            
-            # 组合所有代码
-            code = f"""
-{data_prep_code}
-{test_data_code}
-{model_code}
-{prediction_code}
-
-# 计算特征重要性
-if isinstance(coefficients[0], list):
-    # 多分类，取绝对值的平均
-    feature_importance = {{feat: np.mean([abs(class_coef[i]) for class_coef in coefficients]) 
-                          for i, feat in enumerate(feature_cols)}}
-else:
-    # 二分类
-    feature_importance = {{feat: abs(coef) for feat, coef in zip(feature_cols, coefficients)}}
-
-# 返回结果
-result = {{
-    'model_info': model_info,
-    'train_metrics': train_metrics,
-    'test_results': test_results,
-    'feature_importance': feature_importance
-}}
-"""
-            
-            # 在容器中执行
-            result = self.execute_in_container(code)
-            
-            if result.get('success', False):
-                model_result = result.get('result', {})
-                return ExecutionResult(
-                    success=True,
-                    outputs={
-                        'model': model_result.get('model_info'),
-                        'train_metrics': model_result.get('train_metrics'),
-                        'test_results': model_result.get('test_results'),
-                        'feature_importance': model_result.get('feature_importance')
-                    },
-                    logs=["逻辑回归模型训练完成"]
-                )
-            else:
-                return ExecutionResult(
-                    success=False,
-                    error_message=result.get('error', '逻辑回归模型训练失败'),
-                    logs=[result.get('traceback', '')]
-                )
-                
-        except Exception as e:
-            logger.error(f"执行逻辑回归训练器时出错: {str(e)}")
-            traceback.print_exc()
-            return ExecutionResult(
-                success=False,
-                error_message=str(e)
-            )
-
-
-class SVMTrainer(BaseModelTrainer):
-    """支持向量机训练器
-    
-    训练支持向量机模型，可用于分类和回归任务。
-    对应前端组件ID: svm
-    """
-    
-    def execute(self, inputs: Dict[str, Any], parameters: Dict[str, Any]) -> ExecutionResult:
-        """
-        训练支持向量机模型
-        
-        Args:
-            inputs: 输入数据，包括:
-                - train: 训练数据集
-                - test: 测试数据集（可选）
-            parameters: 参数，包括:
-                - features: 特征列
-                - target: 目标变量
-                - task_type: 任务类型（classification/regression）
-                - kernel: 核函数类型（linear/poly/rbf/sigmoid）
-                - C: 正则化参数
-                - gamma: gamma参数
-                - degree: 多项式核的次数
-                - probability: 是否启用概率估计
+                - solver: 优化算法（'lbfgs', 'newton-cg', 'liblinear', 'sag', 'saga'）
+                - penalty: 正则化类型（'l1', 'l2', 'elasticnet', 'none'）
+                - multi_class: 多分类方法（'auto', 'ovr', 'multinomial'）
                 - random_state: 随机种子
                 
         Returns:
-            ExecutionResult: 执行结果，包含训练好的模型和预测结果
+            ExecutionResult: 执行结果，包含训练好的模型
         """
         try:
-            # 获取输入数据
-            if 'train' not in inputs:
+            # 获取输入数据（仅处理train输入）
+            train_data = None
+            if 'train' in inputs:
+                train_data = inputs['train']
+            elif 'train_dataset' in inputs:
+                train_data = inputs['train_dataset']
+            else:
                 return ExecutionResult(
                     success=False,
-                    error_message="缺少训练数据集"
+                    error_message="缺少训练数据集，请连接数据源到'train'输入端口"
                 )
             
-            train_dataset = inputs.get('train', {})
-            test_dataset = inputs.get('test', {})
-            
-            # 获取参数
+            # 解析参数
             features = parameters.get('features', '')
-            target = parameters.get('target', '')
-            task_type = parameters.get('task_type', 'classification')
-            kernel = parameters.get('kernel', 'rbf')
-            C = float(parameters.get('C', 1.0))
-            gamma = parameters.get('gamma', 'scale')
-            degree = int(parameters.get('degree', 3))
-            probability = bool(parameters.get('probability', True))
-            random_state = int(parameters.get('random_state', 42))
-            
-            # 检查参数
-            if not target:
-                return ExecutionResult(
-                    success=False,
-                    error_message="缺少目标变量参数"
-                )
-                
-            # 如果特征是字符串，分割为列表
             if isinstance(features, str) and features:
                 features = [f.strip() for f in features.split(',') if f.strip()]
             
-            # 准备数据处理代码
-            data_prep_code = self._prepare_data(train_dataset, features, target)
+            target = parameters.get('target', '')
+            if not target:
+                return ExecutionResult(
+                    success=False,
+                    error_message="未指定目标变量，请在参数中设置'target'"
+                )
             
-            # 准备测试数据代码
-            test_data_code = self._prepare_test_data(test_dataset, features, target)
+            # 获取其他参数并确保类型正确
+            # 更健壮的C参数处理
+            C_param = parameters.get('C', 1.0)
+            if isinstance(C_param, str):
+                try:
+                    C = float(C_param)
+                except ValueError:
+                    C = 1.0  # 默认值
+            else:
+                C = float(C_param) if C_param is not None else 1.0
+                
+            # 更健壮的max_iter参数处理
+            max_iter_param = parameters.get('max_iter', 1000)
+            if isinstance(max_iter_param, str):
+                try:
+                    max_iter = int(max_iter_param)
+                except ValueError:
+                    max_iter = 1000  # 默认值
+            else:
+                max_iter = int(max_iter_param) if max_iter_param is not None else 1000
+                
+            solver = parameters.get('solver', 'lbfgs')
+            penalty = parameters.get('penalty', 'l2')
+            multi_class = parameters.get('multi_class', 'auto')
             
-            # 模型训练代码
-            model_code = f"""
-# 选择模型类型
-from sklearn.svm import SVC, SVR
-import pickle
-import base64
-from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
-from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
-
-# 根据任务类型选择模型
-if '{task_type}' == 'classification':
-    # 创建模型
-    model = SVC(
-        C={C}, 
-        kernel='{kernel}', 
-        degree={degree}, 
-        gamma='{gamma}',
-        probability={str(probability).lower()},
-        random_state={random_state}
-    )
-    
-    # 训练模型
-    model.fit(X_train, y_train)
-    
-    # 获取模型参数
-    if model.kernel == 'linear' and hasattr(model, 'coef_'):
-        coefficients = model.coef_.tolist()
-        intercept = model.intercept_.tolist()
-    else:
-        # 对于非线性核，无法直接获取系数
-        coefficients = []
-        intercept = model.intercept_.tolist() if hasattr(model, 'intercept_') else []
-    
-    # 保存模型
-    model_bytes = pickle.dumps(model)
-    model_data = base64.b16encode(model_bytes).decode('utf-8')
-    
-    # 在训练集上进行预测
-    y_train_pred = model.predict(X_train)
-    
-    # 计算训练指标
-    train_metrics = {{
-        'accuracy': float(accuracy_score(y_train, y_train_pred)),
-        'precision': float(precision_score(y_train, y_train_pred, average='weighted', zero_division=0)),
-        'recall': float(recall_score(y_train, y_train_pred, average='weighted', zero_division=0)),
-        'f1': float(f1_score(y_train, y_train_pred, average='weighted', zero_division=0))
-    }}
-    
-    # 模型对象信息
-    model_info = {{
-        'type': 'svm',
-        'subtype': 'classification',
-        'kernel': '{kernel}',
-        'n_support': model.n_support_.tolist(),
-        'support_vectors_count': len(model.support_),
-        'feature_names': feature_cols,
-        'target': '{target}',
-        'classes': model.classes_.tolist(),
-        'model_data': model_data
-    }}
-else:  # 回归模型
-    # 创建模型
-    model = SVR(
-        C={C}, 
-        kernel='{kernel}', 
-        degree={degree}, 
-        gamma='{gamma}',
-        epsilon=0.1
-    )
-    
-    # 训练模型
-    model.fit(X_train, y_train)
-    
-    # 获取模型参数
-    if model.kernel == 'linear' and hasattr(model, 'coef_'):
-        coefficients = model.coef_.tolist()
-        intercept = model.intercept_.tolist() if hasattr(model, 'intercept_') else []
-    else:
-        # 对于非线性核，无法直接获取系数
-        coefficients = []
-        intercept = model.intercept_ if hasattr(model, 'intercept_') else 0.0
-    
-    # 保存模型
-    model_bytes = pickle.dumps(model)
-    model_data = base64.b16encode(model_bytes).decode('utf-8')
-    
-    # 在训练集上进行预测
-    y_train_pred = model.predict(X_train)
-    
-    # 计算训练指标
-    train_metrics = {{
-        'mse': float(mean_squared_error(y_train, y_train_pred)),
-        'rmse': float(mean_squared_error(y_train, y_train_pred, squared=False)),
-        'mae': float(mean_absolute_error(y_train, y_train_pred)),
-        'r2': float(r2_score(y_train, y_train_pred))
-    }}
-    
-    # 模型对象信息
-    model_info = {{
-        'type': 'svm',
-        'subtype': 'regression',
-        'kernel': '{kernel}',
-        'n_support': model.n_support_.tolist() if hasattr(model, 'n_support_') else [],
-        'support_vectors_count': len(model.support_),
-        'feature_names': feature_cols,
-        'target': '{target}',
-        'model_data': model_data
-    }}
-"""
+            # 更健壮的random_state参数处理
+            random_state_param = parameters.get('random_state', 42)
+            if isinstance(random_state_param, str):
+                try:
+                    random_state = int(random_state_param)
+                except ValueError:
+                    random_state = 42  # 默认值
+            else:
+                random_state = int(random_state_param) if random_state_param is not None else 42
             
-            # 添加预测代码
-            prediction_code = """
-# 准备结果字典
-result = {
-    'model_info': model_info,
-    'train_metrics': train_metrics
-}
-
-# 添加测试集评估结果
-if 'X_test' in locals() and 'y_test' in locals():
-    test_results = {}
-    
-    # 在测试集上进行预测
-    y_test_pred = model.predict(X_test)
-    
-    # 获取测试集结果
-    if '{task_type}' == 'classification':
-        # 如果启用了概率预测
-        if {probability} and hasattr(model, 'predict_proba'):
-            y_test_proba = model.predict_proba(X_test).tolist()
-            test_results['probabilities'] = y_test_proba
-        
-        # 计算测试指标
-        test_results['predictions'] = y_test_pred.tolist()
-        test_results['actual'] = y_test.tolist()
-        test_results['accuracy'] = float(accuracy_score(y_test, y_test_pred))
-        test_results['precision'] = float(precision_score(y_test, y_test_pred, average='weighted', zero_division=0))
-        test_results['recall'] = float(recall_score(y_test, y_test_pred, average='weighted', zero_division=0))
-        test_results['f1'] = float(f1_score(y_test, y_test_pred, average='weighted', zero_division=0))
-    else:
-        # 回归指标
-        test_results['predictions'] = y_test_pred.tolist()
-        test_results['actual'] = y_test.tolist()
-        test_results['mse'] = float(mean_squared_error(y_test, y_test_pred))
-        test_results['rmse'] = float(mean_squared_error(y_test, y_test_pred, squared=False))
-        test_results['mae'] = float(mean_absolute_error(y_test, y_test_pred))
-        test_results['r2'] = float(r2_score(y_test, y_test_pred))
-    
-    result['test_results'] = test_results
-
-# 计算特征重要性（仅适用于线性核）
-feature_importance = {}
-if model.kernel == 'linear' and hasattr(model, 'coef_'):
-    if '{task_type}' == 'classification' and len(model.classes_) > 2:
-        # 多分类情况下，取各类别绝对值的平均
-        for i, feat in enumerate(feature_cols):
-            importance = np.mean([abs(coef[i]) for coef in coefficients]) if i < len(coefficients[0]) else 0
-            feature_importance[feat] = float(importance)
-    else:
-        # 二分类或回归
-        for i, feat in enumerate(feature_cols):
-            importance = abs(coefficients[0][i]) if i < len(coefficients[0]) else 0
-            feature_importance[feat] = float(importance)
-else:
-    # 非线性核无法计算特征重要性，使用随机森林估计
-    try:
-        from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
-        
-        if '{task_type}' == 'classification':
-            rf = RandomForestClassifier(n_estimators=50, random_state=42)
-        else:
-            rf = RandomForestRegressor(n_estimators=50, random_state=42)
-        
-        rf.fit(X_train, y_train)
-        importances = rf.feature_importances_
-        for i, feat in enumerate(feature_cols):
-            feature_importance[feat] = float(importances[i])
-    except:
-        # 如果随机森林失败，使用均匀分布
-        for i, feat in enumerate(feature_cols):
-            feature_importance[feat] = 1.0 / len(feature_cols)
-
-result['feature_importance'] = feature_importance
-
-print(json.dumps(result))
-"""
+            # 直接使用Python代码处理数据和训练模型
+            import pandas as pd
+            import numpy as np
+            import json
+            from sklearn.linear_model import LogisticRegression
+            from sklearn.preprocessing import LabelEncoder
+            from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
             
-            # 将参数替换到预测代码中
-            prediction_code = prediction_code.format(
-                task_type=task_type,
-                probability=str(probability).lower()
+            # 解析数据
+            if isinstance(train_data, dict) and 'data' in train_data:
+                # 根据数据类型进行不同处理
+                if isinstance(train_data['data'], str):
+                    # 如果数据已经是字符串（JSON字符串），直接解析
+                    from io import StringIO
+                    train_df = pd.read_json(StringIO(train_data['data']), orient='split')
+                elif isinstance(train_data['data'], dict):
+                    # 如果是字典，转换为JSON字符串
+                    from io import StringIO
+                    train_df = pd.read_json(StringIO(json.dumps(train_data['data'])), orient='split')
+                else:
+                    # 尝试直接使用data字段
+                    train_df = pd.DataFrame(train_data['data'])
+            else:
+                logger.error(f"无法解析训练数据：{train_data}")
+                return ExecutionResult(
+                    success=False,
+                    error_message="无法解析训练数据，请检查上游组件输出"
+                )
+            
+            # 使用通用方法选择特征列
+            feature_cols, error_message = self.select_features(train_df, parameters)
+            if error_message:
+                return ExecutionResult(
+                    success=False,
+                    error_message=error_message
+                )
+            
+            # 获取目标变量名
+            target = parameters.get('target', '')
+            
+            # 准备训练数据
+            X_train = train_df[feature_cols].values
+            y_train = train_df[target].values
+            
+            # 检查数据有效性
+            if np.isnan(X_train).any() or np.isnan(y_train).any():
+                return ExecutionResult(
+                    success=False,
+                    error_message="数据集包含NaN值，请先进行数据清洗"
+                )
+            
+            # 处理非数值目标变量
+            label_encoder = None
+            classes_mapping = None
+            
+            if not pd.api.types.is_numeric_dtype(train_df[target]):
+                # 对分类目标进行标签编码
+                label_encoder = LabelEncoder()
+                y_train = label_encoder.fit_transform(y_train)
+                classes_mapping = dict(zip(label_encoder.classes_, range(len(label_encoder.classes_))))
+            
+            # 创建并训练模型
+            model = LogisticRegression(
+                C=C, 
+                max_iter=max_iter,
+                solver=solver,
+                penalty=penalty,
+                multi_class=multi_class,
+                random_state=random_state
             )
             
-            # 组合所有代码
-            code = f"""
-{data_prep_code}
-{test_data_code}
-{model_code}
-{prediction_code}
-"""
-            
-            # 在容器中执行
-            success, output = self.execute_in_container(code)
-            
-            if not success:
-                return ExecutionResult(
-                    success=False,
-                    error_message=f"SVM模型训练失败: {output}"
-                )
+            model.fit(X_train, y_train)
+
+            # 获取模型参数
+            if hasattr(model, 'coef_'):
+                if model.coef_.shape[0] == 1:
+                    # 二分类问题
+                    coefficients = model.coef_[0].tolist()
+                else:
+                    # 多分类问题
+                    coefficients = model.coef_.tolist()
+            else:
+                coefficients = []
                 
-            # 解析输出
-            try:
-                result = json.loads(output)
-                
-                return ExecutionResult(
-                    success=True,
-                    output={
-                        'model': result.get('model_info', {}),
-                        'train_metrics': result.get('train_metrics', {}),
-                        'test_results': result.get('test_results', {}),
-                        'feature_importance': result.get('feature_importance', {})
-                    }
-                )
-            except Exception as e:
-                return ExecutionResult(
-                    success=False,
-                    error_message=f"解析SVM模型结果失败: {str(e)}\n输出: {output}"
-                )
+            intercept = model.intercept_.tolist() if hasattr(model, 'intercept_') else []
             
+            # 计算训练指标
+            y_train_pred = model.predict(X_train)
+            train_metrics = {
+                'accuracy': float(accuracy_score(y_train, y_train_pred)),
+                'precision': float(precision_score(y_train, y_train_pred, average='weighted', zero_division=0)),
+                'recall': float(recall_score(y_train, y_train_pred, average='weighted', zero_division=0)),
+                'f1': float(f1_score(y_train, y_train_pred, average='weighted', zero_division=0))
+            }
+            
+            # 计算特征重要性
+            feature_importance = {}
+            if hasattr(model, 'coef_'):
+                if model.coef_.shape[0] > 1:
+                    # 多分类，取绝对值的平均
+                    for i, feat in enumerate(feature_cols):
+                        if i < model.coef_[0].shape[0]:
+                            importance = np.mean([abs(class_coef[i]) for class_coef in model.coef_])
+                        feature_importance[feat] = float(importance)
+                else:
+                    # 二分类
+                    for i, feat in enumerate(feature_cols):
+                        if i < len(coefficients):
+                            importance = abs(coefficients[i])
+                        feature_importance[feat] = float(importance)
+
+            # 模型信息
+            model_info = {
+                'type': 'logistic_regression',
+                'coefficients': coefficients,
+                'intercept': intercept,
+                'feature_names': feature_cols,
+                'target': target,
+                'classes': model.classes_.tolist() if hasattr(model, 'classes_') else [],
+                'classes_mapping': classes_mapping,
+                'model': model
+            }
+            
+            # 准备输出数据
+            outputs = {
+                'model': model_info,
+                'train_metrics': train_metrics,
+                'feature_importance': feature_importance
+            }
+            
+            # 确保输出可序列化
+            outputs = self._ensure_serializable(outputs)
+            
+            # 返回模型和训练相关信息
+            return ExecutionResult(
+                success=True,
+                outputs=outputs,
+                logs=["逻辑回归模型训练完成"]
+            )
+                
         except Exception as e:
-            error_message = f"执行SVM训练器出错: {str(e)}\n{traceback.format_exc()}"
-            logger.error(error_message)
+            logger.error(f"执行逻辑回归训练器时出错: {str(e)}")
+            import traceback
+            logger.error(traceback.format_exc())
             return ExecutionResult(
                 success=False,
-                error_message=error_message
+                error_message=str(e),
+                logs=[traceback.format_exc()]
             )
 
 
-class GradientBoostingTrainer(BaseModelTrainer):
-    """梯度提升树训练器
+class RandomForestTrainer(BaseModelTrainer):
+    """随机森林训练器
     
-    训练梯度提升树模型，可用于分类和回归任务。
-    对应前端组件ID: gradient-boosting
+    训练随机森林模型，可用于分类和回归任务。
+    对应前端组件ID: random-forest
     """
     
     def execute(self, inputs: Dict[str, Any], parameters: Dict[str, Any]) -> ExecutionResult:
         """
-        训练梯度提升树模型
+        训练随机森林模型
         
         Args:
             inputs: 输入数据，包括:
-                - train: 训练数据集
-                - test: 测试数据集（可选）
+                - train/train_dataset: 训练数据集
             parameters: 参数，包括:
                 - features: 特征列
                 - target: 目标变量
                 - task_type: 任务类型（classification/regression）
                 - n_estimators: 树的数量
-                - learning_rate: 学习率
+                - criterion: 切分标准（gini/entropy/squared_error/absolute_error）
                 - max_depth: 最大深度
-                - subsample: 子样本比例
+                - max_features: 最大特征数（sqrt/log2/auto）
+                - bootstrap: 是否使用自助采样
                 - random_state: 随机种子
                 
         Returns:
             ExecutionResult: 执行结果，包含训练好的模型和预测结果
         """
         try:
-            # 获取输入数据
-            if 'train' not in inputs:
+            # 获取输入数据（仅处理train输入）
+            train_data = None
+            if 'train' in inputs:
+                train_data = inputs['train']
+            elif 'train_dataset' in inputs:
+                train_data = inputs['train_dataset']
+            else:
                 return ExecutionResult(
                     success=False,
-                    error_message="缺少训练数据集"
+                    error_message="缺少训练数据集，请连接数据源到'train'输入端口"
                 )
             
-            train_dataset = inputs.get('train', {})
-            test_dataset = inputs.get('test', {})
-            
-            # 获取参数
+            # 解析参数
             features = parameters.get('features', '')
-            target = parameters.get('target', '')
-            task_type = parameters.get('task_type', 'classification')
-            n_estimators = int(parameters.get('n_estimators', 100))
-            learning_rate = float(parameters.get('learning_rate', 0.1))
-            max_depth = int(parameters.get('max_depth', 3))
-            subsample = float(parameters.get('subsample', 1.0))
-            random_state = int(parameters.get('random_state', 42))
+            if isinstance(features, str) and features:
+                features = [f.strip() for f in features.split(',') if f.strip()]
             
-            # 检查参数
+            target = parameters.get('target', '')
             if not target:
                 return ExecutionResult(
                     success=False,
-                    error_message="缺少目标变量参数"
+                    error_message="未指定目标变量，请在参数中设置'target'"
                 )
+            
+            # 获取其他参数并确保类型正确
+            task_type = parameters.get('task_type', 'classification')
+            n_estimators = int(parameters.get('n_estimators', 100))
+            criterion = parameters.get('criterion', 'gini' if task_type == 'classification' else 'squared_error')
+            
+            # 更健壮的max_depth参数处理
+            max_depth = parameters.get('max_depth')
+            if max_depth is not None:
+                if isinstance(max_depth, str):
+                    if max_depth.lower() == 'none':
+                        max_depth = None
+                    else:
+                        try:
+                            max_depth = int(max_depth)
+                        except ValueError:
+                            max_depth = None
+                # 已经是整数类型，不需要转换
+                elif not isinstance(max_depth, int):
+                    try:
+                        max_depth = int(max_depth)
+                    except (ValueError, TypeError):
+                        max_depth = None
+            
+            max_features = parameters.get('max_features', 'sqrt')
+            bootstrap = parameters.get('bootstrap', True)
+            if isinstance(bootstrap, str):
+                bootstrap = bootstrap.lower() == 'true'
                 
-            # 如果特征是字符串，分割为列表
-            if isinstance(features, str) and features:
-                features = [f.strip() for f in features.split(',') if f.strip()]
+            # 更健壮的random_state参数处理
+            random_state_param = parameters.get('random_state', 42)
+            if isinstance(random_state_param, str):
+                try:
+                    random_state = int(random_state_param)
+                except ValueError:
+                    random_state = 42  # 默认值
+            else:
+                random_state = int(random_state_param) if random_state_param is not None else 42
             
-            # 准备数据处理代码
-            data_prep_code = self._prepare_data(train_dataset, features, target)
+            # 直接使用Python代码处理数据和训练模型
+            import pandas as pd
+            import numpy as np
+            import json
+            from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
+            from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
+            from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
+            from sklearn.preprocessing import LabelEncoder
             
-            # 准备测试数据代码
-            test_data_code = self._prepare_test_data(test_dataset, features, target)
+            # 解析数据
+            if isinstance(train_data, dict) and 'data' in train_data:
+                # 根据数据类型进行不同处理
+                if isinstance(train_data['data'], str):
+                    # 如果数据已经是字符串（JSON字符串），直接解析
+                    from io import StringIO
+                    train_df = pd.read_json(StringIO(train_data['data']), orient='split')
+                elif isinstance(train_data['data'], dict):
+                    # 如果是字典，转换为JSON字符串
+                    from io import StringIO
+                    train_df = pd.read_json(StringIO(json.dumps(train_data['data'])), orient='split')
+                else:
+                    # 尝试直接使用data字段
+                    train_df = pd.DataFrame(train_data['data'])
+            else:
+                logger.error(f"无法解析训练数据：{train_data}")
+                return ExecutionResult(
+                    success=False,
+                    error_message="无法解析训练数据，请检查上游组件输出"
+                )
             
-            # 模型训练代码
-            model_code = f"""
-# 选择模型类型
-from sklearn.ensemble import GradientBoostingClassifier, GradientBoostingRegressor
-import pickle
-import base64
-from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
-from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
-
-# 根据任务类型选择模型
-if '{task_type}' == 'classification':
-    # 创建模型
-    model = GradientBoostingClassifier(
-        n_estimators={n_estimators}, 
-        learning_rate={learning_rate}, 
-        max_depth={max_depth}, 
-        subsample={subsample},
-        random_state={random_state}
-    )
-    
-    # 训练模型
-    model.fit(X_train, y_train)
-    
-    # 获取特征重要性
-    feature_importances = model.feature_importances_
-    
-    # 保存模型
-    model_bytes = pickle.dumps(model)
-    model_data = base64.b16encode(model_bytes).decode('utf-8')
-    
-    # 在训练集上进行预测
-    y_train_pred = model.predict(X_train)
-    
-    # 计算训练指标
-    train_metrics = {{
-        'accuracy': float(accuracy_score(y_train, y_train_pred)),
-        'precision': float(precision_score(y_train, y_train_pred, average='weighted', zero_division=0)),
-        'recall': float(recall_score(y_train, y_train_pred, average='weighted', zero_division=0)),
-        'f1': float(f1_score(y_train, y_train_pred, average='weighted', zero_division=0))
-    }}
-    
-    # 模型对象信息
-    model_info = {{
-        'type': 'gradient_boosting',
-        'subtype': 'classification',
-        'n_estimators': {n_estimators},
-        'learning_rate': {learning_rate},
-        'max_depth': {max_depth},
-        'subsample': {subsample},
-        'feature_names': feature_cols,
-        'target': '{target}',
-        'classes': model.classes_.tolist(),
-        'model_data': model_data
-    }}
-else:  # 回归模型
-    # 创建模型
-    model = GradientBoostingRegressor(
-        n_estimators={n_estimators}, 
-        learning_rate={learning_rate}, 
-        max_depth={max_depth}, 
-        subsample={subsample},
-        random_state={random_state}
-    )
-    
-    # 训练模型
-    model.fit(X_train, y_train)
-    
-    # 获取特征重要性
-    feature_importances = model.feature_importances_
-    
-    # 保存模型
-    model_bytes = pickle.dumps(model)
-    model_data = base64.b16encode(model_bytes).decode('utf-8')
-    
-    # 在训练集上进行预测
-    y_train_pred = model.predict(X_train)
-    
-    # 计算训练指标
-    train_metrics = {{
-        'mse': float(mean_squared_error(y_train, y_train_pred)),
-        'rmse': float(mean_squared_error(y_train, y_train_pred, squared=False)),
-        'mae': float(mean_absolute_error(y_train, y_train_pred)),
-        'r2': float(r2_score(y_train, y_train_pred))
-    }}
-    
-    # 模型对象信息
-    model_info = {{
-        'type': 'gradient_boosting',
-        'subtype': 'regression',
-        'n_estimators': {n_estimators},
-        'learning_rate': {learning_rate},
-        'max_depth': {max_depth},
-        'subsample': {subsample},
-        'feature_names': feature_cols,
-        'target': '{target}',
-        'model_data': model_data
-    }}
-"""
+            # 使用通用方法选择特征列
+            feature_cols, error_message = self.select_features(train_df, parameters)
+            if error_message:
+                return ExecutionResult(
+                    success=False,
+                    error_message=error_message
+                )
             
-            # 添加预测代码
-            prediction_code = """
-# 准备结果字典
-result = {
-    'model_info': model_info,
-    'train_metrics': train_metrics
-}
-
-# 添加测试集评估结果
-if 'X_test' in locals() and 'y_test' in locals():
-    test_results = {}
-    
-    # 在测试集上进行预测
-    y_test_pred = model.predict(X_test)
-    
-    # 获取测试集结果
-    if '{task_type}' == 'classification':
-        # 如果存在概率预测方法
-        if hasattr(model, 'predict_proba'):
-            y_test_proba = model.predict_proba(X_test).tolist()
-            test_results['probabilities'] = y_test_proba
-        
-        # 计算测试指标
-        test_results['predictions'] = y_test_pred.tolist()
-        test_results['actual'] = y_test.tolist()
-        test_results['accuracy'] = float(accuracy_score(y_test, y_test_pred))
-        test_results['precision'] = float(precision_score(y_test, y_test_pred, average='weighted', zero_division=0))
-        test_results['recall'] = float(recall_score(y_test, y_test_pred, average='weighted', zero_division=0))
-        test_results['f1'] = float(f1_score(y_test, y_test_pred, average='weighted', zero_division=0))
-    else:
-        # 回归指标
-        test_results['predictions'] = y_test_pred.tolist()
-        test_results['actual'] = y_test.tolist()
-        test_results['mse'] = float(mean_squared_error(y_test, y_test_pred))
-        test_results['rmse'] = float(mean_squared_error(y_test, y_test_pred, squared=False))
-        test_results['mae'] = float(mean_absolute_error(y_test, y_test_pred))
-        test_results['r2'] = float(r2_score(y_test, y_test_pred))
-    
-    result['test_results'] = test_results
-
-# 计算特征重要性
-feature_importance = {}
-for i, feat in enumerate(feature_cols):
-    feature_importance[feat] = float(feature_importances[i])
-
-result['feature_importance'] = feature_importance
-
-print(json.dumps(result))
-"""
+            # 获取目标变量名
+            target = parameters.get('target', '')
             
-            # 将参数替换到预测代码中
-            prediction_code = prediction_code.format(
-                task_type=task_type
+            # 准备训练数据
+            X_train = train_df[feature_cols].values
+            y_train = train_df[target].values
+            
+            # 检查数据有效性
+            if np.isnan(X_train).any() or np.isnan(y_train).any():
+                return ExecutionResult(
+                    success=False,
+                    error_message="数据集包含NaN值，请先进行数据清洗"
+                )
+            
+            # 处理非数值目标变量（分类任务）
+            label_encoder = None
+            if task_type == 'classification' and not pd.api.types.is_numeric_dtype(train_df[target]):
+                label_encoder = LabelEncoder()
+                y_train = label_encoder.fit_transform(y_train)
+            
+            # 根据任务类型创建并训练模型
+            if task_type == 'classification':
+                model = RandomForestClassifier(
+                    n_estimators=n_estimators,
+                    criterion=criterion,
+                    max_depth=max_depth,
+                    max_features=max_features,
+                    bootstrap=bootstrap,
+                    random_state=random_state,
+                    n_jobs=-1  # 使用所有CPU核心
+                )
+            else:  # 回归
+                model = RandomForestRegressor(
+                    n_estimators=n_estimators,
+                    criterion=criterion,
+                    max_depth=max_depth,
+                    max_features=max_features,
+                    bootstrap=bootstrap,
+                    random_state=random_state,
+                    n_jobs=-1  # 使用所有CPU核心
+                )
+            
+            # 训练模型
+            model.fit(X_train, y_train)
+            
+            # 获取特征重要性
+            feature_importances = model.feature_importances_.tolist()
+            
+            # 计算训练指标和准备输出
+            y_train_pred = model.predict(X_train)
+            
+            if task_type == 'classification':
+                # 分类指标
+                train_metrics = {
+                    'accuracy': float(accuracy_score(y_train, y_train_pred)),
+                    'precision': float(precision_score(y_train, y_train_pred, average='weighted', zero_division=0)),
+                    'recall': float(recall_score(y_train, y_train_pred, average='weighted', zero_division=0)),
+                    'f1': float(f1_score(y_train, y_train_pred, average='weighted', zero_division=0))
+                }
+                
+                # 模型信息
+                classes = model.classes_.tolist()
+                if label_encoder is not None:
+                    original_classes = label_encoder.classes_.tolist()
+                else:
+                    original_classes = classes
+                
+                model_info = {
+                    'type': 'random_forest',
+                    'subtype': 'classification',
+                    'n_estimators': n_estimators,
+                    'criterion': criterion,
+                    'max_depth': max_depth,
+                    'max_features': max_features,
+                    'bootstrap': bootstrap,
+                    'feature_names': feature_cols,
+                    'target': target,
+                    'classes': original_classes,
+                    'model': model
+                }
+            else:  # 回归
+                # 回归指标
+                train_metrics = {
+                    'mse': float(mean_squared_error(y_train, y_train_pred)),
+                    'rmse': float(np.sqrt(mean_squared_error(y_train, y_train_pred))),
+                    'mae': float(mean_absolute_error(y_train, y_train_pred)),
+                    'r2': float(r2_score(y_train, y_train_pred))
+                }
+                
+                # 模型信息
+                model_info = {
+                    'type': 'random_forest',
+                    'subtype': 'regression',
+                    'n_estimators': n_estimators,
+                    'criterion': criterion,
+                    'max_depth': max_depth,
+                    'max_features': max_features,
+                    'bootstrap': bootstrap,
+                    'feature_names': feature_cols,
+                    'target': target
+                }
+            
+            # 计算特征重要性
+            feature_importance = {}
+            for i, feat in enumerate(feature_cols):
+                if i < len(feature_importances):
+                    feature_importance[feat] = float(feature_importances[i])
+            
+            # 准备输出数据
+            outputs = {
+                'model': model_info,
+                'train_metrics': train_metrics,
+                'feature_importance': feature_importance
+            }
+            
+            # 确保输出可序列化
+            outputs = self._ensure_serializable(outputs)
+            
+            # 返回模型和训练相关信息
+            return ExecutionResult(
+                success=True,
+                outputs=outputs,
+                logs=[f"随机森林({task_type})模型训练完成，树的数量: {n_estimators}"]
             )
-            
-            # 组合所有代码
-            code = f"""
-{data_prep_code}
-{test_data_code}
-{model_code}
-{prediction_code}
-"""
-            
-            # 在容器中执行
-            success, output = self.execute_in_container(code)
-            
-            if not success:
-                return ExecutionResult(
-                    success=False,
-                    error_message=f"梯度提升树模型训练失败: {output}"
-                )
                 
-            # 解析输出
-            try:
-                result = json.loads(output)
-                
-                return ExecutionResult(
-                    success=True,
-                    output={
-                        'model': result.get('model_info', {}),
-                        'train_metrics': result.get('train_metrics', {}),
-                        'test_results': result.get('test_results', {}),
-                        'feature_importance': result.get('feature_importance', {})
-                    }
-                )
-            except Exception as e:
-                return ExecutionResult(
-                    success=False,
-                    error_message=f"解析梯度提升树模型结果失败: {str(e)}\n输出: {output}"
-                )
-            
         except Exception as e:
-            error_message = f"执行梯度提升树训练器出错: {str(e)}\n{traceback.format_exc()}"
-            logger.error(error_message)
+            logger.error(f"执行随机森林训练器时出错: {str(e)}")
+            import traceback
+            logger.error(traceback.format_exc())
             return ExecutionResult(
                 success=False,
-                error_message=error_message
+                error_message=str(e),
+                logs=[traceback.format_exc()]
             )
 
-
-class KMeansTrainer(BaseModelTrainer):
-    """K-均值聚类训练器
-    
-    训练K-Means聚类模型，用于无监督学习的聚类分析。
-    对应前端组件ID: kmeans
-    """
-    
-    def execute(self, inputs: Dict[str, Any], parameters: Dict[str, Any]) -> ExecutionResult:
-        """
-        训练K-Means聚类模型
-        
-        Args:
-            inputs: 输入数据，包括:
-                - train: 训练数据集
-                - test: 测试数据集（可选）
-            parameters: 参数，包括:
-                - features: 特征列
-                - n_clusters: 聚类数量
-                - init: 初始化方法（k-means++、random）
-                - max_iter: 最大迭代次数
-                - random_state: 随机种子
-                
-        Returns:
-            ExecutionResult: 执行结果，包含训练好的模型和聚类结果
-        """
-        try:
-            # 获取输入数据
-            if 'train' not in inputs:
-                return ExecutionResult(
-                    success=False,
-                    error_message="缺少训练数据集"
-                )
-            
-            train_dataset = inputs.get('train', {})
-            test_dataset = inputs.get('test', {})
-            
-            # 获取参数
-            features = parameters.get('features', '')
-            n_clusters = int(parameters.get('n_clusters', 3))
-            init = parameters.get('init', 'k-means++')
-            max_iter = int(parameters.get('max_iter', 300))
-            random_state = int(parameters.get('random_state', 42))
-            
-            # 如果特征是字符串，分割为列表
-            if isinstance(features, str) and features:
-                features = [f.strip() for f in features.split(',') if f.strip()]
-            
-            # 准备数据处理代码（聚类不需要目标变量）
-            data_prep_code = """
-try:
-    import pandas as pd
-    import numpy as np
-    import json
-    
-    # 解析训练数据集
-    train_df = pd.read_json('''{json.dumps(train_dataset.get('data', '{}'))}''', orient='split')
-    
-    # 确定特征列
-    if {repr(features)}:
-        feature_cols = [col for col in {repr(features)} if col in train_df.columns]
-    else:
-        # 使用所有数值列作为特征
-        feature_cols = [col for col in train_df.columns if pd.api.types.is_numeric_dtype(train_df[col])]
-    
-    if not feature_cols:
-        raise ValueError("没有有效的特征列")
-    
-    # 准备特征矩阵
-    X_train = train_df[feature_cols].values
-    
-    # 检查数据有效性
-    if np.isnan(X_train).any():
-        raise ValueError("数据集包含NaN值，请先进行数据清洗")
-""".format(
-                json.dumps(train_dataset.get('data', '{}')),
-                repr(features)
-            )
-            
-            # 准备测试数据代码
-            test_data_code = """
-# 处理测试数据集
-X_test = None
-test_df = None
-if {test_exists}:
-    try:
-        test_df = pd.read_json('''{test_data}''', orient='split')
-        # 使用与训练集相同的特征
-        if feature_cols and all(col in test_df.columns for col in feature_cols):
-            X_test = test_df[feature_cols].values
-    except Exception as e:
-        print(f"警告: 测试数据集处理失败: {{str(e)}}")
-""".format(
-                test_exists=bool(test_dataset),
-                test_data=json.dumps(test_dataset.get('data', '{}'))
-            )
-            
-            # 模型训练代码
-            model_code = f"""
-# 导入必要的库
-from sklearn.cluster import KMeans
-import pickle
-import base64
-from sklearn.metrics import silhouette_score, calinski_harabasz_score, davies_bouldin_score
-
-# 创建并训练K-Means模型
-model = KMeans(
-    n_clusters={n_clusters},
-    init='{init}',
-    max_iter={max_iter},
-    random_state={random_state}
-)
-
-# 训练模型
-model.fit(X_train)
-
-# 获取模型属性
-cluster_centers = model.cluster_centers_.tolist()
-labels = model.labels_.tolist()
-inertia = float(model.inertia_)
-
-# 获取聚类质量评估指标
-try:
-    if len(np.unique(labels)) > 1 and len(X_train) > len(np.unique(labels)):
-        silhouette = float(silhouette_score(X_train, labels))
-        calinski = float(calinski_harabasz_score(X_train, labels))
-        davies = float(davies_bouldin_score(X_train, labels))
-    else:
-        silhouette = 0
-        calinski = 0
-        davies = 0
-except Exception as e:
-    silhouette = 0
-    calinski = 0
-    davies = 0
-    print(f"警告: 聚类评估指标计算失败: {{str(e)}}")
-
-# 保存模型
-model_bytes = pickle.dumps(model)
-model_data = base64.b16encode(model_bytes).decode('utf-8')
-
-# 聚类结果数据框
-train_df['cluster'] = labels
-cluster_stats = []
-
-# 计算每个聚类的统计信息
-for i in range({n_clusters}):
-    cluster_df = train_df[train_df['cluster'] == i]
-    if not cluster_df.empty:
-        # 计算每个特征的均值和标准差
-        stats = {{
-            'cluster_id': i,
-            'size': len(cluster_df),
-            'percentage': float(len(cluster_df) / len(train_df) * 100),
-            'feature_stats': {{}}
-        }}
-        
-        for feat in feature_cols:
-            if pd.api.types.is_numeric_dtype(cluster_df[feat]):
-                stats['feature_stats'][feat] = {{
-                    'mean': float(cluster_df[feat].mean()),
-                    'std': float(cluster_df[feat].std()),
-                    'min': float(cluster_df[feat].min()),
-                    'max': float(cluster_df[feat].max())
-                }}
-        
-        cluster_stats.append(stats)
-
-# 模型信息
-model_info = {{
-    'type': 'kmeans',
-    'n_clusters': {n_clusters},
-    'init': '{init}',
-    'max_iter': {max_iter},
-    'centers': cluster_centers,
-    'feature_names': feature_cols,
-    'model_data': model_data
-}}
-
-# 评估指标
-metrics = {{
-    'inertia': inertia,
-    'silhouette_score': silhouette,
-    'calinski_harabasz_score': calinski,
-    'davies_bouldin_score': davies
-}}
-
-# 聚类结果
-train_results = {{
-    'labels': labels,
-    'cluster_stats': cluster_stats
-}}
-"""
-            
-            # 添加预测代码
-            prediction_code = """
-# 准备结果字典
-result = {
-    'model_info': model_info,
-    'metrics': metrics,
-    'train_results': train_results
-}
-
-# 添加测试集预测结果
-if X_test is not None:
-    test_labels = model.predict(X_test).tolist()
-    
-    # 如果测试数据框存在
-    if test_df is not None:
-        test_df['cluster'] = test_labels
-        
-        # 聚类分布
-        test_distribution = {}
-        for i in range({n_clusters}):
-            test_distribution[str(i)] = int((np.array(test_labels) == i).sum())
-        
-        # 测试结果
-        test_results = {
-            'labels': test_labels,
-            'distribution': test_distribution
-        }
-        
-        result['test_results'] = test_results
-
-# 计算特征重要性（基于聚类中心的方差）
-# 对于KMeans，我们可以基于聚类中心的离散程度来估计特征重要性
-feature_importance = {}
-centers_array = np.array(cluster_centers)
-if centers_array.shape[0] > 1:  # 至少有两个聚类
-    # 计算每个特征在聚类中心上的方差
-    feature_variances = np.var(centers_array, axis=0)
-    total_variance = np.sum(feature_variances)
-    
-    if total_variance > 0:
-        # 将方差归一化为重要性得分
-        for i, feat in enumerate(feature_cols):
-            if i < len(feature_variances):
-                importance = feature_variances[i] / total_variance
-                feature_importance[feat] = float(importance)
-    else:
-        # 如果方差为0，则均匀分配重要性
-        for feat in feature_cols:
-            feature_importance[feat] = 1.0 / len(feature_cols)
-else:
-    # 如果只有一个聚类，则均匀分配重要性
-    for feat in feature_cols:
-        feature_importance[feat] = 1.0 / len(feature_cols)
-
-result['feature_importance'] = feature_importance
-
-print(json.dumps(result))
-"""
-            
-            # 将参数替换到预测代码中
-            prediction_code = prediction_code.format(
-                n_clusters=n_clusters
-            )
-            
-            # 组合所有代码
-            code = f"""
-{data_prep_code}
-{test_data_code}
-{model_code}
-{prediction_code}
-"""
-            
-            # 在容器中执行
-            success, output = self.execute_in_container(code)
-            
-            if not success:
-                return ExecutionResult(
-                    success=False,
-                    error_message=f"K-Means聚类模型训练失败: {output}"
-                )
-                
-            # 解析输出
-            try:
-                result = json.loads(output)
-                
-                return ExecutionResult(
-                    success=True,
-                    output={
-                        'model': result.get('model_info', {}),
-                        'metrics': result.get('metrics', {}),
-                        'train_results': result.get('train_results', {}),
-                        'test_results': result.get('test_results', {}),
-                        'feature_importance': result.get('feature_importance', {})
-                    }
-                )
-            except Exception as e:
-                return ExecutionResult(
-                    success=False,
-                    error_message=f"解析K-Means聚类模型结果失败: {str(e)}\n输出: {output}"
-                )
-            
-        except Exception as e:
-            error_message = f"执行K-Means聚类训练器出错: {str(e)}\n{traceback.format_exc()}"
-            logger.error(error_message)
-            return ExecutionResult(
-                success=False,
-                error_message=error_message
-            )

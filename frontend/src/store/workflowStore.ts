@@ -117,6 +117,8 @@ export interface WorkflowState {
   setCurrentWorkflow: (workflow: WorkflowData) => void;
   exportWorkflow: () => string;
   importWorkflow: (jsonData: string) => WorkflowData | null;
+  setNodes: (nodes: Node[]) => void;
+  updateNodeStatus: (nodeId: string, status: 'idle' | 'running' | 'success' | 'error') => void;
 }
 
 // 创建工作流状态管理
@@ -253,12 +255,23 @@ const useWorkflowStore = create<WorkflowState>((set, get) => ({
   // 加载工作流
   loadWorkflow: (workflow: WorkflowData) => {
     console.log('[WorkflowStore] Loading workflow:', workflow);
+    
+    // 首先清空所有现有节点和边缘
     set({ 
-      nodes: workflow.nodes || [], 
-      edges: workflow.edges || [],
-      currentWorkflow: workflow, // 保存整个 workflow 对象
+      nodes: [], 
+      edges: [],
       selectedNode: null // 清除选中节点
     });
+    
+    // 在下一个微任务中设置新的节点和边缘数据，确保老数据被清除
+    setTimeout(() => {
+      set({ 
+        nodes: workflow.nodes || [], 
+        edges: workflow.edges || [],
+        currentWorkflow: workflow, // 保存整个 workflow 对象
+      });
+      console.log('[WorkflowStore] Workflow loaded with', workflow.nodes?.length || 0, 'nodes and', workflow.edges?.length || 0, 'edges');
+    }, 0);
   },
 
   // 仅更新currentWorkflow元数据，不修改节点和边缘
@@ -295,6 +308,27 @@ const useWorkflowStore = create<WorkflowState>((set, get) => ({
       console.error('导入工作流失败:', error);
       return null;
     }
+  },
+
+  setNodes: (nodes: Node[]) => {
+    set({ nodes });
+  },
+
+  updateNodeStatus: (nodeId: string, status: 'idle' | 'running' | 'success' | 'error') => {
+    set({
+      nodes: get().nodes.map(node => {
+        if (node.id === nodeId) {
+          return {
+            ...node,
+            data: {
+              ...node.data,
+              status
+            }
+          };
+        }
+        return node;
+      })
+    });
   },
 }));
 

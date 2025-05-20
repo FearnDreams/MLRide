@@ -9,7 +9,7 @@ import ReactFlow, {
   Node
 } from 'reactflow';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
-import { ArrowLeft, FileCode, Download, ChevronLeft, ChevronRight, Sliders, Play, Save, Trash2 } from 'lucide-react';
+import { ArrowLeft, FileCode, Download, ChevronLeft, ChevronRight, Sliders, Play, Save, Trash2, Eye, Square } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
 import ComponentNode from '@/components/workflows/ComponentNode';
@@ -39,6 +39,256 @@ function getCookie(name: string): string | null {
   return cookieValue;
 }
 
+// 结果展示面板组件
+const ResultViewPanel = ({ outputs, nodeLabel }: { outputs: any, nodeLabel: string }) => {
+  // 获取要显示的图像数据
+  const getImageData = () => {
+    // 直接图像输出
+    if (outputs.image) return outputs.image;
+    
+    // 标准图表格式
+    if (outputs.chart) return outputs.chart;
+    
+    // 折线图数据
+    if (outputs.roc_data && outputs.roc_data.image) return outputs.roc_data.image;
+    
+    // 混淆矩阵数据
+    if (outputs.confusion_matrix && 
+        outputs.confusion_matrix.confusion_matrix && 
+        outputs.confusion_matrix.confusion_matrix.image) {
+      return outputs.confusion_matrix.confusion_matrix.image;
+    }
+    
+    // 检查嵌套输出格式
+    if (typeof outputs === 'object') {
+      for (const key in outputs) {
+        const value = outputs[key];
+        if (value && typeof value === 'object') {
+          if ('chart' in value && typeof value.chart === 'string') return value.chart;
+          if ('image' in value && typeof value.image === 'string') return value.image;
+        }
+      }
+    }
+    
+    return '';
+  };
+  
+  const imageData = getImageData();
+  const hasImageData = imageData !== '';
+  
+  // 检测输出类型
+  const getOutputType = () => {
+    // 检查是否有DataFrame数据
+    if (outputs.data && Array.isArray(outputs.data)) {
+      return 'dataframe';
+    }
+    
+    // 检查常见的图表类型
+    if (outputs.roc_data) return 'chart-line';
+    if (outputs.confusion_matrix) return 'chart-heatmap';
+    if (outputs.chart_type) return `chart-${outputs.chart_type}`;
+    
+    // 检查CSV组件特有的数据结构
+    if (outputs.columns && outputs.data_sample) {
+      return 'csv-data';
+    }
+    
+    // 默认为通用数据
+    return 'generic';
+  };
+  
+  // 获取精度指标
+  const getAccuracy = () => {
+    if (outputs.confusion_matrix && outputs.confusion_matrix.accuracy !== undefined) {
+      return outputs.confusion_matrix.accuracy;
+    }
+    return outputs.accuracy;
+  };
+  
+  // 获取AUC值
+  const getAUC = () => {
+    if (outputs.roc_data && outputs.roc_data.auc) {
+      return outputs.roc_data.auc[0];
+    }
+    return outputs.auc;
+  };
+  
+  const outputType = getOutputType();
+  const accuracy = getAccuracy();
+  const auc = getAUC();
+
+  // 渲染DataFrame或表格数据
+  const renderTableData = () => {
+    // 检查是否为CSV输入组件的dataset格式
+    if (outputs.dataset) {
+  return (
+        <div className="p-3 bg-slate-800 rounded-md">
+          <p className="text-slate-300">CSV数据加载成功，信息如下：</p>
+          
+          {/* 数据形状信息 */}
+          {outputs.dataset.info && outputs.dataset.info.shape && (
+            <div className="mt-3 p-2 bg-slate-700/50 rounded-lg">
+              <div className="text-sm text-white font-semibold mb-1">数据集信息:</div>
+              <div className="flex gap-4">
+                <div className="text-xs text-green-300">
+                  <span className="text-slate-400">行数:</span> {outputs.dataset.info.shape[0]?.toLocaleString()}
+                </div>
+                <div className="text-xs text-green-300">
+                  <span className="text-slate-400">列数:</span> {outputs.dataset.info.shape[1]?.toLocaleString()}
+                </div>
+              </div>
+            </div>
+          )}
+          
+          {/* 列信息 */}
+          {outputs.dataset.columns && (
+            <div className="mt-3 p-2 bg-slate-700/50 rounded-lg">
+              <div className="text-sm text-white font-semibold mb-1">列名:</div>
+              <div className="flex flex-wrap gap-2 max-h-20 overflow-y-auto custom-scrollbar">
+                {outputs.dataset.columns.map((col: string, idx: number) => (
+                  <div key={idx} className="text-xs px-2 py-1 bg-slate-600/50 rounded text-slate-300">{col}</div>
+                ))}
+              </div>
+            </div>
+          )}
+          
+          {/* 数据类型信息 */}
+          {outputs.dataset.dtypes && (
+            <div className="mt-3 p-2 bg-slate-700/50 rounded-lg">
+              <div className="text-sm text-white font-semibold mb-1">数据类型:</div>
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-2 max-h-24 overflow-y-auto custom-scrollbar">
+                {Object.entries(outputs.dataset.dtypes).map(([col, type]: [string, any], idx: number) => (
+                  <div key={idx} className="text-xs flex justify-between gap-2 px-2 py-1 bg-slate-600/30 rounded">
+                    <span className="text-slate-300 truncate" title={col}>{col}</span>
+                    <span className="text-blue-300 text-right">{type}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+          
+          {/* 数据样本展示 - 以缩略形式展示JSON */}
+          <div className="mt-3">
+            <div className="text-sm text-white font-semibold mb-1">完整数据:</div>
+            <details>
+              <summary className="cursor-pointer text-xs text-slate-300 mb-1 p-1 hover:bg-slate-700/50 rounded">
+                &#x25BC; 展开/收起原始数据 (JSON格式)
+              </summary>
+              <pre className="mt-2 p-3 bg-slate-900 rounded-md overflow-auto text-xs text-slate-300 max-h-[35vh] whitespace-pre-wrap break-all custom-scrollbar">
+                {JSON.stringify(outputs, null, 2)}
+              </pre>
+            </details>
+          </div>
+        </div>
+      );
+    }
+    
+    // CSV输入组件的特殊处理
+    if (outputType === 'csv-data' && outputs.columns && outputs.data_sample) {
+      return (
+        <div className="overflow-x-auto w-full custom-scrollbar">
+          <table className="min-w-full border-collapse text-sm">
+            <thead>
+              <tr className="bg-slate-700">
+                {outputs.columns.map((col: string, idx: number) => (
+                  <th key={idx} className="px-4 py-2 text-left text-white border border-slate-600">{col}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {outputs.data_sample.map((row: any[], rowIdx: number) => (
+                <tr key={rowIdx} className={rowIdx % 2 === 0 ? 'bg-slate-800' : 'bg-slate-850'}>
+                  {row.map((cell, cellIdx) => (
+                    <td key={cellIdx} className="px-4 py-2 border border-slate-600 text-slate-300">
+                      {String(cell)}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <div className="mt-3 text-xs text-slate-400 italic">
+            {outputs.total_rows ? `显示 ${outputs.data_sample.length} 行，共 ${outputs.total_rows} 行` : ''}
+          </div>
+        </div>
+      );
+    }
+    
+    // 其他数据处理组件的数据展示
+    if (outputType === 'dataframe' && Array.isArray(outputs.data)) {
+      // 提取列名（假设第一行数据包含所有键）
+      const columns = outputs.data.length > 0 ? Object.keys(outputs.data[0]) : [];
+      
+      return (
+        <div className="overflow-x-auto w-full">
+          <table className="min-w-full border-collapse text-sm">
+            <thead>
+              <tr className="bg-slate-700">
+                {columns.map((col, idx) => (
+                  <th key={idx} className="px-4 py-2 text-left text-white border border-slate-600">{col}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {outputs.data.slice(0, 10).map((row: any, rowIdx: number) => (
+                <tr key={rowIdx} className={rowIdx % 2 === 0 ? 'bg-slate-800' : 'bg-slate-850'}>
+                  {columns.map((col, cellIdx) => (
+                    <td key={cellIdx} className="px-4 py-2 border border-slate-600 text-slate-300">
+                      {String(row[col])}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <div className="mt-3 text-xs text-slate-400 italic">
+            {outputs.data.length > 10 ? `显示前 10 行，共 ${outputs.data.length} 行` : `共 ${outputs.data.length} 行`}
+          </div>
+        </div>
+      );
+    }
+    
+    // 默认情况：JSON显示
+    return (
+      <div className="p-3 bg-slate-800 rounded-md">
+        <p className="text-slate-300">该组件执行成功，输出如下：</p>
+        <pre className="mt-3 p-3 bg-slate-900 rounded-md overflow-x-auto whitespace-pre-wrap text-xs text-slate-300 max-h-[30vh]">
+          {JSON.stringify(outputs, null, 2)}
+        </pre>
+      </div>
+    );
+  };
+
+  return (
+    <div className="w-full">
+      {hasImageData ? (
+        <div className="flex flex-col items-center">
+          <img 
+            src={`data:image/png;base64,${imageData}`} 
+            alt="可视化结果" 
+            className="max-w-full mb-3" 
+          />
+          
+          <div className="flex gap-3 mt-2">
+            {outputType === 'chart-line' && auc !== undefined && (
+              <div className="text-sm px-3 py-1 bg-green-600/30 text-green-300 rounded-md">
+                AUC值: {auc.toFixed(4)}
+              </div>
+            )}
+            {outputType === 'chart-heatmap' && accuracy !== undefined && (
+              <div className="text-sm px-3 py-1 bg-green-600/30 text-green-300 rounded-md">
+                准确率: {accuracy.toFixed(4)}
+              </div>
+            )}
+          </div>
+        </div>
+      ) : (
+        renderTableData()
+      )}
+    </div>
+  );
+};
+
 // 定义节点类型
 const nodeTypes: NodeTypes = {
   component: ComponentNode,
@@ -50,11 +300,46 @@ const WorkflowDesignerContent: React.FC = () => {
   const { nodes, edges, onNodesChange, onEdgesChange, onConnect, setSelectedNode } = useWorkflowStore();
   const reactFlowInstance = useReactFlow();
   const [executing, setExecuting] = useState(false);
+  const [executionId, setExecutionId] = useState<number | null>(null); // 添加执行ID状态
   const [saving, setSaving] = useState(false);
+  const [workflowCompleted, setWorkflowCompleted] = useState(false);
+  const [showResultsDialog, setShowResultsDialog] = useState(false);
+  // 添加轮询取消标志
+  const pollingCancelRef = useRef<boolean>(false);
   
   const routeParams = useParams<{ id: string; workflowId?: string }>(); 
+  const navigate = useNavigate();
   const projectId = routeParams.id;
   const [workflowId, setWorkflowId] = useState<string | undefined>(routeParams.workflowId);
+  
+  // 增加组件挂载状态跟踪
+  const [componentMounted, setComponentMounted] = useState(false);
+  const [loadAttempted, setLoadAttempted] = useState(false);
+  const [isLoadingWorkflow, setIsLoadingWorkflow] = useState(false); // 添加加载状态标记
+  const [windowSize, setWindowSize] = useState({ width: window.innerWidth, height: window.innerHeight });
+  
+  // 在窗口大小改变时更新状态
+  useEffect(() => {
+    const handleResize = () => {
+      setWindowSize({ width: window.innerWidth, height: window.innerHeight });
+    };
+
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
+  // 在组件挂载时标记已挂载
+  useEffect(() => {
+    console.log('[WorkflowDesignerContent] 组件挂载');
+    setComponentMounted(true);
+    
+    // 组件卸载时清除状态
+    return () => {
+      console.log('[WorkflowDesignerContent] 组件卸载');
+      setComponentMounted(false);
+      setLoadAttempted(false);
+    };
+  }, []);
 
   // 在useEffect中打印一次projectId确保其正确获取
   useEffect(() => {
@@ -62,93 +347,205 @@ const WorkflowDesignerContent: React.FC = () => {
     console.log('[WorkflowDesignerContent] Initial workflowId from routeParams:', workflowId);
   }, [projectId, workflowId]);
 
-  // 检测URL变化，更新workflowId
-  useEffect(() => {
-    const newWorkflowId = routeParams.workflowId;
-    if (newWorkflowId !== workflowId) {
-      console.log('[WorkflowDesignerContent] Updating workflowId from URL:', newWorkflowId);
-      setWorkflowId(newWorkflowId);
+  // 提取工作流加载为单独函数
+  const loadWorkflowDefinition = useCallback(async (id: string) => {
+    if (!id) {
+      console.warn('[loadWorkflowDefinition] 未提供workflowId，无法加载工作流');
+      return false;
+    }
       
-      // 如果URL中有workflowId，则尝试加载工作流定义
-      if (newWorkflowId) {
-        const loadWorkflowDefinition = async () => {
+    // 如果已经在加载中，避免重复请求
+    if (isLoadingWorkflow) {
+      console.log('[loadWorkflowDefinition] 已有加载请求正在进行中，跳过');
+      return false;
+    }
+
+    console.log(`[loadWorkflowDefinition] 开始加载工作流 ID: ${id}`);
+    setIsLoadingWorkflow(true); // 标记加载开始
+          
           try {
-            const response = await fetch(`/api/project/workflows/${newWorkflowId}/`);
+      const response = await fetch(`/api/project/workflows/${id}/`);
+      
             if (response.ok) {
               const workflowData = await response.json();
-              console.log('[WorkflowDesignerContent] 加载工作流定义成功:', workflowData);
+        console.log('[loadWorkflowDefinition] 加载工作流定义成功:', workflowData);
               
               // 将工作流定义加载到store中
               if (workflowData.definition && workflowData.definition.nodes && workflowData.definition.edges) {
-                console.log('[WorkflowDesignerContent] 正在加载工作流节点到store, 节点数量:', workflowData.definition.nodes.length);
+          console.log('[loadWorkflowDefinition] 正在加载工作流节点到store, 节点数量:', workflowData.definition.nodes.length);
                 
-                // 预处理节点数据，确保文件路径信息正确
+          // 预处理节点数据，确保文件路径信息和类型正确
                 if (workflowData.definition.nodes.length > 0) {
                   workflowData.definition.nodes = workflowData.definition.nodes.map((node: Node) => {
+              // 确保每个节点都有type属性
+              if (!node.type) {
+                node.type = 'component';
+                console.log(`[loadWorkflowDefinition] 为节点 ${node.id} 添加缺失的type属性: component`);
+              }
+              
+              // 如果是CSV输入组件，处理文件路径
                     if (node.data && node.data.component && node.data.component.id === 'csv-input') {
-                      console.log(`[WorkflowDesignerContent] 检查CSV节点参数:`, node.data.params);
+                console.log(`[loadWorkflowDefinition] 检查CSV节点参数:`, node.data.params);
                       
                       // 修复文件路径和文件信息
                       if (node.data.params) {
                         const filePathParam = node.data.params.file_path;
                         const fileInfoParam = node.data.params._file_info;
                         
-                        // 如果有有效的file_path但没有_file_info
-                        if (typeof filePathParam === 'string' && filePathParam && (!fileInfoParam || typeof fileInfoParam !== 'object')) {
+                  // 同步文件路径信息
+                  if (typeof filePathParam === 'string' && filePathParam) {
                           // 从路径提取文件名
                           const fileName = filePathParam.split('/').pop() || 'data.csv';
-                          // 创建基本的file_info对象
+                    // 确保存在_file_info
+                    if (!fileInfoParam || typeof fileInfoParam !== 'object') {
                           node.data.params._file_info = {
                             name: fileName,
                             serverPath: filePathParam
                           };
-                          console.log(`[WorkflowDesignerContent] 为CSV节点添加缺失的文件信息:`, node.data.params._file_info);
+                    } else if (typeof fileInfoParam === 'object') {
+                      // 更新serverPath
+                      node.data.params._file_info.serverPath = filePathParam;
+                      // 如果没有名称，添加名称
+                      if (!node.data.params._file_info.name) {
+                        node.data.params._file_info.name = fileName;
+                      }
+                    }
+                    console.log(`[loadWorkflowDefinition] 更新文件信息:`, node.data.params._file_info);
                         }
-                        
-                        // 如果有_file_info但file_path是空的或无效的，使用serverPath
-                        if (fileInfoParam && typeof fileInfoParam === 'object' && fileInfoParam.serverPath &&
+                  // 从file_info恢复file_path
+                  else if (fileInfoParam && typeof fileInfoParam === 'object' && fileInfoParam.serverPath &&
                             (!filePathParam || typeof filePathParam === 'object' || filePathParam === '')) {
                           node.data.params.file_path = fileInfoParam.serverPath;
-                          console.log(`[WorkflowDesignerContent] 从_file_info恢复file_path:`, fileInfoParam.serverPath);
+                    console.log(`[loadWorkflowDefinition] 从_file_info恢复file_path:`, fileInfoParam.serverPath);
                         }
-                        
-                        // 修复空对象参数问题
-                        if (node.data.params && typeof node.data.params.file_path === 'object' && 
-                            Object.keys(node.data.params.file_path).length === 0) {
-                          console.log(`[WorkflowDesignerContent] 发现空file_path对象，检查是否有serverPath可用`);
-                          
-                          // 尝试从_file_info恢复
-                          if (node.data.params._file_info && node.data.params._file_info.serverPath) {
-                            node.data.params.file_path = node.data.params._file_info.serverPath;
-                            console.log(`[WorkflowDesignerContent] 从_file_info恢复file_path:`, node.data.params.file_path);
+                  // 修复无效文件路径
+                  else if (node.data.params && typeof node.data.params.file_path === 'object') {
+                    console.log(`[loadWorkflowDefinition] 修复无效文件路径`);
+                    if (fileInfoParam && fileInfoParam.serverPath) {
+                      node.data.params.file_path = fileInfoParam.serverPath;
                           } else {
                             node.data.params.file_path = null;
-                            console.log(`[WorkflowDesignerContent] 无法恢复file_path，设置为null防止后端解析错误`);
                           }
                         }
                       }
                     }
+                    
                     return node;
                   });
                 }
                 
-                // 保留完整的工作流对象作为currentWorkflow，同时也更新nodes和edges
-                useWorkflowStore.getState().loadWorkflow(workflowData);
+          // 设置标志，表示已尝试加载
+          setLoadAttempted(true);
+          
+          console.log('[loadWorkflowDefinition] 正在更新工作流到store...');
+          
+          // 清空现有节点，然后使用延迟加载新节点的方式
+          // 这有助于ReactFlow组件正确识别节点状态变化
+          useWorkflowStore.setState({ nodes: [], edges: [] });
+          
+          // 使用延迟确保清空操作完成后再加载新节点
+                setTimeout(() => {
+            // 使用store的loadWorkflow函数加载完整工作流
+            useWorkflowStore.getState().loadWorkflow({
+                    ...workflowData,
+                    nodes: workflowData.definition.nodes,
+                    edges: workflowData.definition.edges
+                  });
+                  
+            console.log('[loadWorkflowDefinition] 工作流加载完成，节点数量:', workflowData.definition.nodes.length);
+            console.log('[loadWorkflowDefinition] 节点IDs:', workflowData.definition.nodes.map((n: Node) => n.id));
+            
+            // 显示成功通知 - 不使用toast，因为父组件已经有加载成功的提示
+            // 移除这个成功提示，由父组件统一显示
+            // toast.success(`工作流 "${workflowData.name}" 加载成功`);
+            
+            // 从sessionStorage获取工作流名称并显示成功提示
+            const lastLoadedWorkflowName = sessionStorage.getItem('last_loaded_workflow_name');
+            if (lastLoadedWorkflowName) {
+              toast.success(`已加载最新工作流: ${lastLoadedWorkflowName}`);
+              // 显示后立即清除，避免重复显示
+              sessionStorage.removeItem('last_loaded_workflow_name');
               } else {
-                console.warn('[WorkflowDesignerContent] 工作流定义不完整');
+              toast.success(`工作流 "${workflowData.name}" 加载成功`);
+              }
+          }, 50);
+          
+          return true;
+            } else {
+          console.warn('[loadWorkflowDefinition] 工作流定义不完整:', workflowData);
+          toast.error('工作流定义不完整，无法加载');
+          return false;
               }
             } else {
-              console.error('[WorkflowDesignerContent] 加载工作流定义失败:', response.status);
+        console.error('[loadWorkflowDefinition] 加载工作流定义失败:', response.status);
+        toast.error(`加载工作流失败: ${response.status}`);
+        return false;
             }
           } catch (error) {
-            console.error('[WorkflowDesignerContent] 加载工作流定义出错:', error);
-          }
-        };
-        
-        loadWorkflowDefinition();
+      console.error('[loadWorkflowDefinition] 加载工作流定义出错:', error);
+      toast.error('加载工作流时发生错误');
+      return false;
+    } finally {
+      setIsLoadingWorkflow(false); // 无论成功失败，标记加载结束
+    }
+  }, [isLoadingWorkflow]);
+
+  // 检测URL变化，更新workflowId，并加载工作流
+  useEffect(() => {
+    const newWorkflowId = routeParams.workflowId;
+    
+    console.log('[WorkflowDesignerContent] 路由参数中的workflowId:', newWorkflowId);
+    console.log('[WorkflowDesignerContent] 当前状态中的workflowId:', workflowId);
+    
+    if (newWorkflowId !== workflowId) {
+      console.log('[WorkflowDesignerContent] Updating workflowId from URL:', newWorkflowId);
+      setWorkflowId(newWorkflowId);
+      
+      // 如果URL中有workflowId，且组件已挂载，则尝试加载工作流定义
+      if (newWorkflowId && componentMounted && reactFlowInstance) {
+        // 加载前设置标志，防止其他useEffect重复加载
+        setLoadAttempted(true);
+        loadWorkflowDefinition(newWorkflowId);
       }
     }
-  }, [routeParams.workflowId, workflowId, projectId]);
+  }, [routeParams.workflowId, workflowId, componentMounted, reactFlowInstance, loadWorkflowDefinition]);
+  
+  // 合并之前的两个useEffect，只保留一个备用加载逻辑
+  useEffect(() => {
+    // 仅在以下情况运行:
+    // 1. 组件已挂载 
+    // 2. ReactFlow实例已初始化
+    // 3. 没有workflowId或未尝试加载过
+    // 4. 没有节点 (画布是空的)
+    if (componentMounted && reactFlowInstance && (!workflowId || !loadAttempted) && nodes.length === 0) {
+      console.log('[WorkflowDesignerContent] 尝试备用加载流程');
+      
+      // 方式1: 使用已知workflowId但尚未尝试加载
+      if (workflowId && !loadAttempted) {
+        console.log('[WorkflowDesignerContent] 使用已有workflowId加载工作流:', workflowId);
+        setLoadAttempted(true);
+        loadWorkflowDefinition(workflowId);
+        return;
+      }
+      
+      // 方式2: 尝试从localStorage获取path
+      const lastPath = localStorage.getItem('lastPath');
+      const lastWorkflowId = lastPath?.match(/\/workflows\/(\d+)/)?.[1];
+      
+      if (lastWorkflowId && lastPath?.includes(`/projects/${projectId}/`) && !loadAttempted) {
+        console.log('[WorkflowDesignerContent] 从localStorage找到workflowId:', lastWorkflowId);
+        
+        // 更新URL
+        const newPath = `/dashboard/projects/${projectId}/workflows/${lastWorkflowId}`;
+        navigate(newPath, { replace: true });
+        
+        // 设置状态
+        setWorkflowId(lastWorkflowId);
+        setLoadAttempted(true);
+        loadWorkflowDefinition(lastWorkflowId);
+      }
+    }
+  }, [componentMounted, reactFlowInstance, workflowId, loadAttempted, nodes.length, projectId, navigate, loadWorkflowDefinition]);
 
   // 模态框状态
   const [clearDialogOpen, setClearDialogOpen] = useState(false);
@@ -437,7 +834,9 @@ const WorkflowDesignerContent: React.FC = () => {
       // 解析响应并更新状态
       savedWorkflowData = await response.json();
       console.log('[AutoSaveWorkflow] 保存成功，后端返回的数据:', savedWorkflowData);
-      toast.success(`工作流${isUpdatingExisting ? '更新' : '创建'}成功`);
+      
+      // 使用toast显示具体的保存信息，包含工作流名称和ID
+      toast.success(`${isUpdatingExisting ? '更新' : '创建'}工作流成功: ${savedWorkflowData.name} (ID: ${savedWorkflowData.id})`);
       
       // 更新store中的currentWorkflow为后端返回的最新数据
       store.setCurrentWorkflow(savedWorkflowData);
@@ -447,13 +846,21 @@ const WorkflowDesignerContent: React.FC = () => {
       if (newWorkflowId !== workflowId) {
         console.log(`[AutoSaveWorkflow] 更新workflowId: ${workflowId} -> ${newWorkflowId}`);
         
-        // 更新URL，但不刷新页面
+        // 构建新的URL路径
         const newPath = `/dashboard/projects/${projectId}/workflows/${newWorkflowId}`;
-        // 使用replaceState替代，防止页面导航
-        window.history.replaceState(null, '', newPath);
+        
+        // 保存路径到localStorage，确保刷新后能恢复
+        localStorage.setItem('lastPath', newPath);
+        
+        // 使用navigate而不是replaceState来更新URL，确保路由参数会被正确更新
+        navigate(newPath, { replace: true });
         
         // 更新组件状态
         setWorkflowId(newWorkflowId);
+      } else {
+        // 即使ID没变，也要确保localStorage中有正确的路径
+        const currentPath = `/dashboard/projects/${projectId}/workflows/${newWorkflowId}`;
+        localStorage.setItem('lastPath', currentPath);
       }
       
       return savedWorkflowData;
@@ -486,11 +893,290 @@ const WorkflowDesignerContent: React.FC = () => {
     useWorkflowStore.setState({ nodes: [], edges: [], selectedNode: null });
     toast.info('画布已清空');
     setClearDialogOpen(false);
+    setWorkflowCompleted(false);
   };
 
-  // 执行工作流
+  // 添加停止执行的函数
+  const stopExecution = async () => {
+    if (!executionId) {
+      toast.error('没有正在执行的工作流');
+      return;
+    }
+
+    console.log(`[StopExecution] 正在停止工作流执行，执行ID: ${executionId}`);
+    
+    // 立即设置轮询取消标志，中断轮询
+    pollingCancelRef.current = true;
+    
+    try {
+      const csrftoken = getCookie('csrftoken');
+      const headers: HeadersInit = {
+        'Content-Type': 'application/json',
+      };
+      if (csrftoken) {
+        headers['X-CSRFToken'] = csrftoken;
+      }
+
+      const response = await fetch(`/api/project/workflow-executions/${executionId}/cancel/`, {
+        method: 'POST',
+        headers: headers
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ detail: '取消执行失败，无法解析错误响应' }));
+        console.error('[StopExecution] Cancel API error response:', errorData);
+        toast.error(`工作流执行取消失败: ${errorData.detail || response.statusText}`);
+        return;
+      }
+
+      // 在取消请求成功后立即将节点状态更新为取消状态
+      const updatedNodes = nodes.map(node => {
+        if (node.data.status === 'running') {
+          return {
+            ...node,
+            data: {
+              ...node.data,
+              status: 'cancelled',
+            }
+          };
+        }
+        return node;
+      });
+      useWorkflowStore.getState().setNodes(updatedNodes);
+
+      toast.success('已成功停止工作流执行');
+      // 立即重置执行状态
+      setExecuting(false);
+      setExecutionId(null);
+      // 不在这里立即设置executing=false，应等待后端确认取消
+    } catch (error) {
+      console.error('[StopExecution] Error during cancellation:', error);
+      toast.error(`停止工作流执行时发生错误: ${error instanceof Error ? error.message : '未知错误'}`);
+      // 即使发生错误，也重置状态避免UI卡住
+      setExecuting(false);
+      setExecutionId(null);
+    }
+  };
+
+  // 添加轮询执行状态的函数
+  const pollExecutionStatus = async (executionId: number) => {
+    console.log(`[PollExecutionStatus] 开始轮询执行状态，执行ID: ${executionId}`);
+    
+    const maxPolls = 120; // 最多轮询120次，每次间隔1秒，即最多等待2分钟
+    let pollCount = 0;
+    
+    // 重置轮询取消标志
+    pollingCancelRef.current = false;
+    
+    const csrftoken = getCookie('csrftoken');
+    const headers: HeadersInit = {};
+    if (csrftoken) {
+      headers['X-CSRFToken'] = csrftoken;
+    }
+    
+    while (pollCount < maxPolls) {
+      // 检查是否应该取消轮询
+      if (pollingCancelRef.current) {
+        console.log(`[PollExecutionStatus] 检测到取消标志，立即终止轮询`);
+        // 确保执行状态被重置
+        setExecuting(false);
+        setExecutionId(null);
+        return;
+      }
+      
+      try {
+        pollCount++;
+        
+        // 获取执行状态
+        const response = await fetch(`/api/project/workflow-executions/${executionId}/`);
+        
+        if (!response.ok) {
+          console.error(`[PollExecutionStatus] 获取执行状态失败: ${response.status}`);
+          
+          // 如果返回404或403，说明工作流可能被删除或没有权限，停止轮询
+          if (response.status === 404 || response.status === 403) {
+            console.log(`[PollExecutionStatus] 工作流不存在或无权限，停止轮询`);
+            setExecuting(false);
+            setExecutionId(null);
+            return;
+          }
+          
+          // 如果请求失败，继续尝试
+          await new Promise(resolve => setTimeout(resolve, 1000));
+          continue;
+        }
+        
+        const executionData = await response.json();
+        console.log(`[PollExecutionStatus] 执行状态: ${executionData.status}`);
+        
+        // 如果工作流执行完成、失败或取消，立即结束轮询
+        if (executionData.status === 'completed' || executionData.status === 'failed' || executionData.status === 'cancelled') {
+          console.log(`[PollExecutionStatus] 工作流执行状态: ${executionData.status}，停止轮询`);
+          
+          // 标记工作流已完成执行
+          setWorkflowCompleted(true);
+          
+          try {
+            // 最后一次获取组件状态
+            const componentsResponse = await fetch(`/api/project/workflow-executions/${executionId}/components/`);
+            
+            if (componentsResponse.ok) {
+              const componentsData = await componentsResponse.json();
+              
+              // 更新节点状态
+              const updatedNodes = nodes.map(node => {
+                // 查找该节点对应的执行结果
+                const componentResult = componentsData.find((comp: any) => comp.node_id === node.id);
+                
+                if (componentResult) {
+                  // 将后端返回的状态转换为前端组件状态
+                  let nodeStatus: 'idle' | 'running' | 'success' | 'error' | 'cancelled' = 'idle';
+                  
+                  switch (componentResult.status) {
+                    case 'completed':
+                      nodeStatus = 'success';
+                      break;
+                    case 'failed':
+                      nodeStatus = 'error';
+                      break;
+                    case 'running':
+                      // 如果工作流被取消，所有running状态改为cancelled
+                      nodeStatus = executionData.status === 'cancelled' ? 'cancelled' : 'running';
+                      break;
+                    case 'cancelled':
+                      nodeStatus = 'cancelled';
+                      break;
+                    default:
+                      nodeStatus = 'idle';
+                  }
+                  
+                  return {
+                    ...node,
+                    data: {
+                      ...node.data,
+                      status: nodeStatus,
+                      outputs: componentResult.outputs || {},
+                    }
+                  };
+                }
+                
+                return node;
+              });
+              
+              // 使用store更新节点
+              useWorkflowStore.getState().setNodes(updatedNodes);
+            }
+          } catch (error) {
+            console.error('[PollExecutionStatus] 获取最终组件状态出错:', error);
+          }
+          
+          // 显示相应的提示
+          if (executionData.status === 'failed') {
+            toast.error('工作流执行失败，请检查日志');
+          } else if (executionData.status === 'cancelled') {
+            toast.warning('工作流执行已取消');
+          } else {
+            toast.success('工作流执行完成，可查看结果');
+          }
+          
+          // 重置执行状态
+          setExecuting(false);
+          setExecutionId(null);
+          return;
+        }
+        
+        // 获取组件执行状态，及时更新组件状态
+        try {
+          // 不管工作流是否完成，都尝试获取组件状态并更新UI
+          const componentsResponse = await fetch(`/api/project/workflow-executions/${executionId}/components/`);
+          
+          if (componentsResponse.ok) {
+            const componentsData = await componentsResponse.json();
+            console.log('[PollExecutionStatus] 获取组件执行状态:', componentsData);
+            
+            // 更新节点状态
+            const updatedNodes = nodes.map(node => {
+              // 查找该节点对应的执行结果
+              const componentResult = componentsData.find((comp: any) => comp.node_id === node.id);
+              
+              if (componentResult) {
+                // 将后端返回的状态转换为前端组件状态
+                let nodeStatus: 'idle' | 'running' | 'success' | 'error' | 'cancelled' = 'idle';
+                
+                switch (componentResult.status) {
+                  case 'completed':
+                    nodeStatus = 'success';
+                    break;
+                  case 'failed':
+                    nodeStatus = 'error';
+                    break;
+                  case 'running':
+                    nodeStatus = 'running';
+                    break;
+                  case 'pending':
+                  case 'queued':
+                    nodeStatus = 'idle';
+                    break;
+                  case 'cancelled': // 添加取消状态
+                    nodeStatus = 'cancelled'; 
+                    break;
+                  default:
+                    nodeStatus = 'idle';
+                }
+                
+                return {
+                  ...node,
+                  data: {
+                    ...node.data,
+                    status: nodeStatus,
+                    outputs: componentResult.outputs || {},
+                  }
+                };
+              }
+              
+              return node;
+            });
+            
+            // 使用store更新节点
+            useWorkflowStore.getState().setNodes(updatedNodes);
+          }
+        } catch (compError) {
+          console.error('[PollExecutionStatus] 获取组件状态出错:', compError);
+        }
+        
+        // 等待1秒后再次轮询
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        
+      } catch (error) {
+        console.error(`[PollExecutionStatus] 轮询过程中出错:`, error);
+        // 如果出错，继续尝试
+        await new Promise(resolve => setTimeout(resolve, 1000));
+      }
+    }
+    
+    // 如果达到最大轮询次数仍未完成
+    console.warn('[PollExecutionStatus] 达到最大轮询次数，停止轮询');
+    toast.warning('工作流执行时间过长，请稍后查看结果');
+    setWorkflowCompleted(true);
+    // 重置执行状态，避免按钮卡在"停止执行"状态
+    setExecuting(false);
+    setExecutionId(null);
+  };
+
+  // 修改executeWorkflow，确保在开始新的执行前取消之前的轮询
   const executeWorkflow = async () => {
     console.log('[ExecuteWorkflow] Clicked! Nodes count:', nodes.length, 'Project ID:', projectId);
+
+    // 如果有进行中的执行，先取消
+    if (executionId) {
+      // 设置取消标志
+      pollingCancelRef.current = true;
+      // 等待一小段时间确保之前的轮询被取消
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+
+    // 重置工作流完成状态
+    setWorkflowCompleted(false);
 
     if (!projectId) {
       toast.error("无法确定当前项目ID，无法执行工作流。");
@@ -543,10 +1229,24 @@ const WorkflowDesignerContent: React.FC = () => {
     
     if (!hasValidFileParams) return;
 
+    // 设置执行状态
     setExecuting(true);
-    console.log('[ExecuteWorkflow] State set to executing.');
+    
+    // 重置所有节点的状态为idle
+    const nodesWithInitialStatus = nodes.map(node => ({
+      ...node,
+      data: {
+        ...node.data,
+        status: 'idle',  // 初始状态设为idle
+        outputs: {}      // 清空之前的执行结果
+      }
+    }));
+    useWorkflowStore.getState().setNodes(nodesWithInitialStatus);
+    
+    console.log('[ExecuteWorkflow] State set to executing. All nodes reset to idle status.');
     
     let effectiveWorkflowId = workflowId; // 从组件状态初始化
+    let currentExecutionId = null; // 添加变量存储执行ID
 
     try {
       // 步骤1: 确保工作流已保存并获取其ID
@@ -654,7 +1354,7 @@ const WorkflowDesignerContent: React.FC = () => {
                     lastModified: fileObject.lastModified,
                     serverPath: normalizedServerPath
                   };
-              } else {
+                } else {
                   nodeForExecution.data.params._file_info.serverPath = normalizedServerPath;
                 }
                 
@@ -787,6 +1487,28 @@ const WorkflowDesignerContent: React.FC = () => {
         }
         console.log(`[ExecuteWorkflow] Workflow (ID: ${effectiveWorkflowId}) confirmed to exist.`);
 
+        // 准备所有节点为running状态
+        const currentNodes = useWorkflowStore.getState().nodes;
+        // 更新连接中的节点为running状态 - 考虑工作流执行顺序，输入节点应该先执行
+        const inputNodes = currentNodes.filter(node => 
+          node.data?.component?.type === 'input' || 
+          !currentNodes.some(otherNode => 
+            useWorkflowStore.getState().edges.some(e => 
+              e.source === otherNode.id && e.target === node.id
+            )
+          )
+        );
+        
+        // 先将输入节点设置为running
+        if (inputNodes.length > 0) {
+          inputNodes.forEach(node => {
+            useWorkflowStore.getState().updateNodeStatus(node.id, 'running');
+          });
+          
+          // 稍微延迟，让用户可以看到状态变化
+          await new Promise(resolve => setTimeout(resolve, 300));
+        }
+
         // 执行API调用
         const response = await fetch(`/api/project/workflows/${effectiveWorkflowId}/execute/`, {
         method: 'POST',
@@ -804,8 +1526,14 @@ const WorkflowDesignerContent: React.FC = () => {
       }
 
       const result = await response.json();
+      currentExecutionId = result.id; // 保存执行ID，用于后续轮询
+      setExecutionId(currentExecutionId); // 将执行ID保存到状态中
       console.log('[ExecuteWorkflow] Execution API success response:', result);
         toast.success(`工作流 "${result.workflow_name || effectiveWorkflowId}" 执行已启动 (执行ID: ${result.id})`);
+
+        // 添加这里：轮询检查执行状态并获取结果
+        await pollExecutionStatus(currentExecutionId);
+        
       } catch (error) {
         console.error('[ExecuteWorkflow] API error:', error);
         toast.error(`工作流执行API错误: ${error instanceof Error ? error.message : '未知错误'}`);
@@ -821,8 +1549,9 @@ const WorkflowDesignerContent: React.FC = () => {
         toast.error(`执行工作流时发生未知错误: ${String(error)}`);
       }
     } finally {
-      console.log('[ExecuteWorkflow] Execution finished, setting executing to false.');
+      console.log('[ExecuteWorkflow] Execution process finished, setting executing to false.');
       setExecuting(false);
+      setExecutionId(null); // 重置执行ID
     }
   };
 
@@ -860,10 +1589,104 @@ const WorkflowDesignerContent: React.FC = () => {
       <p className="text-slate-300">您确定要清空当前工作流画布吗？所有未保存的更改都将丢失。</p>
     </Modal>
   );
+  
+  // 渲染结果展示模态框
+  const renderResultsDialog = () => (
+    <Modal
+      title="工作流执行结果"
+      open={showResultsDialog}
+      onCancel={() => setShowResultsDialog(false)}
+      destroyOnClose
+      className="custom-dark-modal results-modal"
+      width="90%"
+      style={{ 
+        maxWidth: '1400px', 
+        top: '40px',
+        margin: '0 auto 40px'
+      }}
+      bodyStyle={{ padding: '16px', maxHeight: '85vh' }}
+      footer={(
+        <div className="flex justify-end space-x-3 pt-3">
+          <Button
+            key="close"
+            variant="outline"
+            size="sm"
+            onClick={() => setShowResultsDialog(false)}
+            className="border-slate-600 text-slate-300 hover:bg-slate-700 hover:text-white"
+          >
+            关闭
+          </Button>
+        </div>
+      )}
+    >
+      <div className="max-h-[65vh] overflow-y-auto pr-2 custom-scrollbar">
+        {nodes
+          .filter(node => node.data?.status === 'success' && node.data?.outputs)
+          .map((node, index) => {
+            const outputs = node.data.outputs || {};
+            const nodeLabel = node.data.label;
+            return (
+              <div key={node.id} className="mb-6 border border-slate-700 rounded-md overflow-hidden">
+                <div className="px-4 py-2 bg-slate-700/50 flex justify-between items-center">
+                  <h3 className="text-white font-medium text-lg">{nodeLabel}</h3>
+                  <span className="text-green-400 text-xs px-2 py-1 bg-green-900/50 rounded">执行成功</span>
+                </div>
+                <div className="p-4 overflow-x-auto">
+                  <ResultViewPanel outputs={outputs} nodeLabel={nodeLabel} />
+                </div>
+              </div>
+            );
+          })}
+          
+        {nodes.filter(node => node.data?.status === 'success' && node.data?.outputs).length === 0 && (
+          <div className="p-6 text-center text-slate-400">
+            暂无可视化结果或组件未执行成功
+          </div>
+        )}
+      </div>
+    </Modal>
+  );
+
+  // 初始加载状态
+  const [initialLoading, setInitialLoading] = useState(true);
+  
+  // 当节点首次加载完成后，取消初始加载状态
+  useEffect(() => {
+    if (initialLoading && nodes.length > 0) {
+      console.log('[WorkflowDesignerContent] 初始节点加载完成，节点数量:', nodes.length);
+      setInitialLoading(false);
+    }
+  }, [nodes.length, initialLoading]);
+  
+  // 仅在初始加载工作流时调整视图，而不是每次节点变化都调整
+  useEffect(() => {
+    // 当有节点且reactFlowInstance可用时，执行一次视图适配
+    if (nodes.length > 0 && reactFlowInstance && initialLoading) {
+      console.log('[WorkflowDesignerContent] 初始加载工作流，自动调整视图一次');
+      
+      try {
+        // 延迟调整视图，确保DOM已渲染
+        setTimeout(() => {
+          if (reactFlowInstance) {
+            reactFlowInstance.fitView({ 
+              padding: 0.2, 
+              includeHiddenNodes: false,
+              minZoom: 0.5,
+              maxZoom: 1.5
+            });
+            console.log('[WorkflowDesignerContent] 初始加载后自动调整视图完成');
+          }
+        }, 300);
+      } catch (error) {
+        console.error('[WorkflowDesignerContent] 调整视图失败:', error);
+      }
+    }
+  }, [nodes.length, reactFlowInstance, initialLoading]);
 
   return (
     <div ref={reactFlowWrapper} className="h-full relative">
       <ReactFlow
+        key={`flow-${workflowId || 'empty'}-${windowSize.width}-${windowSize.height}-${nodes.length}`}
         nodes={nodes}
         edges={edges}
         onNodesChange={onNodesChange}
@@ -876,6 +1699,7 @@ const WorkflowDesignerContent: React.FC = () => {
         proOptions={{ hideAttribution: true }}
         defaultViewport={{ x: 0, y: 0, zoom: 1 }}
         className="bg-slate-900"
+        // 移除fitView属性，允许用户自由定位组件
       >
         <Background color="#475569" gap={16} size={1} />
         <Controls className="bg-slate-800/70 border border-slate-600/50 rounded-md" />
@@ -883,28 +1707,45 @@ const WorkflowDesignerContent: React.FC = () => {
         <Panel position="top-center" className="mt-2">
           <div className="p-2 rounded-md bg-slate-800/80 backdrop-blur-sm border border-slate-700/50 shadow-lg">
             <div className="flex items-center space-x-2">
+              {/* 切换为执行/停止按钮 */}
+              {executing ? (
+                <Button 
+                  variant="ghost" 
+                  size="sm" 
+                  onClick={stopExecution}
+                  className="bg-red-600/80 hover:bg-red-700/80 text-white"
+                >
+                  <Square className="w-4 h-4 mr-2" />
+                  停止执行
+                </Button>
+              ) : (
               <Button 
                 variant="ghost" 
                 size="sm" 
                 onClick={executeWorkflow}
-                disabled={executing || nodes.length === 0}
+                  disabled={nodes.length === 0}
                 className={cn(
-                  "text-white bg-green-600/80 hover:bg-green-700/80",
-                  executing && "opacity-50 cursor-wait"
+                    "text-white",
+                    "bg-green-600/80 hover:bg-green-700/80"
                 )}
               >
-                {executing ? (
-                  <>
-                    <div className="animate-spin w-4 h-4 border-2 border-white border-t-transparent rounded-full mr-2" />
-                    执行中...
-                  </>
-                ) : (
-                  <>
                     <Play className="w-4 h-4 mr-2" />
                     执行工作流
-                  </>
-                )}
               </Button>
+              )}
+              
+              {/* 添加查看结果按钮 */}
+              {workflowCompleted && (
+                <Button 
+                  variant="outline" 
+                  size="sm"
+                  onClick={() => setShowResultsDialog(true)}
+                  className="text-purple-400 hover:text-purple-300 border-slate-600/50 hover:bg-purple-950/30"
+                >
+                  <Eye className="w-4 h-4 mr-2" />
+                  查看结果
+                </Button>
+              )}
               
               <Button 
                 variant="outline" 
@@ -936,6 +1777,33 @@ const WorkflowDesignerContent: React.FC = () => {
                 <Trash2 className="w-4 h-4 mr-2" />
                 清空画布
               </Button>
+              
+              {/* 添加一个按钮，允许用户手动适配视图 */}
+              {nodes.length > 0 && (
+                <Button 
+                  variant="outline" 
+                  size="sm"
+                  onClick={() => {
+                    if (reactFlowInstance) {
+                      reactFlowInstance.fitView({ 
+                        padding: 0.2, 
+                        includeHiddenNodes: false,
+                        minZoom: 0.5,
+                        maxZoom: 1.5
+                      });
+                      toast.success('已适配视图以显示所有节点');
+                    }
+                  }}
+                  className="text-amber-400 hover:text-amber-300 border-slate-600/50 hover:bg-amber-950/30"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4 mr-2">
+                    <rect x="3" y="3" width="18" height="18" rx="2" />
+                    <path d="M9 3v18" />
+                    <path d="M3 9h18" />
+                  </svg>
+                  适配视图
+                </Button>
+              )}
             </div>
           </div>
         </Panel>
@@ -943,6 +1811,7 @@ const WorkflowDesignerContent: React.FC = () => {
       
       {/* Render Modals */}
       {renderClearDialog()}
+      {renderResultsDialog()}
       
       {/* 自定义暗色模态框样式 */}
       <style>{`
@@ -985,6 +1854,134 @@ const WorkflowDesignerContent: React.FC = () => {
         .custom-dark-modal .ant-input-textarea::placeholder {
           color: rgba(148, 163, 184, 0.5) !important;
         }
+        
+        /* 结果弹窗特殊样式 */
+        .results-modal .ant-modal-content {
+          max-height: 90vh;
+          display: flex;
+          flex-direction: column;
+        }
+        .results-modal .ant-modal-body {
+          flex: 1;
+          overflow: visible;
+          padding: 16px;
+        }
+        .results-modal .ant-modal-footer {
+          border-top: 1px solid rgba(51, 65, 85, 0.5);
+          margin-top: 8px;
+        }
+        
+        /* 自定义滚动条样式 */
+        .custom-scrollbar::-webkit-scrollbar {
+          width: 10px;
+          height: 10px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-track {
+          background: rgba(15, 23, 42, 0.5);
+          border-radius: 4px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+          background: rgba(71, 85, 105, 0.8);
+          border-radius: 4px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+          background: rgba(100, 116, 139, 0.8);
+        }
+        
+        /* 优化表格溢出处理 */
+        .overflow-x-auto {
+          overflow-x: auto;
+          max-width: 100%;
+          scrollbar-width: thin;
+          scrollbar-color: rgba(71, 85, 105, 0.8) rgba(15, 23, 42, 0.5);
+        }
+        .overflow-x-auto::-webkit-scrollbar {
+          height: 10px;
+        }
+        .overflow-x-auto::-webkit-scrollbar-track {
+          background: rgba(15, 23, 42, 0.5);
+        }
+        .overflow-x-auto::-webkit-scrollbar-thumb {
+          background: rgba(71, 85, 105, 0.8);
+          border-radius: 4px;
+        }
+        
+        /* JSON数据显示优化 */
+        pre {
+          white-space: pre-wrap !important;
+          word-break: break-word !important;
+          overflow-wrap: break-word !important;
+          max-width: 100% !important;
+        }
+        
+        /* 表格样式优化 */
+        table {
+          border-spacing: 0;
+          border-collapse: separate;
+          table-layout: auto;
+          width: 100%;
+        }
+        th, td {
+          word-break: break-word;
+          max-width: 250px;
+          overflow-wrap: break-word;
+        }
+        
+        /* 详情显示优化 */
+        details summary {
+          user-select: none;
+        }
+
+        /* 状态变化动画效果 */
+        @keyframes statusFadeIn {
+          0% { opacity: 0; transform: translateY(-5px); }
+          100% { opacity: 1; transform: translateY(0); }
+        }
+        
+        @keyframes statusPulse {
+          0% { box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.4); }
+          70% { box-shadow: 0 0 0 8px rgba(245, 158, 11, 0); }
+          100% { box-shadow: 0 0 0 0 rgba(245, 158, 11, 0); }
+        }
+        
+        @keyframes successPulse {
+          0% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.4); }
+          70% { box-shadow: 0 0 0 8px rgba(34, 197, 94, 0); }
+          100% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0); }
+        }
+        
+        @keyframes errorShake {
+          0%, 100% { transform: translateX(0); }
+          20%, 60% { transform: translateX(-2px); }
+          40%, 80% { transform: translateX(2px); }
+        }
+        
+        @keyframes cancelledFade {
+          0% { opacity: 1; }
+          50% { opacity: 0.6; }
+          100% { opacity: 0.8; }
+        }
+        
+        /* 状态指示器样式应用 */
+        .status-indicator {
+          animation: statusFadeIn 0.3s ease-out;
+        }
+        
+        .status-running {
+          animation: statusPulse 1.5s infinite;
+        }
+        
+        .status-success {
+          animation: successPulse 1.5s ease-out;
+        }
+        
+        .status-error {
+          animation: errorShake 0.5s;
+        }
+        
+        .status-cancelled {
+          animation: cancelledFade 0.8s ease-out;
+        }
       `}</style>
     </div>
   );
@@ -996,10 +1993,20 @@ const WorkflowDesignerPage: React.FC = () => {
   const navigate = useNavigate();
   const [project, setProject] = useState<any>(null);
   const [loading, setLoading] = useState<boolean>(true);
+  const [fetchCompleted, setFetchCompleted] = useState<boolean>(false); // 添加状态跟踪是否已完成加载
   const { isComponentPanelOpen, isPropertiesPanelOpen, toggleComponentPanel, togglePropertiesPanel } = useWorkflowStore();
 
   // 加载项目数据
   useEffect(() => {
+    // 如果已经完成加载，不再重复执行
+    if (fetchCompleted) {
+      console.log('[WorkflowDesignerPage] fetchProject已执行过，跳过');
+      return;
+    }
+    
+    // 防止工作流重复加载的标记
+    let hasNavigatedToWorkflow = false;
+    
     const fetchProject = async () => {
       if (!id) return;
       
@@ -1009,11 +2016,110 @@ const WorkflowDesignerPage: React.FC = () => {
         
         if (response && response.status === 'success' && response.data) {
           setProject(response.data);
+          
           // 如果项目类型不是canvas，返回到项目详情页
           if (response.data.project_type !== 'canvas') {
             toast.error('该项目不是可视化工作流类型');
             navigate(`/dashboard/projects/${id}`);
             return;
+          }
+          
+          // 获取URL信息
+          const pathParts = window.location.pathname.split('/');
+          const hasWorkflowIdInURL = pathParts.length > 4 && pathParts[4] === 'workflows' && pathParts[5];
+          
+          // 获取存储在localStorage中的上次路径
+          const lastPath = localStorage.getItem('lastPath');
+          const lastPathWorkflowId = lastPath?.match(/\/workflows\/(\d+)/)?.[1];
+          
+          console.log('[WorkflowDesignerPage] URL中的workflowId:', hasWorkflowIdInURL ? pathParts[5] : 'none');
+          console.log('[WorkflowDesignerPage] localStorage中的路径:', lastPath);
+          console.log('[WorkflowDesignerPage] localStorage中的workflowId:', lastPathWorkflowId);
+          
+          // 优先级1：URL中有workflowId，直接使用
+          if (hasWorkflowIdInURL) {
+            console.log('[WorkflowDesignerPage] 使用URL中的workflowId:', pathParts[5]);
+            // 保存这个路径，防止页面刷新后丢失
+            localStorage.setItem('lastPath', window.location.pathname);
+            // 不需要额外操作，WorkflowDesignerContent组件会基于URL参数自动加载
+            
+            // URL中已有工作流ID，标记已导航
+            hasNavigatedToWorkflow = true;
+            return;
+          }
+          
+          // 优先级2：localStorage中有上次访问的工作流ID，且属于当前项目
+          if (!hasNavigatedToWorkflow && lastPathWorkflowId && lastPath?.includes(`/projects/${id}/`)) {
+            console.log('[WorkflowDesignerPage] 从localStorage恢复workflowId:', lastPathWorkflowId);
+            
+            // 确认这个工作流存在并属于当前项目
+            try {
+              const checkResponse = await fetch(`/api/project/workflows/${lastPathWorkflowId}/`);
+              if (checkResponse.ok) {
+                const workflowData = await checkResponse.json();
+                if (workflowData && Number(workflowData.project) === Number(id)) {
+                  console.log('[WorkflowDesignerPage] 确认工作流存在且属于当前项目:', workflowData.name);
+                  
+                  // 更新URL
+                  const newPath = `/dashboard/projects/${id}/workflows/${lastPathWorkflowId}`;
+                  window.history.replaceState(null, '', newPath);
+                  
+                  // 显示恢复提示
+                  toast.success(`已恢复上次编辑的工作流: ${workflowData.name}`);
+                  
+                  // 重要：强制触发路由更新，确保WorkflowDesignerContent能感知workflowId的变化
+                  navigate(newPath, { replace: true });
+                  
+                  // 标记已导航到工作流
+                  hasNavigatedToWorkflow = true;
+                  return;
+                }
+              }
+            } catch (error) {
+              console.error('[WorkflowDesignerPage] 检查localStorage中的workflowId出错:', error);
+              // 继续尝试加载最新工作流
+            }
+          }
+          
+          // 优先级3：尝试加载该项目的最新工作流
+          if (!hasNavigatedToWorkflow) {
+            try {
+              console.log('[WorkflowDesignerPage] 尝试加载项目最新工作流');
+              const workflowsResponse = await fetch(`/api/project/workflows/project/${id}/`);
+              if (workflowsResponse.ok) {
+                const workflows = await workflowsResponse.json();
+                if (workflows && workflows.length > 0) {
+                  // 获取最新的工作流（按更新时间排序，第一个即为最新）
+                  const latestWorkflow = workflows[0];
+                  console.log('[WorkflowDesignerPage] 找到最新工作流:', latestWorkflow);
+                  
+                  // 更新URL
+                  const newPath = `/dashboard/projects/${id}/workflows/${latestWorkflow.id}`;
+                  
+                  // 保存这个路径，防止页面刷新后丢失
+                  localStorage.setItem('lastPath', newPath);
+                
+                  // 显示加载成功的提示 - 不在这里显示，防止重复
+                  // 在navigate触发后，由WorkflowDesignerContent组件的成功加载时显示一次即可
+                  // toast.success(`已加载最新工作流: ${latestWorkflow.name}`);
+                  
+                  // 为子组件传递工作流名称信息，用于显示toast
+                  sessionStorage.setItem('last_loaded_workflow_name', latestWorkflow.name);
+                  
+                  // 重要：使用navigate而非replaceState，确保路由参数更新，触发子组件加载
+                  navigate(newPath, { replace: true });
+                  
+                  // 标记已导航到工作流
+                  hasNavigatedToWorkflow = true;
+                } else {
+                  console.log('[WorkflowDesignerPage] 项目没有现有工作流');
+                }
+              } else {
+                console.warn('[WorkflowDesignerPage] 获取项目工作流失败:', workflowsResponse.status);
+              }
+            } catch (error) {
+              console.error('[WorkflowDesignerPage] 获取项目工作流出错:', error);
+            }
           }
         } else {
           toast.error('加载项目失败');
@@ -1025,11 +2131,12 @@ const WorkflowDesignerPage: React.FC = () => {
         navigate('/dashboard/projects');
       } finally {
         setLoading(false);
+        setFetchCompleted(true); // 标记已完成加载
       }
     };
 
     fetchProject();
-  }, [id, navigate]);
+  }, [id, navigate, fetchCompleted]); // 添加fetchCompleted到依赖数组
 
   // 初始化工作流组件
   React.useEffect(() => {
@@ -1054,24 +2161,6 @@ const WorkflowDesignerPage: React.FC = () => {
             <h1 className="text-2xl font-bold text-white">
               {loading ? '加载中...' : `${project?.name || '未命名项目'} - 工作流设计器`}
             </h1>
-          </div>
-          <div className="flex items-center gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              className="text-slate-300 hover:text-white border-slate-600 hover:bg-slate-700/50"
-            >
-              <FileCode className="w-4 h-4 mr-2" />
-              生成代码
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              className="text-slate-300 hover:text-white border-slate-600 hover:bg-slate-700/50"
-            >
-              <Download className="w-4 h-4 mr-2" />
-              导出工作流
-            </Button>
           </div>
         </div>
 
