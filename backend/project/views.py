@@ -21,6 +21,7 @@ from .serializers import (
     WorkflowSerializer, WorkflowListSerializer, 
     WorkflowExecutionSerializer, WorkflowComponentExecutionSerializer
 )
+from .utils import cleanup_workspace_jupyter_configs, force_kill_jupyter_processes
 from container.models import ContainerInstance, DockerImage
 from container.docker_ops import DockerClient
 from dataset.models import Dataset
@@ -745,11 +746,79 @@ class ProjectViewSet(viewsets.ModelViewSet):
         
         if not snapshot_id:
             return Response(
-                {"detail": "请提供快照ID"},
+                {
+                    "status": "error",
+                    "message": "请提供快照ID"
+                },
                 status=status.HTTP_400_BAD_REQUEST
             )
             
         try:
+            # 在恢复前停止Jupyter服务，避免文件占用问题
+            logger.info(f"开始恢复快照，项目ID={project.id}，快照ID={snapshot_id}")
+            
+            # 停止关联的Jupyter会话
+            try:
+                from jupyterapp.models import JupyterSession
+                # 获取关联的Jupyter会话（如果存在）
+                jupyter_session = JupyterSession.objects.filter(project=project).first()
+                if jupyter_session:
+                    logger.info(f"恢复快照前停止Jupyter会话: {jupyter_session.id}")
+                    # 获取PID文件路径
+                    import signal, time
+                    workspace_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 
+                                               'workspaces', f'project_{project.id}')
+                    pid_file = os.path.join(workspace_dir, '.jupyter.pid')
+                    
+                    # 如果PID文件存在，尝试终止进程
+                    if os.path.exists(pid_file):
+                        try:
+                            with open(pid_file, 'r') as f:
+                                pid = int(f.read().strip())
+                            
+                            # 使用SIGTERM优雅终止进程
+                            if os.name == 'nt':  # Windows
+                                import subprocess
+                                subprocess.run(['taskkill', '/F', '/PID', str(pid)], 
+                                             capture_output=True)
+                            else:  # Unix-like
+                                os.kill(pid, signal.SIGTERM)
+                            
+                            time.sleep(1)  # 减少等待时间，加快恢复速度
+                            
+                            # 如果进程仍然存在，强制终止
+                            try:
+                                if os.name == 'nt':
+                                    result = subprocess.run(['tasklist', '/FI', f'PID eq {pid}'], 
+                                                          capture_output=True, text=True)
+                                    if str(pid) in result.stdout:
+                                        subprocess.run(['taskkill', '/F', '/PID', str(pid)])
+                                else:
+                                    os.kill(pid, signal.SIGKILL)
+                            except:
+                                pass  # 进程可能已经结束
+                            
+                            logger.info(f"成功终止Jupyter进程，PID: {pid}")
+                        except Exception as e:
+                            logger.warning(f"终止Jupyter进程时出错: {str(e)}")
+                        finally:
+                            # 删除PID文件
+                            try:
+                                if os.path.exists(pid_file):
+                                    os.remove(pid_file)
+                            except Exception as e:
+                                logger.warning(f"删除PID文件失败: {str(e)}")
+                    
+                    # 更新会话状态
+                    jupyter_session.status = 'stopped'
+                    jupyter_session.url = None
+                    jupyter_session.save()
+                    logger.info("已更新Jupyter会话状态为stopped")
+            except Exception as e:
+                logger.warning(f"尝试停止Jupyter会话时出错: {str(e)}")
+            
+            # 等待一段时间确保文件句柄被释放
+            time.sleep(1)  # 减少等待时间从3秒到1秒
             # 获取项目工作目录
             workspace_dir = os.path.join(
                 os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 
@@ -761,7 +830,10 @@ class ProjectViewSet(viewsets.ModelViewSet):
             snapshot_dir = os.path.join(workspace_dir, 'snapshots', snapshot_id)
             if not os.path.exists(snapshot_dir):
                 return Response(
-                    {"detail": "快照不存在"},
+                    {
+                        "status": "error",
+                        "message": "快照不存在"
+                    },
                     status=status.HTTP_404_NOT_FOUND
                 )
                 
@@ -798,12 +870,53 @@ class ProjectViewSet(viewsets.ModelViewSet):
                     continue
                     
                 item_path = os.path.join(workspace_dir, item)
-                if os.path.isfile(item_path):
-                    os.remove(item_path)
-                elif os.path.isdir(item_path):
-                    shutil.rmtree(item_path)
+                try:
+                    if os.path.isfile(item_path):
+                        # 对于可能被占用的文件，尝试多次删除
+                        max_retries = 3
+                        for retry in range(max_retries):
+                            try:
+                                os.remove(item_path)
+                                break
+                            except PermissionError as pe:
+                                if retry < max_retries - 1:
+                                    logger.warning(f"文件被占用，等待后重试删除: {item_path}")
+                                    time.sleep(0.5)  # 减少重试等待时间
+                                else:
+                                    logger.error(f"无法删除被占用的文件: {item_path}, 错误: {str(pe)}")
+                                    # 尝试重命名文件而不是删除
+                                    try:
+                                        backup_name = f"{item_path}.backup_{int(time.time())}"
+                                        os.rename(item_path, backup_name)
+                                        logger.info(f"已将被占用文件重命名为: {backup_name}")
+                                    except Exception as re:
+                                        logger.error(f"重命名文件也失败: {str(re)}")
+                    elif os.path.isdir(item_path):
+                        # 对于目录，使用更强制的删除方式
+                        max_retries = 3
+                        for retry in range(max_retries):
+                            try:
+                                shutil.rmtree(item_path)
+                                break
+                            except PermissionError as pe:
+                                if retry < max_retries - 1:
+                                    logger.warning(f"目录被占用，等待后重试删除: {item_path}")
+                                    time.sleep(0.5)  # 减少重试等待时间
+                                else:
+                                    logger.error(f"无法删除被占用的目录: {item_path}, 错误: {str(pe)}")
+                                    # 尝试重命名目录
+                                    try:
+                                        backup_name = f"{item_path}.backup_{int(time.time())}"
+                                        os.rename(item_path, backup_name)
+                                        logger.info(f"已将被占用目录重命名为: {backup_name}")
+                                    except Exception as re:
+                                        logger.error(f"重命名目录也失败: {str(re)}")
+                except Exception as e:
+                    logger.error(f"删除文件/目录时出错: {item_path}, 错误: {str(e)}")
+                    continue
             
             # 从快照恢复文件
+            logger.info(f"开始从快照恢复文件到工作目录: {workspace_dir}")
             for root, dirs, files in os.walk(snapshot_dir):
                 # 跳过metadata.json文件
                 if root == snapshot_dir:
@@ -820,15 +933,31 @@ class ProjectViewSet(viewsets.ModelViewSet):
                     # 复制文件
                     shutil.copy2(src_path, dst_path)
             
+            # 修复恢复后的Jupyter配置文件语法错误
+            try:
+                fixed_count = cleanup_workspace_jupyter_configs(workspace_dir)
+                if fixed_count > 0:
+                    logger.info(f"恢复快照后修复了 {fixed_count} 个Jupyter配置文件")
+            except Exception as e:
+                logger.warning(f"修复Jupyter配置文件时出错: {str(e)}")
+            
             return Response({
-                "detail": f"已成功恢复到版本 {snapshot_metadata['version']}",
-                "backup_id": backup_id
+                "status": "success",
+                "message": f"已成功恢复到版本 {snapshot_metadata['version']}",
+                "data": {
+                    "backup_id": backup_id,
+                    "fixed_configs": fixed_count if 'fixed_count' in locals() else 0,
+                    "version": snapshot_metadata['version']
+                }
             })
             
         except Exception as e:
             logger.error(f"恢复项目快照失败: {str(e)}")
             return Response(
-                {"detail": f"恢复项目快照失败: {str(e)}"},
+                {
+                    "status": "error",
+                    "message": f"恢复项目快照失败: {str(e)}"
+                },
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
     

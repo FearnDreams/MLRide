@@ -400,15 +400,20 @@ export const getSnapshotFileContent = async (id: number, snapshotId: string, fil
 // 恢复到指定快照
 export const restoreProjectSnapshot = async (id: number, snapshotId: string) => {
   try {
-    const response = await api.post<ApiResponse>(`project/projects/${id}/restore_snapshot/`, { snapshot_id: snapshotId });
+    // 为快照恢复操作设置更长的超时时间（60秒）
+    const response = await api.post<ApiResponse>(
+      `project/projects/${id}/restore_snapshot/`, 
+      { snapshot_id: snapshotId },
+      { timeout: 60000 } // 60秒超时
+    );
     return response.data;
   } catch (error: any) {
     console.error('恢复项目快照失败:', error);
     
     if (error.response?.data) {
       throw {
-        status: 'error',
-        message: error.response.data.detail || '恢复项目快照失败'
+        status: error.response.data.status || 'error',
+        message: error.response.data.message || error.response.data.detail || '恢复项目快照失败'
       };
     }
     throw {

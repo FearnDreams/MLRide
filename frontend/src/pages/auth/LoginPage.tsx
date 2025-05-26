@@ -54,7 +54,7 @@ const LoginPage: React.FC = () => {
         </div>
         
         <div className="mt-8 text-center text-sm text-gray-500">
-          © 2023 MLRide. 保留所有权利。
+          © 2025 MLRide. 保留所有权利。
         </div>
       </div>
     </div>

@@ -1,0 +1,253 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="1200" height="800" xmlns="http://www.w3.org/2000/svg">
+  <!-- 背景渐变 -->
+  <defs>
+    <!-- 背景渐变 -->
+    <linearGradient id="backgroundGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#f0f9ff;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#e0e7ff;stop-opacity:1" />
+    </linearGradient>
+    
+    <!-- MLRide主色调 -->
+    <linearGradient id="mlrideGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#6366f1;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#4f46e5;stop-opacity:1" />
+    </linearGradient>
+    
+    <!-- 竞品色调 -->
+    <linearGradient id="competitorGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#64748b;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#475569;stop-opacity:1" />
+    </linearGradient>
+    
+    <!-- 阴影效果 -->
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="2" dy="4" stdDeviation="3" flood-color="#000000" flood-opacity="0.1"/>
+    </filter>
+  </defs>
+  
+  <!-- 背景 -->
+  <rect width="1200" height="800" fill="url(#backgroundGradient)"/>
+  
+  <!-- 标题 -->
+  <text x="600" y="40" text-anchor="middle" font-family="Arial, sans-serif" font-size="28" font-weight="bold" fill="#1e293b">
+    机器学习平台竞品对比分析
+  </text>
+  <text x="600" y="65" text-anchor="middle" font-family="Arial, sans-serif" font-size="14" fill="#64748b">
+    MLRide vs 主流机器学习平台功能特性比较
+  </text>
+  
+  <!-- 对比表格背景 -->
+  <rect x="80" y="100" width="1040" height="650" rx="12" fill="white" filter="url(#shadow)"/>
+  
+  <!-- 表头 -->
+  <rect x="100" y="120" width="1000" height="50" rx="8" fill="#f8fafc" stroke="#e2e8f0" stroke-width="1"/>
+  
+  <!-- 表头文字 -->
+  <text x="130" y="150" font-family="Arial, sans-serif" font-size="16" font-weight="bold" fill="#1e293b">功能特性</text>
+  <text x="350" y="150" font-family="Arial, sans-serif" font-size="16" font-weight="bold" fill="#6366f1">MLRide</text>
+  <text x="500" y="150" font-family="Arial, sans-serif" font-size="16" font-weight="bold" fill="#1e293b">Kubeflow</text>
+  <text x="650" y="150" font-family="Arial, sans-serif" font-size="16" font-weight="bold" fill="#1e293b">MLflow</text>
+  <text x="800" y="150" font-family="Arial, sans-serif" font-size="16" font-weight="bold" fill="#1e293b">Kaggle</text>
+  <text x="950" y="150" font-family="Arial, sans-serif" font-size="16" font-weight="bold" fill="#1e293b">Google Colab</text>
+  
+  <!-- 垂直分割线 -->
+  <line x1="320" y1="120" x2="320" y2="730" stroke="#e2e8f0" stroke-width="1"/>
+  <line x1="470" y1="120" x2="470" y2="730" stroke="#e2e8f0" stroke-width="1"/>
+  <line x1="620" y1="120" x2="620" y2="730" stroke="#e2e8f0" stroke-width="1"/>
+  <line x1="770" y1="120" x2="770" y2="730" stroke="#e2e8f0" stroke-width="1"/>
+  <line x1="920" y1="120" x2="920" y2="730" stroke="#e2e8f0" stroke-width="1"/>
+  
+  <!-- 功能对比行 -->
+  <!-- 行1: 可视化拖拽编程 -->
+  <rect x="100" y="170" width="1000" height="40" fill="#fafafa" stroke="#e2e8f0" stroke-width="0.5"/>
+  <text x="110" y="195" font-family="Arial, sans-serif" font-size="13" fill="#1e293b">可视化拖拽编程</text>
+  <circle cx="375" cy="190" r="8" fill="#22c55e"/>
+  <text x="390" y="195" font-family="Arial, sans-serif" font-size="11" fill="#15803d">✓ 完整支持</text>
+  <circle cx="525" cy="190" r="8" fill="#ef4444"/>
+  <text x="540" y="195" font-family="Arial, sans-serif" font-size="11" fill="#dc2626">✗ 不支持</text>
+  <circle cx="675" cy="190" r="8" fill="#ef4444"/>
+  <text x="690" y="195" font-family="Arial, sans-serif" font-size="11" fill="#dc2626">✗ 不支持</text>
+  <circle cx="825" cy="190" r="8" fill="#ef4444"/>
+  <text x="840" y="195" font-family="Arial, sans-serif" font-size="11" fill="#dc2626">✗ 不支持</text>
+  <circle cx="975" cy="190" r="8" fill="#ef4444"/>
+  <text x="990" y="195" font-family="Arial, sans-serif" font-size="11" fill="#dc2626">✗ 不支持</text>
+  
+  <!-- 行2: 开源自部署 -->
+  <rect x="100" y="210" width="1000" height="40" fill="white" stroke="#e2e8f0" stroke-width="0.5"/>
+  <text x="110" y="235" font-family="Arial, sans-serif" font-size="13" fill="#1e293b">开源自部署</text>
+  <circle cx="375" cy="230" r="8" fill="#22c55e"/>
+  <text x="390" y="235" font-family="Arial, sans-serif" font-size="11" fill="#15803d">✓ 完全开源</text>
+  <circle cx="525" cy="230" r="8" fill="#22c55e"/>
+  <text x="540" y="235" font-family="Arial, sans-serif" font-size="11" fill="#15803d">✓ 开源</text>
+  <circle cx="675" cy="230" r="8" fill="#22c55e"/>
+  <text x="690" y="235" font-family="Arial, sans-serif" font-size="11" fill="#15803d">✓ 开源</text>
+  <circle cx="825" cy="230" r="8" fill="#f59e0b"/>
+  <text x="840" y="235" font-family="Arial, sans-serif" font-size="11" fill="#d97706">△ 仅云端</text>
+  <circle cx="975" cy="230" r="8" fill="#f59e0b"/>
+  <text x="990" y="235" font-family="Arial, sans-serif" font-size="11" fill="#d97706">△ 仅云端</text>
+  
+  <!-- 行3: 容器化环境 -->
+  <rect x="100" y="250" width="1000" height="40" fill="#fafafa" stroke="#e2e8f0" stroke-width="0.5"/>
+  <text x="110" y="275" font-family="Arial, sans-serif" font-size="13" fill="#1e293b">容器化开发环境</text>
+  <circle cx="375" cy="270" r="8" fill="#22c55e"/>
+  <text x="390" y="275" font-family="Arial, sans-serif" font-size="11" fill="#15803d">✓ Docker</text>
+  <circle cx="525" cy="270" r="8" fill="#22c55e"/>
+  <text x="540" y="275" font-family="Arial, sans-serif" font-size="11" fill="#15803d">✓ K8s原生</text>
+  <circle cx="675" cy="270" r="8" fill="#ef4444"/>
+  <text x="690" y="275" font-family="Arial, sans-serif" font-size="11" fill="#dc2626">✗ 不支持</text>
+  <circle cx="825" cy="270" r="8" fill="#ef4444"/>
+  <text x="840" y="275" font-family="Arial, sans-serif" font-size="11" fill="#dc2626">✗ 不支持</text>
+  <circle cx="975" cy="270" r="8" fill="#ef4444"/>
+  <text x="990" y="275" font-family="Arial, sans-serif" font-size="11" fill="#dc2626">✗ 不支持</text>
+  
+  <!-- 行4: 在线编程调试 -->
+  <rect x="100" y="290" width="1000" height="40" fill="white" stroke="#e2e8f0" stroke-width="0.5"/>
+  <text x="110" y="315" font-family="Arial, sans-serif" font-size="13" fill="#1e293b">在线编程调试</text>
+  <circle cx="375" cy="310" r="8" fill="#22c55e"/>
+  <text x="390" y="315" font-family="Arial, sans-serif" font-size="11" fill="#15803d">✓ Jupyter</text>
+  <circle cx="525" cy="310" r="8" fill="#22c55e"/>
+  <text x="540" y="315" font-family="Arial, sans-serif" font-size="11" fill="#15803d">✓ Notebooks</text>
+  <circle cx="675" cy="310" r="8" fill="#ef4444"/>
+  <text x="690" y="315" font-family="Arial, sans-serif" font-size="11" fill="#dc2626">✗ 不支持</text>
+  <circle cx="825" cy="310" r="8" fill="#22c55e"/>
+  <text x="840" y="315" font-family="Arial, sans-serif" font-size="11" fill="#15803d">✓ Notebooks</text>
+  <circle cx="975" cy="310" r="8" fill="#22c55e"/>
+  <text x="990" y="315" font-family="Arial, sans-serif" font-size="11" fill="#15803d">✓ Notebooks</text>
+  
+  <!-- 行5: 用户认证管理 -->
+  <rect x="100" y="330" width="1000" height="40" fill="#fafafa" stroke="#e2e8f0" stroke-width="0.5"/>
+  <text x="110" y="355" font-family="Arial, sans-serif" font-size="13" fill="#1e293b">用户认证管理</text>
+  <circle cx="375" cy="350" r="8" fill="#22c55e"/>
+  <text x="390" y="355" font-family="Arial, sans-serif" font-size="11" fill="#15803d">✓ 完整</text>
+  <circle cx="525" cy="350" r="8" fill="#22c55e"/>
+  <text x="540" y="355" font-family="Arial, sans-serif" font-size="11" fill="#15803d">✓ RBAC</text>
+  <circle cx="675" cy="350" r="8" fill="#f59e0b"/>
+  <text x="690" y="355" font-family="Arial, sans-serif" font-size="11" fill="#d97706">△ 基础</text>
+  <circle cx="825" cy="350" r="8" fill="#22c55e"/>
+  <text x="840" y="355" font-family="Arial, sans-serif" font-size="11" fill="#15803d">✓ Google</text>
+  <circle cx="975" cy="350" r="8" fill="#22c55e"/>
+  <text x="990" y="355" font-family="Arial, sans-serif" font-size="11" fill="#15803d">✓ Google</text>
+  
+  <!-- 行6: 项目管理 -->
+  <rect x="100" y="370" width="1000" height="40" fill="white" stroke="#e2e8f0" stroke-width="0.5"/>
+  <text x="110" y="395" font-family="Arial, sans-serif" font-size="13" fill="#1e293b">项目管理</text>
+  <circle cx="375" cy="390" r="8" fill="#22c55e"/>
+  <text x="390" y="395" font-family="Arial, sans-serif" font-size="11" fill="#15803d">✓ 完整</text>
+  <circle cx="525" cy="390" r="8" fill="#22c55e"/>
+  <text x="540" y="395" font-family="Arial, sans-serif" font-size="11" fill="#15803d">✓ 管道</text>
+  <circle cx="675" cy="390" r="8" fill="#22c55e"/>
+  <text x="690" y="395" font-family="Arial, sans-serif" font-size="11" fill="#15803d">✓ 实验</text>
+  <circle cx="825" cy="390" r="8" fill="#f59e0b"/>
+  <text x="840" y="395" font-family="Arial, sans-serif" font-size="11" fill="#d97706">△ 竞赛</text>
+  <circle cx="975" cy="390" r="8" fill="#f59e0b"/>
+  <text x="990" y="395" font-family="Arial, sans-serif" font-size="11" fill="#d97706">△ 基础</text>
+  
+  <!-- 行7: 版本控制 -->
+  <rect x="100" y="410" width="1000" height="40" fill="#fafafa" stroke="#e2e8f0" stroke-width="0.5"/>
+  <text x="110" y="435" font-family="Arial, sans-serif" font-size="13" fill="#1e293b">版本控制追踪</text>
+  <circle cx="375" cy="430" r="8" fill="#22c55e"/>
+  <text x="390" y="435" font-family="Arial, sans-serif" font-size="11" fill="#15803d">✓ 集成Git</text>
+  <circle cx="525" cy="430" r="8" fill="#f59e0b"/>
+  <text x="540" y="435" font-family="Arial, sans-serif" font-size="11" fill="#d97706">△ 有限</text>
+  <circle cx="675" cy="430" r="8" fill="#22c55e"/>
+  <text x="690" y="435" font-family="Arial, sans-serif" font-size="11" fill="#15803d">✓ 核心功能</text>
+  <circle cx="825" cy="430" r="8" fill="#22c55e"/>
+  <text x="840" y="435" font-family="Arial, sans-serif" font-size="11" fill="#15803d">✓ Git集成</text>
+  <circle cx="975" cy="430" r="8" fill="#22c55e"/>
+  <text x="990" y="435" font-family="Arial, sans-serif" font-size="11" fill="#15803d">✓ Git集成</text>
+  
+  <!-- 行8: 学习曲线 -->
+  <rect x="100" y="450" width="1000" height="40" fill="white" stroke="#e2e8f0" stroke-width="0.5"/>
+  <text x="110" y="475" font-family="Arial, sans-serif" font-size="13" fill="#1e293b">学习曲线</text>
+  <circle cx="375" cy="470" r="8" fill="#22c55e"/>
+  <text x="390" y="475" font-family="Arial, sans-serif" font-size="11" fill="#15803d">✓ 低门槛</text>
+  <circle cx="525" cy="470" r="8" fill="#ef4444"/>
+  <text x="540" y="475" font-family="Arial, sans-serif" font-size="11" fill="#dc2626">✗ 复杂</text>
+  <circle cx="675" cy="470" r="8" fill="#f59e0b"/>
+  <text x="690" y="475" font-family="Arial, sans-serif" font-size="11" fill="#d97706">△ 中等</text>
+  <circle cx="825" cy="470" r="8" fill="#22c55e"/>
+  <text x="840" y="475" font-family="Arial, sans-serif" font-size="11" fill="#15803d">✓ 友好</text>
+  <circle cx="975" cy="470" r="8" fill="#22c55e"/>
+  <text x="990" y="475" font-family="Arial, sans-serif" font-size="11" fill="#15803d">✓ 简单</text>
+  
+  <!-- 行9: 企业级支持 -->
+  <rect x="100" y="490" width="1000" height="40" fill="#fafafa" stroke="#e2e8f0" stroke-width="0.5"/>
+  <text x="110" y="515" font-family="Arial, sans-serif" font-size="13" fill="#1e293b">企业级支持</text>
+  <circle cx="375" cy="510" r="8" fill="#22c55e"/>
+  <text x="390" y="515" font-family="Arial, sans-serif" font-size="11" fill="#15803d">✓ 可扩展</text>
+  <circle cx="525" cy="510" r="8" fill="#22c55e"/>
+  <text x="540" y="515" font-family="Arial, sans-serif" font-size="11" fill="#15803d">✓ 企业级</text>
+  <circle cx="675" cy="510" r="8" fill="#f59e0b"/>
+  <text x="690" y="515" font-family="Arial, sans-serif" font-size="11" fill="#d97706">△ 中等</text>
+  <circle cx="825" cy="510" r="8" fill="#f59e0b"/>
+  <text x="840" y="515" font-family="Arial, sans-serif" font-size="11" fill="#d97706">△ 有限</text>
+  <circle cx="975" cy="510" r="8" fill="#22c55e"/>
+  <text x="990" y="515" font-family="Arial, sans-serif" font-size="11" fill="#15803d">✓ 企业版</text>
+  
+  <!-- 行10: 成本 -->
+  <rect x="100" y="530" width="1000" height="40" fill="white" stroke="#e2e8f0" stroke-width="0.5"/>
+  <text x="110" y="555" font-family="Arial, sans-serif" font-size="13" fill="#1e293b">部署成本</text>
+  <circle cx="375" cy="550" r="8" fill="#22c55e"/>
+  <text x="390" y="555" font-family="Arial, sans-serif" font-size="11" fill="#15803d">✓ 免费</text>
+  <circle cx="525" cy="550" r="8" fill="#f59e0b"/>
+  <text x="540" y="555" font-family="Arial, sans-serif" font-size="11" fill="#d97706">△ 资源密集</text>
+  <circle cx="675" cy="550" r="8" fill="#22c55e"/>
+  <text x="690" y="555" font-family="Arial, sans-serif" font-size="11" fill="#15803d">✓ 免费</text>
+  <circle cx="825" cy="550" r="8" fill="#22c55e"/>
+  <text x="840" y="555" font-family="Arial, sans-serif" font-size="11" fill="#15803d">✓ 免费</text>
+  <circle cx="975" cy="550" r="8" fill="#f59e0b"/>
+  <text x="990" y="555" font-family="Arial, sans-serif" font-size="11" fill="#d97706">△ 限制使用</text>
+  
+  <!-- MLRide优势特色框 -->
+  <rect x="120" y="590" width="960" height="120" rx="8" fill="#f0f9ff" stroke="#3b82f6" stroke-width="2"/>
+  <text x="140" y="615" font-family="Arial, sans-serif" font-size="16" font-weight="bold" fill="#1e40af">MLRide 平台优势</text>
+  
+  <!-- 优势列表 -->
+  <g>
+    <circle cx="150" cy="640" r="3" fill="#22c55e"/>
+    <text x="165" y="645" font-family="Arial, sans-serif" font-size="12" fill="#1e293b">
+      <tspan font-weight="bold">低代码/无代码:</tspan> 独有的可视化拖拽编程界面，降低技术门槛
+    </text>
+  </g>
+  
+  <g>
+    <circle cx="150" cy="660" r="3" fill="#22c55e"/>
+    <text x="165" y="665" font-family="Arial, sans-serif" font-size="12" fill="#1e293b">
+      <tspan font-weight="bold">一站式解决方案:</tspan> 集成容器化环境、在线编程、版本控制于一体
+    </text>
+  </g>
+  
+  <g>
+    <circle cx="150" cy="680" r="3" fill="#22c55e"/>
+    <text x="165" y="685" font-family="Arial, sans-serif" font-size="12" fill="#1e293b">
+      <tspan font-weight="bold">开源自主可控:</tspan> 完全开源，支持私有化部署，数据安全可控
+    </text>
+  </g>
+  
+  <g>
+    <circle cx="600" cy="640" r="3" fill="#22c55e"/>
+    <text x="615" y="645" font-family="Arial, sans-serif" font-size="12" fill="#1e293b">
+      <tspan font-weight="bold">简化工作流:</tspan> 统一平台避免工具链分散，提升开发效率
+    </text>
+  </g>
+  
+  <g>
+    <circle cx="600" cy="660" r="3" fill="#22c55e"/>
+    <text x="615" y="665" font-family="Arial, sans-serif" font-size="12" fill="#1e293b">
+      <tspan font-weight="bold">轻量级架构:</tspan> 相比Kubeflow更轻量，部署和维护成本更低
+    </text>
+  </g>
+  
+  <g>
+    <circle cx="600" cy="680" r="3" fill="#22c55e"/>
+    <text x="615" y="685" font-family="Arial, sans-serif" font-size="12" fill="#1e293b">
+      <tspan font-weight="bold">企业友好:</tspan> 支持私有化部署，满足企业数据安全和合规要求
+    </text>
+  </g>
+  
+  <!-- 底部说明 -->
+  <text x="600" y="770" text-anchor="middle" font-family="Arial, sans-serif" font-size="11" fill="#64748b">
+    ✓ 支持  △ 部分支持  ✗ 不支持  |  数据来源：各平台官方文档及公开资料
+  </text>
+</svg> 

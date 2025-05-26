@@ -1485,3 +1485,120 @@ def _preview_txt(file_path):
 *   定期使用像 Pylance 这样的 linter 工具来捕获缩进和其他代码风格问题。
 
 修复缩进错误是 Python 开发中的一个基本步骤，确保代码不仅能运行，而且清晰、可靠。
+
+# 机器学习生产平台开发学习笔记
+
+## 2025-05-26 修复快照恢复问题
+
+### 问题描述
+在恢复项目快照时出现Jupyter配置文件语法错误：
+```
+SyntaxError: invalid syntax
+"P3P": "CP="ALL DSP COR PSAa PSDa OUR NOR ONL UNI COM NAV""
+```
+
+### 问题分析
+1. **语法错误根源**：P3P头配置中使用了未转义的双引号，导致Python语法错误
+2. **文件占用问题**：恢复快照时Jupyter服务仍在运行，导致文件被占用无法删除
+3. **编码问题**：配置文件使用了不同的编码格式（GBK），需要兼容处理
+
+### 解决方案
+
+#### 1. 修复Jupyter配置文件语法错误
+**位置**：`backend/jupyterapp/views.py`
+**修改**：将P3P头配置从双引号改为单引号
+```python
+# 修复前（错误）
+"P3P": "CP=\"ALL DSP COR PSAa PSDa OUR NOR ONL UNI COM NAV\""
+
+# 修复后（正确）
+"P3P": "CP='ALL DSP COR PSAa PSDa OUR NOR ONL UNI COM NAV'"
+```
+
+#### 2. 优化快照恢复逻辑
+**位置**：`backend/project/views.py`
+**改进**：
+- 在恢复前停止Jupyter服务，避免文件占用
+- 添加文件删除重试机制
+- 增强错误处理和日志记录
+
+#### 3. 创建工具函数修复现有配置文件
+**位置**：`backend/project/utils.py`
+**功能**：
+- 支持多种编码格式读取配置文件
+- 自动检测和修复P3P头语法错误
+- 批量处理工作空间中的所有配置文件
+
+#### 4. 创建Django管理命令
+**位置**：`backend/project/management/commands/fix_jupyter_configs.py`
+**用法**：
+```bash
+# 预览模式（只检查不修复）
+python manage.py fix_jupyter_configs --dry-run
+
+# 实际修复模式
+python manage.py fix_jupyter_configs
+```
+
+### 技术要点
+
+#### 1. 正则表达式修复
+使用两种模式匹配不同的语法错误：
+```python
+# 模式1: "P3P": "CP="ALL DSP COR PSAa PSDa OUR NOR ONL UNI COM NAV""
+pattern1 = r'"P3P":\s*"CP="([^"]+)""'
+replacement1 = r'"P3P": "CP=\'\1\'"'
+
+# 模式2: "P3P": "CP=\"ALL DSP COR PSAa PSDa OUR NOR ONL UNI COM NAV\""
+pattern2 = r'"P3P":\s*"CP=\\"([^"]+)\\""'
+replacement2 = r'"P3P": "CP=\'\1\'"'
+```
+
+#### 2. 多编码支持
+```python
+encoding_attempts = ['utf-8', 'gbk', 'latin-1', 'cp1252', 'iso-8859-1']
+for encoding in encoding_attempts:
+    try:
+        with open(config_file_path, 'r', encoding=encoding) as f:
+            content = f.read()
+        encoding_used = encoding
+        break
+    except UnicodeDecodeError:
+        continue
+```
+
+#### 3. 文件占用处理
+```python
+# 对于可能被占用的文件，尝试多次删除
+max_retries = 3
+for retry in range(max_retries):
+    try:
+        os.remove(item_path)
+        break
+    except PermissionError as pe:
+        if retry < max_retries - 1:
+            time.sleep(1)  # 等待后重试
+        else:
+            # 尝试重命名而不是删除
+            backup_name = f"{item_path}.backup_{int(time.time())}"
+            os.rename(item_path, backup_name)
+```
+
+### 执行结果
+- 扫描了42个项目目录
+- 成功修复了41个Jupyter配置文件
+- 解决了快照恢复时的语法错误问题
+
+### 学习收获
+1. **字符串转义的重要性**：在配置文件中使用特殊字符时要注意转义
+2. **文件编码兼容性**：处理用户文件时要考虑多种编码格式
+3. **资源管理**：在文件操作前要确保相关进程已停止
+4. **错误处理策略**：提供多种降级方案，确保系统稳定性
+5. **批量修复工具**：创建管理命令可以高效处理历史数据问题
+
+### 最佳实践
+1. **配置文件生成**：使用模板和参数化避免硬编码
+2. **进程管理**：在文件操作前确保相关进程已停止
+3. **错误恢复**：提供多种错误处理策略
+4. **向后兼容**：修复工具要能处理历史数据
+5. **日志记录**：详细记录操作过程便于调试

@@ -185,7 +185,7 @@ c.ServerApp.tornado_settings = {{
         "Pragma": "no-cache",
         "Expires": "0",
         # P3P策略
-        "P3P": "CP=\"ALL DSP COR PSAa PSDa OUR NOR ONL UNI COM NAV\""
+        "P3P": "CP='ALL DSP COR PSAa PSDa OUR NOR ONL UNI COM NAV'"
     }}
 }}
 c.ServerApp.trust_xheaders = True
@@ -504,7 +504,7 @@ c.NotebookApp.tornado_settings = {{
         "Pragma": "no-cache",
         "Expires": "0",
         # P3P策略
-        "P3P": "CP=\"ALL DSP COR PSAa PSDa OUR NOR ONL UNI COM NAV\""
+        "P3P": "CP='ALL DSP COR PSAa PSDa OUR NOR ONL UNI COM NAV'"
     }}
 }}
 """
